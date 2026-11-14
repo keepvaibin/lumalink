@@ -1,0 +1,20 @@
+var said: map<text, u64> = {}           // what the host last told, by its first word, and when
+var in_bubble: bool = false
+var last_heard: f64 = 0.0
+var coop_menu_open: bool = false
+
+fn tell_all(what: text) { link?.send_all(encode_text(what)) }
+fn host_said(word: text) -> bool { return said.get(word) != none }
+fn forget(word: text) { said.remove(word) }
+hook after GameScene::startStagePlayFirst() { said = {} }      // no word outlives its stage
+fn host_phase(kind: text) -> text? { return said_text("phase {kind}") }
+fn host_time_left() -> u32 { return said_number("comet") as u32 }
+fn any_peer_alive() -> bool { return room?.peers.values().any(fn(p: Peer) -> bool { return p.alive }) ?? false }
+fn nearest(r: Room, from: vec3, local: vec3) -> vec3 {
+    var best = local                     // the game's own answer for the local player: no hook calls its function
+    for p in r.peers.values() {
+        if p.alive, let pose = p.pose, length(pose.at - from) < length(best - from) { best = pose.at }
+    }
+    return best
+}
+fn leave(why: text) { link?.close(); link = none; room = none; save.use_set(none); screen.message(why) }

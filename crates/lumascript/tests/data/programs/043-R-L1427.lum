@@ -1,0 +1,6 @@
+// amends A.6: a scene keeps refs, not views (lumakit rule 3)
+wait cutscene.play(cutscene.Scene {
+    shots: [ cutscene.Shot.Look(at: ref(self), from_offset: vec3(0, 400, 900), frames: 120),
+             cutscene.Shot.Line(speaker: ref(self), line: text "Boss.Greeting") ]
+    letterbox: true
+})

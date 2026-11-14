@@ -1,0 +1,11 @@
+task join_room_mods(r: Room) {
+    for id in r.mods {
+        if not mods.installed(id) {
+            // P-18: a mods service that fetches a .luma, runs the validator on it, and asks the player, naming
+            // its permissions (a mod with `native` code above all), before it is installed for this room only.
+            let offer = wait mods.offer_for_session(id, from: host_address())
+            if not offer.accepted { leave(text "Coop.ModRefused"); return }
+        }
+    }
+    wait mods.use_for_session(r.mods)           // P-18: the set for one start, the player's list untouched
+}

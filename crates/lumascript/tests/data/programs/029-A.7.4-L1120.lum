@@ -1,0 +1,13 @@
+// The world does not stop for one player: while the pause menu is up, the scene still moves.
+hook after GameScene::exePauseMenu() {
+    if room != none { self.exeSceneAction() }   // written, not proven: the 1.x run shows whether the scene's
+}                                               // action may run under the pause menu (P-21)
+
+// Galaxy select and the grand stars only when the room allows cheats.
+hook before GameSceneFunction::requestShowGalaxyMap() { if let r = room, not r.cheats { skip } }
+
+on start { menu.add_pause_entry(text "Coop.Quit", fn() { leave(text "Coop.YouLeft") }) }
+
+on frame {
+    if let r = room, time.real_seconds() - last_heard > 10.0 { leave(text "Coop.TimedOut") }
+}

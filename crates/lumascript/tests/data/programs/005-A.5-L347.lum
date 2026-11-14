@@ -1,0 +1,78 @@
+use svc.net.http
+use svc.time
+use svc.input
+use kit.actor
+use kit.hud
+use kit.menu
+use kit.screen
+
+option server: text
+
+struct Hidden { id: text, stage: text, scenario: int, at: vec3, hint: text, by: text }
+
+let balloon_kind = actor.define(actor.Kind {
+    name: "LumaBalloon"
+    look: model "Balloon"
+    sensors: [actor.Sensor.Body(radius: 80.0)]
+    on_touch_player: pop
+    idle_action: "Float"
+})
+
+var hunting: Hidden? = none
+var hunt_start: u64 = 0
+var placed: ref<LiveActor>? = none
+
+on start {
+    menu.add_pause_entry(text "Balloon.Hide", hide)
+    menu.add_pause_entry(text "Balloon.Find", find)
+}
+
+fn hide() { start hide_task() }
+
+task hide_task() {
+    guard let player = MR::getPlayerPos() else { return }  // vec3?: no player, no hiding (D5.5)
+    var ground = vec3(0, 0, 0)
+    var gravity = vec3(0, -1, 0)
+    guard let me = MarioAccess::getPlayerActor() else { return }
+    MR::calcGravityVector(me, var gravity, none, none)
+    if not MR::getFirstPolyOnLineToMap(var ground, none, player, gravity * 1000.0) {
+        screen.message(text "Balloon.NoGround")
+        return
+    }
+    let hint = wait input.text(text "Balloon.AskHint", max_chars: 40) ?? ""
+    let body = json.encode(Hidden { id: "", stage: MR::getCurrentStageName(), scenario: MR::getCurrentScenarioNo(),
+                                    at: ground, hint, by: "" })
+    let reply = wait http.post("{server}/hide", body)
+    screen.message(if reply.status == 200 { text "Balloon.Hidden" } else { text "Balloon.Failed" })
+}
+
+fn find() { start find_task() }
+
+task find_task() {
+    let stage = MR::getCurrentStageName()
+    let reply = wait http.get("{server}/list?stage={net.url_escape(stage)}&scenario={MR::getCurrentScenarioNo()}")
+    guard reply.status == 200, let list = json.decode<list<Hidden>>(reply.body), list.len() > 0 else {
+        screen.message(text "Balloon.NoneHere")
+        return
+    }
+    let choice = wait screen.choose(text "Balloon.Pick", list.map(fn(h: Hidden) -> text { return h.hint }))
+    guard let i = choice else { return }
+    hunting = list[i]
+    placed = ref(balloon_kind.spawn(at: list[i].at))       // a mod's actor made mid-stage (idea 194's check)
+    hunt_start = time.frame()
+    hud.timer(hud.Corner.TopRight).follow(fn() -> u64 { return time.frame() - hunt_start })
+}
+
+fn pop(b: LiveActor) {
+    guard let h = hunting else { return }
+    let frames = time.frame() - hunt_start
+    MR::emitEffect(b, "Pop")                               // the balloon model's own effect, by name
+    b.kill()
+    hunting = none
+    start report(h.id, frames as u32)
+}
+
+task report(id: text, frames: u32) {
+    let reply = wait http.post("{server}/found", json.encode({ "id": id, "frames": frames }))
+    if reply.status != 200 { log "balloon: {reply.status}" }
+}

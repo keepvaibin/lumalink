@@ -1,0 +1,3 @@
+hook after GameScene::start() {                          // a file is loaded and a stage has begun
+    MR::onGameEventFlagEnableToSpinAndStarPointer()
+}

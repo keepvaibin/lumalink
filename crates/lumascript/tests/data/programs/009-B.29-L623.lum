@@ -1,0 +1,16 @@
+use kit.area
+
+// A new area kind, placed in stages like the game's own areas; inside it the player swims, and burns slowly.
+let lava = area.define(area.Kind { name: "LumaLavaSwimArea", shape_from_placement: true })
+
+hook after MR::isInWater(at: vec3) -> inside {          // the game asks this to decide swimming
+    if not inside and lava.contains(at) { result = true }
+}
+
+var burn = 0
+on frame {
+    if MR::isPlayerSwimming(), let at = MR::getPlayerPos(), lava.contains(at) {
+        burn += 1
+        if burn % 120 == 0 { MarioAccess::getPlayerActor()?.decLife(1) }
+    } else { burn = 0 }
+}

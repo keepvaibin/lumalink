@@ -1,0 +1,13 @@
+use kit.player.character
+use kit.camera
+use svc.draw
+use svc.input
+
+// The second player is a second instance of the game's own player, updated with the player globals switched
+// around it (the sm64coopdx method, idea 195); kit.player.character gives that instance and its pad.
+let second = character.second_player(character.Second { look: model "LuigiCoop", pad: input.pad(2) })
+let view = draw.view(draw.View {                         // draw.view (DECISIONS 3)
+    camera: camera.follow(second.view(), distance: 1200.0)
+    region: draw.Region { x: 0.5, y: 0.0, w: 0.5, h: 1.0 }  // right half
+})
+on start { draw.set_main_region(draw.Region { x: 0.0, y: 0.0, w: 0.5, h: 1.0 }) }

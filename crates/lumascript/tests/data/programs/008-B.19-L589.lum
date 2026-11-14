@@ -1,0 +1,29 @@
+use kit.player.form
+use kit.projectile
+use svc.input
+
+let breath = form.define(form.Form {
+    id: "ice-breath"
+    look: model "IceMario"
+    item: none                                   // given by the mod's own flower, placed like any item
+    on_action: input.Action.Attack               // B, or the key bound in the controls menu
+    on_act: blow
+    timer_frames: 1200
+})
+
+fn blow(player: MarioActor) {
+    var front = vec3(0, 0, 0)
+    MR::getPlayerFrontVec(var front)
+    for i in 0..5 {                              // a cone: five short-lived puffs
+        let side = cross(front, player.mGravity) * ((i - 2) as f32 * 0.15)
+        projectile.throw(projectile.Shot {
+            look: none, trail: effect "IceBreath"
+            from: player.mPosition + front * 60.0, velocity: (front + side) * 18.0
+            life_frames: 25, bounces: 0
+            on_hit: fn(h: projectile.Hit) -> projectile.Then {
+                MR::sendMsgEnemyAttackFreeze(h.sensor, h.target)   // the game's own freeze message
+                return projectile.Then.Burst
+            }
+        })
+    }
+}

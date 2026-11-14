@@ -1,0 +1,14 @@
+// One hook per phase step; the host tells its phase, a guest whose boss is in another phase is set to the host's.
+hook after DinoPackunVs1::exeBattleLv2() { phase(self, "DinoPackunVs1", "BattleLv2") }
+hook after BossKameckVs1::exeBattleLv2() { phase(self, "BossKameckVs1", "BattleLv2") }
+hook after PoltaActionSequencer::exeBattleLv2() { phase(self, "PoltaActionSequencer", "BattleLv2") }
+hook after BossStinkBugActionSequencer::exeFlyHigh() { phase(self, "BossStinkBugActionSequencer", "FlyHigh") }
+// ... the same for each exe the four classes have 9, 6, 6 and 9 (of their 12, 12, 13 and 15 rows)
+
+fn phase(boss: NerveExecutor, kind: text, step: text) {
+    guard let r = room else { return }
+    if r.host { tell_all("phase {kind} {step}") }
+    else if let want = host_phase(kind), want != step {
+        boss.setNerve(step_nerve(kind, want))      // P-14: nerves by name; only `const Nerve *` addresses exist
+    }
+}

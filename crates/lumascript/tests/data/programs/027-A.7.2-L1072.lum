@@ -1,0 +1,22 @@
+// The co-op menu instead of the file selector's title step, as nebula-coop does.
+hook before FileSelector::exeTitle() {
+    if room == none and coop_menu_open {
+        skip                                       // the file selector waits while the co-op screens run
+    }
+}
+
+fn open_coop_menu() {
+    screen.choose(screen.Choice {
+        title: text "Coop.Title"
+        rows: [text "Coop.Host", text "Coop.Join", text "Coop.Character", text "Coop.Back"]
+        on_choose: fn(i: int) { match i { 0 => host(), 1 => join(), 2 => pick_character(), else => {} } }
+    })
+}
+
+// Each room plays on its own save set, kept apart from the player's own files.
+fn use_room_saves(id: text) { save.use_set("coop/{id}") }     // P-17: svc.save has no save sets
+
+// The character a player chose; the game's one question about it.
+hook after MR::isPlayerLuigi() -> luigi {
+    if let r = room { result = (r.peers.get(r.me)?.character ?? "") == "luigi" }
+}

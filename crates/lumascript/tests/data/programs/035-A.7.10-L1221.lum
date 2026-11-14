@@ -1,0 +1,9 @@
+hook before MR::isPlayerDead() -> bool {
+    if let r = room, in_bubble { skip false }    // a player waiting in a bubble is not dead to the game
+}
+hook before MarioActor::forceKill(how) {
+    if let r = room, any_peer_alive() { enter_bubble(); skip }
+}
+hook after MarioActor::receiveMsgPush(from, to) -> taken {
+    if room != none and is_peer_sensor(from) { knockback(from) }
+}

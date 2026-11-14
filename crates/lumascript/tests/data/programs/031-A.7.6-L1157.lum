@@ -1,0 +1,6 @@
+// The host sends the shared world once a frame after the scene has moved; a guest applies what it receives.
+hook after GameScene::update() {
+    guard let r = room, let l = link else { return }
+    if r.host { l.send_all(world_snapshot()) }
+    for packet in l.received() { apply(packet) }
+}

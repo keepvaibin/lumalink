@@ -1,0 +1,45 @@
+use svc.net.websocket
+use svc.save
+use svc.time
+
+option server: text           // "wss://archipelago.gg:38281"
+option slot: text
+
+var ws: websocket.Socket? = none
+var checked: set<text> = {}
+
+on start { start connect() }
+
+task connect() {
+    ws = wait websocket.open(server)
+    ws?.send_text(json.encode([{ "cmd": "Connect", "game": "Super Mario Galaxy", "name": slot,
+                                  "items_handling": 7, "version": { "major": 0, "minor": 5, "build": 0,
+                                  "class": "Version" }, "tags": [], "uuid": "", "password": "" }]))
+}
+
+on websocket.received_text(s, msg) {
+    guard let packets = json.decode<list<map<text, json.Value>>>(msg) else { log "AP: unreadable"; return }
+    for p in packets {
+        if p.get("cmd")?.text() == "ReceivedItems" {
+            for item in p.get("items")?.list() ?? [] { grant(item.get("item")?.int() ?? 0) }
+        }
+    }
+}
+
+hook before GameSceneFunction::requestPowerStarGetDemo() {
+    let id = "{MR::getCurrentStageName()}/{MR::getCurrentScenarioNo()}"
+    if checked.add(id) {
+        ws?.send_text(json.encode([{ "cmd": "LocationChecks", "locations": [location_id(id)] }]))
+    }
+}
+
+fn grant(item: int) {
+    match item {
+        1 => MR::incPlayerLeft()                                  // a 1-up
+        2 => MR::incPlayerLife(1)
+        3 => GameDataFunction::addStockedStarPiece(50)
+        else => log "AP: item {item} has no grant yet"
+    }
+}
+
+fn location_id(star: text) -> int { return hash32(star) as int }   // the APWorld's table in the real mod

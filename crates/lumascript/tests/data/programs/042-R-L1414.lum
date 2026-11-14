@@ -1,0 +1,10 @@
+// amends A.2: a list's on_choose takes the row's index
+use kit.screen
+fn open_viewer() {
+    let files = fs.list("runs", recursive: true)
+    screen.list(screen.List {
+        title: text "Replays.Title"
+        rows: files
+        on_choose: fn(i: int) { play_back(files[i]) }
+    })
+}

@@ -1,0 +1,7 @@
+use svc.input
+on frame {
+    guard let p = MarioAccess::getPlayerActor() else { return }
+    if input.held(input.Pad.A) and not MR::isOnGroundPlayer() {
+        p.mVelocity = p.mGravity * -12.0          // straight up, against this place's gravity
+    }
+}

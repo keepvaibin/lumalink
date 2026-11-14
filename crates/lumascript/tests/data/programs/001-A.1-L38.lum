@@ -1,0 +1,67 @@
+use kit.player.form
+use kit.item
+use kit.projectile
+use svc.draw
+
+option balls_at_once: int
+option flash_frames: int
+
+let BALL_SPEED = 35.0          // game units per frame
+let BALL_LIFE = 180            // frames
+
+pub let gold = form.define(form.Form {
+    id: "gold"
+    look: model "GoldMario"                  // bound to Mario's skeleton (LumaLink add character)
+    aura: effect "GoldAura"                  // kept on the player while the form lasts
+    ends_on_damage: true
+    on_spin: throw_ball
+})
+
+let flower = item.define(item.Item {
+    id: "GoldFlower"                         // placeable in a stage by this name, and given by code
+    look: model "GoldFlower"
+    shine: effect "GoldFlowerShine"
+    sound_get: sound "GetGold"
+    gives: item.Gives.Form(gold)
+})
+
+var balls: list<ref<LiveActor>> = []
+
+fn throw_ball(player: MarioActor) {
+    balls = balls.filter(fn(b: ref<LiveActor>) -> bool { return b.get() != none })
+    if balls.len() >= balls_at_once { return }
+    var front = vec3(0, 0, 0)
+    MR::getPlayerFrontVec(var front)
+    let up = player.mGravity * -1.0
+    let ball = projectile.throw(projectile.Shot {
+        look: model "GoldBall"
+        from: player.mPosition + front * 80.0 + up * 60.0
+        velocity: front * BALL_SPEED
+        bounces: 3
+        life_frames: BALL_LIFE
+        trail: effect "GoldBallTrail"
+        burst: effect "GoldBallBurst"
+        sound_throw: sound "ThrowGold"
+        on_hit: hit
+    })
+    balls.push(ball)
+}
+
+fn hit(shot: projectile.Hit) -> projectile.Then {
+    if not MR::sendMsgEnemyAttackFire(shot.sensor, shot.target) {
+        return projectile.Then.Bounce                     // a wall, or something that is not hurt by fire
+    }
+    let enemy = shot.target.mHost
+    start flash(ref(enemy))
+    MR::appearCoinPop(enemy, enemy.mPosition, 3)
+    return projectile.Then.Burst
+}
+
+task flash(e: ref<LiveActor>) {                         // draw.inst (DECISIONS 3)
+    for f in 0..flash_frames {
+        let fade = 1.0 - f as f32 / flash_frames as f32
+        if let a = e.get() { draw.tint(a, multiply: #FFFFFF, add: #FFD700 * fade) } else { stop }
+        wait 1 frames
+    }
+    if let a = e.get() { draw.untint(a) }
+}

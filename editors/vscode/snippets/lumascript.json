@@ -1,0 +1,107 @@
+{
+ "hook before": {
+  "prefix": "hookb",
+  "body": [
+   "hook before ${1:Class::function}(${2}) {",
+   "\t$0",
+   "}"
+  ],
+  "description": "Run before a game function"
+ },
+ "hook after": {
+  "prefix": "hooka",
+  "body": [
+   "hook after ${1:Class::function}(${2}) -> ${3:out} {",
+   "\t$0",
+   "}"
+  ],
+  "description": "Run after a game function, with its result"
+ },
+ "wrap": {
+  "prefix": "wrap",
+  "body": [
+   "wrap ${1:Class::function}(${2}) {",
+   "\t$0",
+   "\tproceed",
+   "}"
+  ],
+  "description": "Run around a game function"
+ },
+ "on start": {
+  "prefix": "onstart",
+  "body": [
+   "on start {",
+   "\t$0",
+   "}"
+  ],
+  "description": "When the mod starts"
+ },
+ "on frame": {
+  "prefix": "onframe",
+  "body": [
+   "on frame {",
+   "\t$0",
+   "}"
+  ],
+  "description": "Every frame"
+ },
+ "option": {
+  "prefix": "option",
+  "body": [
+   "option ${1:name}: ${2:bool}"
+  ],
+  "description": "A setting the player changes on the Mods page"
+ },
+ "class from the game": {
+  "prefix": "class",
+  "body": [
+   "class ${1:Name}: ${2:GameClass} {",
+   "\toverride fn ${3:init}(self${4}) {",
+   "\t\t$0",
+   "\t}",
+   "}"
+  ],
+  "description": "A class of the mod's own, made from one of the game's"
+ },
+ "states": {
+  "prefix": "states",
+  "body": [
+   "states ${1:Name} for ${2:Class} {",
+   "\tstart ${3:Idle}",
+   "\tstate ${3:Idle} {",
+   "\t\tenter { $0 }",
+   "\t\tupdate { }",
+   "\t}",
+   "}"
+  ],
+  "description": "A state machine for an object"
+ },
+ "task": {
+  "prefix": "task",
+  "body": [
+   "task ${1:name}(${2}) {",
+   "\t$0",
+   "\twait ${3:60} frames",
+   "}"
+  ],
+  "description": "Code that runs over several frames"
+ },
+ "test": {
+  "prefix": "test",
+  "body": [
+   "test \"${1:what it proves}\" {",
+   "\texpect ${2:condition}",
+   "}"
+  ],
+  "description": "A test of the mod"
+ },
+ "fn": {
+  "prefix": "fn",
+  "body": [
+   "fn ${1:name}(${2}) -> ${3:int} {",
+   "\t$0",
+   "}"
+  ],
+  "description": "A function"
+ }
+}

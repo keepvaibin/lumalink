@@ -1,0 +1,16 @@
+// replaces B.74
+use kit.gravity
+use svc.input
+
+let flip = input.action("FlipGravity", default: input.Pad.Two)   // listed in the controls menu
+var flipped: gravity.Override? = none
+
+on frame {
+    if input.pressed(flip) {
+        if let f = flipped { f.end(); flipped = none }
+        else {
+            guard let down = MarioAccess::getPlayerActor()?.mGravity else { return }
+            flipped = gravity.override_player(gravity.Field.Parallel { direction: down * -1.0 })
+        }
+    }
+}

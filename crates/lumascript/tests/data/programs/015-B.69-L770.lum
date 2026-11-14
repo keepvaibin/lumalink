@@ -1,0 +1,5 @@
+use svc.system
+on layers -> list<text> {                    // the kernel's layers call, before content loads (F-2)
+    let d = system.local_date()
+    return if d.month == 12 and d.day == 25 { ["xmas"] } else { [] }
+}

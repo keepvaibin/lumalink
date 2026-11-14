@@ -1,0 +1,10 @@
+hook before GameScene::stageClear() { if let r = room, not r.host { if not host_said("clear") { skip } } }
+hook after GameScene::stageClear() { forget("clear") }    // a word allows one event
+hook before GameSceneFunction::requestPowerStarGetDemo() { if let r = room, r.host { tell_all("star") } }
+hook before GameSequenceProgress::requestGalaxyMove(arg) {
+    if let r = room {
+        if r.host { tell_all("move {arg.mStageName} {arg.mScenarioNo}") }
+        else if not host_said("move") { skip }      // a guest moves only when the host does
+    }
+}
+hook after GameSequenceProgress::requestGalaxyMove(arg) { forget("move") }

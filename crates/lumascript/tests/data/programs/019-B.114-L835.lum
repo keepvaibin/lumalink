@@ -1,0 +1,10 @@
+use svc.audio
+
+hook after TalkMessageCtrl::startTalk() -> started {
+    if not started { return }
+    let id = self.getMessageID()                 // the message being shown
+    if let voice = sound_named("voice/{id}") {   // content in layers/, one file per message id (optional)
+        audio.play(voice, bus: audio.Bus.Voice)
+    }
+}
+hook after TalkMessageCtrl::endTalk() -> ended { if ended { audio.stop_bus(audio.Bus.Voice) } }

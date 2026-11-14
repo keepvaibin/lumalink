@@ -1,0 +1,5 @@
+option factor: int        // 2 by default; 1 to 3
+wrap MarioActor::decLife(amount) {
+    amount = low_bits<u16>(amount as u32 * factor as u32)  // u16 kept on purpose
+    proceed()
+}

@@ -1,0 +1,17 @@
+use svc.draw
+use svc.time
+
+struct Line { at: f32, words: text }      // seconds from the staff roll's start
+let lines: list<Line> = json.decode<list<Line>>(data "lyrics.json")!
+
+var started: f64? = none
+hook before GameScene::exeStaffRoll() { if started == none { started = time.game_seconds() } }
+
+on draw draw.Point.Overlay {             // a 2D drawing point (draw)
+    guard let s = started else { return }
+    let t = (time.game_seconds() - s) as f32
+    if let l = lines.filter(fn(l: Line) -> bool { return l.at <= t }).last() {
+        draw.text(l.words, at: vec2(0.5, 0.88), align: draw.Align.Center, font: font "Lyrics", size: 36.0,
+                  colour: #FFFFFF)
+    }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "lumascript"
+description = "LumaScript's compiler: LumaScript compiled to C"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# The game's self-description is read by the validator's one reader (names.rs): the checker's Game holds its data.
+luma-validate.workspace = true

@@ -1,0 +1,21 @@
+use kit.actor
+
+class Crumble : LiveActor {
+    var hits: int = 0
+    override fn init(iter: TableIter) {
+        initModelManagerWithAnm("Crumble", none, false)
+        actor.add_collision(self, "Crumble")     // the model's own collision, from the glTF's collision mesh
+        makeActorAppeared()
+    }
+    override fn receiveMsgPlayerAttack(msg: u32, other: HitSensor, mine: HitSensor) -> bool {
+        if not MR::isMsgPlayerSpinAttack(msg) { return false }
+        hits += 1
+        MR::startAction(self, "Crack{hits}")     // its own clips: Crack1, Crack2
+        if hits >= 3 {
+            MR::invalidateCollisionParts(self)
+            MR::emitEffect(self, "Break")
+            kill()
+        }
+        return true
+    }
+}

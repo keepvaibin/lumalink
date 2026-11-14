@@ -1,0 +1,42 @@
+[workspace]
+members = ["crates/lumalink-core", "crates/lumalink", "crates/lumalink-gui", "crates/lumascript"]
+exclude = ["nebula"]
+resolver = "2"
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+rust-version = "1.85"
+repository = "https://github.com/keepvaibin/lumalink"
+homepage = "https://github.com/keepvaibin/lumalink"
+keywords = ["nebula", "mods", "riivolution", "texture-pack", "converter"]
+
+[workspace.dependencies]
+anyhow = "1"
+# The cooker and the validator are the game's own crates (one rule, one implementation: DECISIONS, inventory I-1).
+# `nebula/` is the Nebula tree LumaLink builds with: a link to a Nebula worktree while working, a checkout of the
+# commit in `nebula.commit` for a release and in CI. It is excluded from this workspace so Cargo reads the crates
+# as members of Nebula's own.
+nebula-import = { path = "nebula/crates/nebula-import" }
+luma-validate = { path = "nebula/crates/luma-validate" }
+# LumaScript's compiler: LumaLink's own crate, no text of its own.
+lumascript = { path = "crates/lumascript" }
+miniz_oxide = "0.8"
+roxmltree = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+zip = { version = "2", default-features = false, features = ["deflate", "bzip2", "lzma"] }
+sevenz-rust2 = "0.13"
+lzma-rs = "0.3"
+crc32fast = "1"
+tempfile = "3"
+clap = { version = "4", features = ["derive", "string", "unicode"] }
+eframe = "0.31"
+rfd = "0.15"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = "symbols"

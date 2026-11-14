@@ -1,0 +1,32 @@
+[package]
+name = "lumalink-core"
+description = "Reads Super Mario Galaxy mods and converts them to Nebula's native format."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+nebula-import.workspace = true
+luma-validate.workspace = true
+lumascript.workspace = true
+miniz_oxide.workspace = true
+encoding_rs = "0.8"
+roxmltree.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+walkdir.workspace = true
+zip.workspace = true
+sevenz-rust2.workspace = true
+lzma-rs.workspace = true
+crc32fast.workspace = true
+tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# run's game started hidden when LumaLink was (jobs::start): STARTUPINFO and CreateProcessW.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+

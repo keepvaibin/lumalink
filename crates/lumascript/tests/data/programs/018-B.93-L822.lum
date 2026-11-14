@@ -1,0 +1,8 @@
+use kit.hud
+use svc.draw
+
+let map_view = draw.view(draw.View {
+    camera: draw.ViewCamera.Above(of: fn() -> vec3 { return MR::getPlayerPos() ?? vec3(0, 0, 0) }, height: 6000.0, ortho_width: 8000.0)
+    target: draw.Target.Texture(256, 256)
+})
+let panel = hud.picture(hud.Corner.BottomRight, map_view.texture(), size: vec2(200, 200))

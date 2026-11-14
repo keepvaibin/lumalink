@@ -1,0 +1,7 @@
+task host() {
+    link = net.datagrams_bind(port: coop_port as u16)       // P-13
+    let outside = wait net.stun(coop_stun)           // P-13: the address and port seen from outside
+    room = Room { host: true, peers: {}, me: 0, mods: mods.list_on().map(fn(m: mods.Mod) -> text { return m.id }),
+                  cheats: coop_cheats, rewind_ms: coop_rewind_ms as u32 }
+    screen.message(text "Coop.Hosting"(address: outside))
+}

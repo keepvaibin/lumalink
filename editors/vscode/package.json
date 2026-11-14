@@ -1,0 +1,82 @@
+{
+ "name": "lumascript",
+ "displayName": "LumaScript",
+ "description": "LumaScript for Nebula mods: errors as you type, completion, hover, go to definition, rename and formatting from LumaLink, with colours, brackets and snippets.",
+ "version": "1.0.0",
+ "publisher": "keepvaibin",
+ "license": "MIT",
+ "engines": {
+  "vscode": "^1.75.0"
+ },
+ "categories": [
+  "Programming Languages",
+  "Linters",
+  "Formatters",
+  "Snippets"
+ ],
+ "main": "./extension.js",
+ "activationEvents": [
+  "onLanguage:lumascript",
+  "workspaceContains:**/luma.json"
+ ],
+ "contributes": {
+  "configuration": {
+   "title": "LumaScript",
+   "properties": {
+    "lumascript.lumalink": {
+     "type": "string",
+     "default": "lumalink",
+     "markdownDescription": "LumaLink's program. `lumalink` when it is on the PATH (LumaLink's setup offers that); otherwise its full path."
+    },
+    "lumascript.names": {
+     "type": "string",
+     "default": "",
+     "markdownDescription": "The game's self-description folder (the `luma` folder beside Nebula's program). Empty: the installed game's."
+    },
+    "lumascript.sdk": {
+     "type": "string",
+     "default": "",
+     "markdownDescription": "The folder with the game's `luma.h`, for the services' functions. Empty: `LUMA_INCLUDE`, then the self-description folder's `sdk`."
+    }
+   }
+  },
+  "commands": [
+   {
+    "command": "lumascript.restart",
+    "title": "LumaScript: Restart the language server"
+   }
+  ],
+  "languages": [
+   {
+    "id": "lumascript",
+    "aliases": [
+     "LumaScript",
+     "lumascript"
+    ],
+    "extensions": [
+     ".lum"
+    ],
+    "configuration": "./language-configuration.json"
+   }
+  ],
+  "grammars": [
+   {
+    "language": "lumascript",
+    "scopeName": "source.lumascript",
+    "path": "./syntaxes/lumascript.tmLanguage.json"
+   }
+  ],
+  "snippets": [
+   {
+    "language": "lumascript",
+    "path": "./snippets/lumascript.json"
+   }
+  ],
+  "configurationDefaults": {
+   "[lumascript]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+   }
+  }
+ }
+}

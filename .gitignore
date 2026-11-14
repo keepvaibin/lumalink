@@ -1,0 +1,5 @@
+/target
+/.cargo/config.toml
+*.nebulamod/
+# The Nebula tree the shared crates come from (Cargo.toml).
+/nebula

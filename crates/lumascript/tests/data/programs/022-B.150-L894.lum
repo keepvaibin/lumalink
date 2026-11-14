@@ -1,0 +1,24 @@
+use svc.save.game
+use svc.net.http
+
+option server: text
+option token: text            // the player's own key on the sync server
+
+hook after GameSequenceFunction::startSaveAllUserFileSequence() { start upload() }
+
+task upload() {
+    wait until not GameSequenceFunction::isActiveSaveDataHandleSequence()
+    if not GameSequenceFunction::isSuccessSaveDataHandleSequence() { return }
+    let bytes = game.export()                          // save.game: the save files as bytes
+    let reply = wait http.put("{server}/save", bytes, headers: { "Authorization": "Bearer {token}" })
+    if reply.status != 200 { log "sync: upload {reply.status}" }
+}
+
+on start { start download() }
+
+task download() {
+    let reply = wait http.get("{server}/save", headers: { "Authorization": "Bearer {token}" })
+    if reply.status == 200 and reply.body != game.export() {
+        game.offer_import(reply.body, why: text "Sync.Newer")   // the player confirms in the game's screen
+    }
+}

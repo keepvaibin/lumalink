@@ -1,0 +1,20 @@
+[package]
+name = "lumalink"
+description = "Makes, checks and packs Nebula mods (.luma)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+lumalink-core = { path = "../lumalink-core" }
+lumascript.workspace = true
+luma-validate.workspace = true
+nebula-import.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

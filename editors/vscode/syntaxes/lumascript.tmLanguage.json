@@ -1,0 +1,378 @@
+{
+ "name": "LumaScript",
+ "scopeName": "source.lumascript",
+ "fileTypes": [
+  "lum"
+ ],
+ "patterns": [
+  {
+   "include": "#comments"
+  },
+  {
+   "include": "#strings"
+  },
+  {
+   "include": "#game-name"
+  },
+  {
+   "include": "#colors"
+  },
+  {
+   "include": "#numbers"
+  },
+  {
+   "include": "#hooks"
+  },
+  {
+   "include": "#declarations"
+  },
+  {
+   "include": "#content-literal"
+  },
+  {
+   "include": "#keywords"
+  },
+  {
+   "include": "#types"
+  },
+  {
+   "include": "#calls"
+  },
+  {
+   "include": "#operators"
+  }
+ ],
+ "repository": {
+  "comments": {
+   "patterns": [
+    {
+     "name": "comment.line.double-slash.lumascript",
+     "match": "//.*$"
+    },
+    {
+     "include": "#block-comment"
+    }
+   ]
+  },
+  "block-comment": {
+   "name": "comment.block.lumascript",
+   "begin": "/\\*",
+   "end": "\\*/",
+   "patterns": [
+    {
+     "include": "#block-comment"
+    }
+   ]
+  },
+  "strings": {
+   "patterns": [
+    {
+     "name": "string.quoted.double.raw.lumascript",
+     "begin": "\\br\"",
+     "end": "\""
+    },
+    {
+     "name": "string.quoted.double.bytes.lumascript",
+     "begin": "\\bb\"",
+     "end": "\"",
+     "patterns": [
+      {
+       "name": "constant.character.escape.lumascript",
+       "match": "\\\\(?:x[0-9A-Fa-f]{2}|.)"
+      }
+     ]
+    },
+    {
+     "name": "string.quoted.double.lumascript",
+     "begin": "\"",
+     "end": "\"",
+     "patterns": [
+      {
+       "name": "constant.character.escape.lumascript",
+       "match": "\\\\(?:x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\}|.)"
+      },
+      {
+       "name": "constant.character.escape.brace.lumascript",
+       "match": "\\{\\{|\\}\\}"
+      },
+      {
+       "name": "meta.interpolation.lumascript",
+       "begin": "\\{",
+       "end": "\\}",
+       "beginCaptures": {
+        "0": {
+         "name": "punctuation.section.interpolation.begin.lumascript"
+        }
+       },
+       "endCaptures": {
+        "0": {
+         "name": "punctuation.section.interpolation.end.lumascript"
+        }
+       },
+       "patterns": [
+        {
+         "include": "$self"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "game-name": {
+   "patterns": [
+    {
+     "name": "entity.name.function.game.quoted.lumascript",
+     "match": "`[^`\\r\\n]*`"
+    },
+    {
+     "name": "entity.name.function.game.lumascript",
+     "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?:::~?[A-Za-z_][A-Za-z0-9_]*)+"
+    }
+   ]
+  },
+  "colors": {
+   "name": "constant.other.color.lumascript",
+   "match": "#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6})\\b"
+  },
+  "numbers": {
+   "patterns": [
+    {
+     "name": "constant.numeric.hex.lumascript",
+     "match": "\\b0x[0-9A-Fa-f][0-9A-Fa-f_]*\\b"
+    },
+    {
+     "name": "constant.numeric.binary.lumascript",
+     "match": "\\b0b[01][01_]*\\b"
+    },
+    {
+     "name": "constant.numeric.float.lumascript",
+     "match": "\\b[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9]+)?(?:f32|f64)\\b|\\b[0-9][0-9_]*\\.[0-9][0-9_]*(?:[eE][+-]?[0-9]+)?\\b|\\b[0-9][0-9_]*[eE][+-]?[0-9]+\\b"
+    },
+    {
+     "name": "constant.numeric.integer.lumascript",
+     "match": "\\b[0-9][0-9_]*(?:i8|i16|i32|i64|u8|u16|u32|u64)?\\b"
+    }
+   ]
+  },
+  "hooks": {
+   "patterns": [
+    {
+     "match": "\\b(hook)\\s+(before|after)\\b",
+     "captures": {
+      "1": {
+       "name": "keyword.other.hook.lumascript"
+      },
+      "2": {
+       "name": "keyword.other.hook.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(every)\\s+(override)\\s+(of)\\b",
+     "captures": {
+      "1": {
+       "name": "keyword.other.hook.lumascript"
+      },
+      "2": {
+       "name": "keyword.other.hook.lumascript"
+      },
+      "3": {
+       "name": "keyword.other.hook.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(wait)\\s+(until)\\b",
+     "captures": {
+      "1": {
+       "name": "keyword.control.lumascript"
+      },
+      "2": {
+       "name": "keyword.control.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(made)\\s+(by)\\b(?=\\s+[A-Za-z_`])",
+     "captures": {
+      "1": {
+       "name": "storage.modifier.class.lumascript"
+      },
+      "2": {
+       "name": "storage.modifier.class.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\breplaces\\b(?=\\s+[A-Za-z_`])",
+     "name": "storage.modifier.class.lumascript"
+    },
+    {
+     "match": "\\b(?:frames|seconds)\\b(?=\\s*(?:$|[;})\\]]|//))",
+     "name": "keyword.other.unit.lumascript"
+    },
+    {
+     "match": "\\b(on)\\s+(start|stop|frame|load|option|stage|draw|layers)\\b",
+     "captures": {
+      "1": {
+       "name": "keyword.other.event.lumascript"
+      },
+      "2": {
+       "name": "keyword.other.event.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(state)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+     "captures": {
+      "1": {
+       "name": "storage.type.state.lumascript"
+      },
+      "2": {
+       "name": "entity.name.type.state.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(?:enter|update|exit)\\b(?=\\s*\\{)",
+     "name": "keyword.other.state.lumascript"
+    },
+    {
+     "match": "\\b(test)\\s+(game)\\b",
+     "captures": {
+      "1": {
+       "name": "storage.type.test.lumascript"
+      },
+      "2": {
+       "name": "storage.modifier.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(use)\\s+(optional|c)\\b",
+     "captures": {
+      "1": {
+       "name": "keyword.control.import.lumascript"
+      },
+      "2": {
+       "name": "storage.modifier.lumascript"
+      }
+     }
+    }
+   ]
+  },
+  "declarations": {
+   "patterns": [
+    {
+     "match": "\\b(fn|task)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+     "captures": {
+      "1": {
+       "name": "storage.type.function.lumascript"
+      },
+      "2": {
+       "name": "entity.name.function.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(struct|enum|class|states)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+     "captures": {
+      "1": {
+       "name": "storage.type.lumascript"
+      },
+      "2": {
+       "name": "entity.name.type.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(option)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+     "captures": {
+      "1": {
+       "name": "storage.type.option.lumascript"
+      },
+      "2": {
+       "name": "variable.other.option.lumascript"
+      }
+     }
+    },
+    {
+     "match": "\\b(let|var)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+     "captures": {
+      "1": {
+       "name": "storage.type.lumascript"
+      },
+      "2": {
+       "name": "variable.other.lumascript"
+      }
+     }
+    }
+   ]
+  },
+  "content-literal": {
+   "match": "\\b(?:effect|layout|model|sound|movie|nerve|text|font|data)\\b(?=\\s*\")",
+   "name": "support.function.content.lumascript"
+  },
+  "keywords": {
+   "patterns": [
+    {
+     "name": "keyword.control.lumascript",
+     "match": "\\b(?:continue|proceed|return|expect|while|break|match|defer|guard|else|wait|stop|skip|for|if|in|go)\\b"
+    },
+    {
+     "name": "storage.type.lumascript",
+     "match": "\\b(?:override|replace|struct|states|option|extern|export|class|state|enum|hook|wrap|task|test|use|pub|let|var|fn|on)\\b"
+    },
+    {
+     "name": "constant.language.lumascript",
+     "match": "\\b(?:false|true|none)\\b"
+    },
+    {
+     "name": "variable.language.lumascript",
+     "match": "\\b(?:result|self)\\b"
+    },
+    {
+     "name": "keyword.operator.word.lumascript",
+     "match": "\\b(?:and|not|as|or)\\b"
+    },
+    {
+     "name": "keyword.other.lumascript",
+     "match": "\\b(?:start|log|ref)\\b"
+    }
+   ]
+  },
+  "types": {
+   "patterns": [
+    {
+     "name": "support.type.primitive.lumascript",
+     "match": "\\b(?:pending|handle|bytes|mat34|color|bool|text|vec2|vec3|vec4|quat|list|json|int|i16|i32|i64|u16|u32|u64|f32|f64|map|set|i8|u8)\\b"
+    },
+    {
+     "name": "entity.name.type.lumascript",
+     "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    }
+   ]
+  },
+  "calls": {
+   "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+   "captures": {
+    "1": {
+     "name": "entity.name.function.call.lumascript"
+    }
+   }
+  },
+  "operators": {
+   "patterns": [
+    {
+     "name": "keyword.operator.arrow.lumascript",
+     "match": "->|=>"
+    },
+    {
+     "name": "keyword.operator.lumascript",
+     "match": "\\?\\?|\\?\\.|\\.\\.=|\\.\\.|==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%&|^<>=!?~]"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,36 @@
+use svc.net
+use svc.time
+use svc.system
+
+option port: int                  // default 16834
+option use_pipe: bool             // Windows: LiveSplit's pipe instead of TCP
+
+var link: net.Stream? = none
+var running = false
+
+on start { connect() }
+
+fn connect() {
+    link = if use_pipe and system.platform() == system.Platform.Windows {
+        net.pipe_open("LiveSplit")                      // net.ipc (DECISIONS 3)
+    } else {
+        net.tcp_connect("127.0.0.1", port as u16)
+    }
+}
+
+on net.closed(s, why) {
+    if same(s, link) { link = none; log "LiveSplit link closed: {why}; retrying in 5 s"; start retry() }
+}
+task retry() { wait 5 seconds; connect() }
+
+fn say(line: text) { link?.send("{line}\r\n".bytes()) }
+
+hook after GameScene::startStagePlayFirst() {
+    if not running { say("starttimer"); running = true }
+}
+on time.loading_started { if running { say("pausegametime") } }
+on time.loading_ended { if running { say("unpausegametime") } }
+hook before GameSceneFunction::requestPowerStarGetDemo() { if running { say("split") } }
+hook before GameSceneFunction::requestGrandStarGetDemo() { if running { say("split") } }
+hook before GameSceneFunction::requestStaffRoll() { if running { say("split"); running = false } }
+on option port { link?.close(); connect() }

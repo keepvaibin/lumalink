@@ -1,0 +1,11 @@
+fn pose_peer(p: Peer, pose: replay.Pose) {
+    let puppet = p.puppet ?? replay.puppet(if p.character == "luigi" { model "Luigi" } else { model "Mario" })
+    puppet.set_pose(pose)                       // P-19: one pose, not only a track's frame
+    p.puppet = puppet
+}
+
+on frame {
+    guard let r = room, let l = link else { return }
+    guard let mine = replay.current_pose(replay.What.Player) else { return }   // P-19; none with no player
+    l.send_all(encode_pose(r.me, mine))
+}

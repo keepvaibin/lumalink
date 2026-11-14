@@ -1,0 +1,109 @@
+use kit.stage
+use kit.actor
+use kit.cutscene
+use kit.hud
+use svc.audio
+
+let galaxy = stage.define_galaxy(stage.Galaxy {
+    name: "LumaNebulaGalaxy"                  // the stage folder in layers/
+    title: text "Galaxy.Name"
+    dome: stage.Dome.Kitchen                  // which observatory dome lists it
+    unlock: stage.Unlock.Stars(20)
+    stars: [ stage.Star { scenario: 1, title: text "Star1" },
+             stage.Star { scenario: 2, title: text "Star2", comet: none } ]
+    music: sound "NebulaTheme"                // a stream (OGG) in layers/
+})
+
+// The enemy: a spiked orb that rolls toward the player and is defeated by a spin or a stomp.
+class Spikeroll : LiveActor {
+    var speed: f32 = 0.0
+    override fn init(iter: TableIter) {
+        initModelManagerWithAnm("Spikeroll", none, false)  // the mod's model, placed by name in the stage JSON
+        actor.add_body(self, radius: 90.0)                   // kit.actor: sensor + binder + shadow in one call
+        makeActorAppeared()
+    }
+    override fn attackSensor(mine: HitSensor, other: HitSensor) {
+        if MR::isSensorPlayer(other) { MR::sendMsgEnemyAttack(other, mine) }
+    }
+    override fn receiveMsgPlayerAttack(msg: u32, other: HitSensor, mine: HitSensor) -> bool {
+        if MR::isMsgPlayerSpinAttack(msg) or MR::isMsgPlayerHipDrop(msg) {
+            MR::emitEffect(self, "Burst")
+            MR::appearCoinPop(self, self.mPosition, 2)
+            kill()
+            return true
+        }
+        return false
+    }
+}
+
+states Rolling for Spikeroll {
+    state Wait { update { if MR::isNearPlayer(self, 1200.0) { go Chase } } }
+    state Chase {
+        enter { MR::startAction(self, "Roll") }
+        update {
+            self.speed = min(self.speed + 0.2, 9.0)
+            actor.move_toward_player(self, self.speed)       // along the surface, under gravity
+            if not MR::isNearPlayer(self, 2000.0) { go Slow }
+        }
+    }
+    state Slow {
+        update { self.speed *= 0.9; actor.move_forward(self, self.speed); if self.speed < 0.1 { go Wait } }
+    }
+    start Wait
+}
+
+// The boss: three hits, a health meter, a phase change, its own music.
+class OrbKing : LiveActor {
+    var health: int = 3
+    var meter: hud.Meter? = none
+    override fn init(iter: TableIter) {
+        initModelManagerWithAnm("OrbKing", none, false)
+        actor.add_body(self, radius: 300.0)
+        makeActorAppeared()
+    }
+    override fn receiveMsgPlayerAttack(msg: u32, other: HitSensor, mine: HitSensor) -> bool {
+        if not MR::isMsgPlayerHipDrop(msg) or not is_state(OrbKingStates.Dizzy) { return false }
+        health -= 1
+        meter?.set(health)
+        go OrbKingStates.Hurt
+        return true
+    }
+}
+
+states OrbKingStates for OrbKing {
+    state Intro {
+        enter {
+            wait cutscene.play(cutscene.Scene {                 // kit.cutscene: shots, lines, a wait for the player
+                shots: [ cutscene.Shot.Look(at: self, from_offset: vec3(0, 400, 900), frames: 120),
+                         cutscene.Shot.Line(speaker: self, line: text "Boss.Greeting") ]
+                letterbox: true
+            })
+            meter = hud.meter(hud.Corner.Top, max: 3, label: text "Boss.Name")
+            audio.play_music(sound "BossTheme")
+            go Attack
+        }
+    }
+    state Attack {
+        enter { MR::startAction(self, "Slam") }
+        wait 90 frames
+        actor.shockwave(self, radius: 1500.0, effect: effect "Shockwave")   // a ring the player must jump
+        go Dizzy
+    }
+    state Dizzy { enter { MR::startAction(self, "Dizzy") } wait 180 frames; go Attack }
+    state Hurt {
+        enter { MR::startAction(self, "Hurt"); MR::emitEffect(self, "Hit") }
+        wait 60 frames
+        if self.health <= 0 { go Defeated } else { go Attack }
+    }
+    state Defeated {
+        enter {
+            meter?.remove()
+            wait cutscene.play(cutscene.Scene { shots: [cutscene.Shot.Look(at: self, from_offset: vec3(0, 200, 700),
+                                                                              frames: 90)] })
+            audio.stop_music(fade_frames: 60)
+            stage.appear_star(self.mPosition, scenario: 1)
+            kill()
+        }
+    }
+    start Intro
+}

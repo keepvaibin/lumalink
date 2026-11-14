@@ -1,0 +1,6 @@
+hook before RaceManager::startRace() { if let r = room, not r.host, not host_said("race") { skip } }
+hook after RaceManager::goalRace() { forget("race"); if let r = room { tell_all("goal {r.me} {time.frame()}") } }
+hook before Syati::exeStart() { if let r = room, not r.host, not host_said("race") { skip } }
+hook after CometEventExecutorTimeLimit::getTimeLimit() -> limit {
+    if let r = room, not r.host { result = host_time_left() }
+}

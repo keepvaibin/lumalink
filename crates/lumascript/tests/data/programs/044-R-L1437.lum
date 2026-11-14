@@ -1,0 +1,10 @@
+// amends A.7.2: a list that closes when a row is chosen
+use kit.screen
+fn open_coop_menu() {
+    screen.list(screen.List {
+        title: text "Coop.Title"
+        rows: [text "Coop.Host", text "Coop.Join", text "Coop.Character", text "Coop.Back"]
+        on_choose: fn(i: int) { match i { 0 => host(), 1 => join(), 2 => pick_character(), else => {} } }
+        closes: true
+    })
+}

@@ -1,0 +1,14 @@
+on draw draw.Point.Hud {
+    guard let r = room else { return }
+    for (id, p) in r.peers {
+        guard let pose = p.pose, id != r.me else { continue }
+        var at: vec2 = vec2(0, 0)
+        if MR::calcScreenPosition(var at, pose.at + vec3(0, 180, 0)) {
+            draw.text(p.name, at, draw.Align.Center)
+        }
+    }
+}
+
+hook after CounterLayoutController::control() {          // the room's stars next to the player's own
+    if let r = room { star_line.set("{r.peers.values().sum(fn(p: Peer) -> u32 { return p.stars })}") }
+}

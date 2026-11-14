@@ -1,0 +1,24 @@
+use svc.net
+use svc.save
+use svc.time
+use svc.draw
+use svc.input
+use svc.mods
+use kit.replay
+use kit.actor
+use kit.screen
+use kit.menu
+use kit.hud
+
+let MAX: u32 = 16
+option coop_port: int
+option coop_stun: text
+option coop_cheats: bool
+option coop_rewind_ms: int
+
+struct Peer { id: u8, name: text, character: text, pose: replay.Pose?, puppet: replay.Puppet?, stars: u32, alive: bool }
+struct Room { host: bool, peers: map<u8, Peer>, me: u8, mods: list<text>, cheats: bool, rewind_ms: u32 }
+
+var room: Room? = none
+var link: net.Datagrams? = none          // P-13: svc.net has tcp, websocket and http only
+var current: ref<LiveActor>? = none      // the actor whose movement is running (2.5 below)

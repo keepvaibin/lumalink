@@ -1,0 +1,2 @@
+hook after Mario::checkDamage() -> hit { if hit { if let p = MarioAccess::getPlayerActor() { MR::tryRumblePadStrong(p, 0) } } }
+hook after Mario::doLanding() { if let p = MarioAccess::getPlayerActor() { MR::tryRumblePadWeak(p, 0) } }

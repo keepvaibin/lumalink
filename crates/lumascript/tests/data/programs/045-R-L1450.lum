@@ -1,0 +1,6 @@
+// amends B.193: all() gives refs
+use kit.actor
+on frame {
+    if film.next_frame() { tex.update(film.pixels()) }
+    for s in screen_kind.all() { if let a = s.get() { draw.swap_texture(a, material: "ScreenFace", texture: tex) } }
+}

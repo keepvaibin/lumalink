@@ -1,0 +1,3 @@
+option hide: bool
+hook before CounterLayoutController::appear() { if hide { skip } }    // every counter the HUD brings in
+hook before CoinCounter::appear() { if hide { skip } }

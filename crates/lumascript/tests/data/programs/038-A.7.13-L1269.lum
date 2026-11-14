@@ -1,0 +1,32 @@
+// The actor whose movement runs. An override that calls its base runs this wrap again inside it, so each wrap puts
+// back what it found (D-9). The player's own actor asks for itself: `none`, the local player.
+wrap every override of LiveActor::movement() {
+    let was = current
+    current = if is_mine(self) { none } else { ref(self) }
+    proceed()
+    current = was
+}
+fn is_mine(a: LiveActor) -> bool {
+    if let me = MarioAccess::getPlayerActor() { return same(a, me) }
+    return false
+}
+
+// Where the player is, chosen by meaning (D-8; g/tools/player_rows.py lists the rows with each one's reason). The
+// game asks MR::getPlayerPos (279 calls) and MR::getPlayerCenterPos (100) for every distance, nearness, facing,
+// turning and chasing question: calcDistanceToPlayer*, isNearPlayer*, isFaceToPlayer*, turnDirectionToPlayer*,
+// moveAndTurnToPlayer, isInSightConePlayer ... read through them (ActorMovementUtil.cpp). So these two are hooked
+// and nothing else: buttons, sticks, the player's animation, counters and areas stay the local player's.
+hook after MR::getPlayerPos() -> p {
+    if let r = room, let a = current?.get(), let local = p { result = nearest(r, a.mPosition, local) }   // P-20
+}
+hook after MR::getPlayerCenterPos() -> c {
+    if let r = room, let a = current?.get(), let me = MarioAccess::getPlayerActor() {
+        // A peer's centre: its place lifted as the local player's is (Pose carries no centre; exact under one gravity).
+        result = nearest(r, a.mPosition, me.mPosition) + (me.mCenterPos - me.mPosition)
+    }
+}
+// An NPC's talk range is the local player's own: the game asks it through TalkMessageCtrl.
+wrap TalkMessageCtrl::isNearPlayer(distance: f32) { let was = current; current = none; proceed(); current = was }
+wrap `TalkMessageCtrl::isNearPlayer(const TalkMessageCtrl *)` { let was = current; current = none; proceed(); current = was }
+// A message an actor sends from its movement (its attack sensor, LiveActor.cpp:137 doObjCol, to a receiveMsg*) runs
+// while `current` is the sender: a receiver asking where the player is gets the player nearest the sender.

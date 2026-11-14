@@ -1,0 +1,12 @@
+use kit.actor
+use svc.draw
+use svc.assets
+
+let screen_kind = actor.define(actor.Kind { name: "LumaScreen", look: model "Screen" })
+let film = assets.movie(movie "Trailer")                 // the mod's WebM, decoded by the game's movie player
+let tex = draw.texture(film.width(), film.height())      // a texture from pixels, updated each frame
+
+on frame {
+    if film.next_frame() { tex.update(film.pixels()) }   // whole frame; a sub-rectangle update also exists
+    for s in screen_kind.all() { draw.swap_texture(s, material: "ScreenFace", texture: tex) }   // draw.inst
+}

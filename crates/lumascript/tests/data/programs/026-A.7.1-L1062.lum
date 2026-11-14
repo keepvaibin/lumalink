@@ -1,0 +1,3 @@
+hook before MR::isStarPointerPointing2P(a, joint, z, p) -> bool { if room != none { skip false } }
+hook before MR::isPlayerPointedBy2POnTriggerButton() -> bool { if room != none { skip false } }
+hook before Manual2P::appear() { if room != none { skip } }

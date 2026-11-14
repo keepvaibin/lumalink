@@ -1,0 +1,11 @@
+// Every object the host has is named the same on every machine by its placement.
+
+hook after LiveActor::makeActorDead() {
+    if let r = room, r.host, let key = actor.placement(self) { tell_all("dead {key}") }   // placed objects only (P-15)
+}
+fn apply_dead(key: actor.PlacementKey) { if let a = actor.find_placed(key) { a.makeActorDead() } }   // P-15
+
+// The rabbits' chase is shared (nebula-coop's DemoRabbit, RunawayRabbitCollect); switches are each player's own:
+// SwitchArea and ClipFieldSwitch are not hooked.
+hook after RunawayRabbitCollect::exeActive() { if let r = room, r.host { tell_all(rabbit_state(self)) } }
+hook before DemoRabbit::exeGoal() { if let r = room, not r.host, not host_said("rabbit") { skip } }

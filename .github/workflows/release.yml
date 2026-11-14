@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+          - os: ubuntu-latest
+            name: linux-x64
+          - os: macos-latest
+            name: macos-arm64
+          - os: macos-13
+            name: macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nebula at the pinned commit
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/keepvaibin/nebula.git nebula
+          git -C nebula checkout "$(cat nebula.commit)"
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked -p lumalink
+      - name: Pack
+        shell: bash
+        run: |
+          out="lumalink-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          mkdir "$out"
+          for f in lumalink lumalink.exe; do
+            [ -f "target/release/$f" ] && cp "target/release/$f" "$out/"
+          done
+          cp README.md LICENSE nebula.commit "$out/"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a "$out.zip" "$out" >/dev/null
+          else
+            zip -qr "$out.zip" "$out"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: lumalink-*.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" lumalink-*.zip --repo "$GITHUB_REPOSITORY" --generate-notes

@@ -1,0 +1,26 @@
+use svc.draw
+
+var last: draw.Point = draw.Point.WorldBefore
+
+fn rank(p: draw.Point) -> i32 {
+    if p == draw.Point.Loading {
+        return 9
+    }
+    if p != last {
+        last = p
+    }
+    match p {
+        draw.Point.WorldBefore => return 0
+        draw.Point.WorldOpaqueAfter => return 1
+        draw.Point.WorldAfter => return 2
+        draw.Point.HudBefore => return 3
+        draw.Point.HudAfter => return 4
+        draw.Point.Loading => return 5
+        draw.Point.Present => return p as i32
+    }
+}
+
+on start {
+    let n = rank(draw.Point.HudAfter) as u32
+    let q = 3 as draw.Point
+}
