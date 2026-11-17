@@ -266,8 +266,8 @@ fn layouts_pausing() -> bool {
     return layout_pauses.contains(true)
 }
 
-// The tips shown while stages load, one each load in turn, with a picture over them; the newest caller's
-//. An empty list takes them away.
+// The tips shown while stages load, one each load in turn, with a picture over them; the newest caller's list.
+// An empty list takes them away.
 pub fn loading(t: list<text>, picture: draw.Texture? = none) {
     tips = t
     tip_owner = caller()

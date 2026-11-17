@@ -69,15 +69,21 @@ var cage_obj: list<ref<LiveActor>> = []
 // The definition the object being made is for (make runs init at once).
 var making: u32 = 0
 
-// Gives `g` to the player now: coins and star bits counted as the game counts its own, a life each, health as the
-// game's heart pickups give it, a form through kit.player.form, a mod's function with the player. Carry is counted
-// by the item that gives it (give_item, a pickup); given bare it is nothing.
+// Gives `g` to the player now: coins and star bits counted as the game counts its own, a life each (99 at most, the
+// game's most), health as the game's heart pickups give it, a form through kit.player.form, a mod's function with the
+// player. Carry is counted by the item that gives it (give_item, a pickup); given bare it is nothing.
 pub fn give(g: Gives) {
     match g {
         Gives.Coins(n) => MR::incCoin(n as i32)
         Gives.StarBits(n) => MR::addStarPiece(n as i32)
         Gives.Lives(n) => {
-            for i in 0..n {
+            // The game holds at most 99 lives (GameDataPlayerStatus cMaxPlayerLeft): past that a one-up adds
+            // nothing, and a large n would hold the frame.
+            var k = n
+            if k > 99 {
+                k = 99
+            }
+            for i in 0..k {
                 MR::incPlayerLeft()
             }
         }
