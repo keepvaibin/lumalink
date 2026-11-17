@@ -48,7 +48,8 @@ impl<'a> Gen<'a> {
             let ct = self.c_type(r)?;
             pass.push(format!("({ct}*)(uintptr_t)o"));
         }
-        let head = format!("static uint64_t {name}(uint64_t s, uint64_t a, uint64_t o, uint64_t u)");
+        // External: lm.h declares it for every module, and the first module that needs it defines it.
+        let head = format!("uint64_t {name}(uint64_t s, uint64_t a, uint64_t o, uint64_t u)");
         self.protos.push(format!("{head};"));
         let _ = writeln!(
             self.closures,

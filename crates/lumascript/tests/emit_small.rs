@@ -2297,6 +2297,45 @@ fn peek(r: input.Request) {
     .unwrap();
 }
 
+/// M-001: a function value's entry (`lm_fe_<n>`, the one another mod calls it by) is one per C type in the whole mod,
+/// defined once with external linkage: two modules making values of one type both reach it (LumaKit has many; each
+/// module is its own C file).
+#[test]
+fn a_function_value_entry_is_one_for_every_module() {
+    let text = "var kept: list<fn(i32) -> i32> = []\non start {\n    kept.push(fn(x: i32) -> i32 { return x + 1 })\n    log \"{kept.len()}\"\n}\n";
+    let (one, d) = lumascript::parse_module(text);
+    assert!(d.is_empty(), "{d:?}");
+    let (two, d) = lumascript::parse_module(text);
+    assert!(d.is_empty(), "{d:?}");
+    let sources = [Source { path: "one".into(), module: one }, Source { path: "two".into(), module: two }, lumascript::check::std_source()];
+    let game = game();
+    let files = lumascript::on_compiler_stack(|| {
+        let checked = check::check(&sources, &[], ModFacts::of_game(&game));
+        let errors: Vec<_> = checked.diags.iter().filter(|(_, d)| !lumascript::diag::is_note(d.code)).collect();
+        assert!(errors.is_empty(), "{errors:?}");
+        let out = emit::emit("small", &sources, &checked, &game).unwrap_or_else(|e| panic!("{e:?}"));
+        compiles(&out.files);
+        out.files
+    })
+    .unwrap();
+    let mut used = std::collections::BTreeSet::new();
+    for (path, c) in &files {
+        for (i, _) in c.match_indices("lm_fe_") {
+            let n: String = c[i + 6..].chars().take_while(|ch| ch.is_ascii_digit()).collect();
+            used.insert(format!("lm_fe_{n}"));
+        }
+        assert!(!c.contains("static uint64_t lm_fe_"), "an entry other modules cannot reach, in {path}:\n{c}");
+    }
+    assert!(!used.is_empty(), "no function value entry was made");
+    for name in &used {
+        let head = format!("uint64_t {name}(uint64_t s, uint64_t a, uint64_t o, uint64_t u) {{");
+        let defined: Vec<&str> = files.iter().filter(|(_, c)| c.contains(&head)).map(|(p, _)| p.as_str()).collect();
+        assert_eq!(defined.len(), 1, "{name} is defined in {defined:?}");
+    }
+    let made: Vec<&str> = files.iter().filter(|(_, c)| c.contains("lm_fe_0")).map(|(p, _)| p.as_str()).collect();
+    assert!(made.contains(&"lum/one.c") && made.contains(&"lum/two.c"), "both modules' values use the one entry: {made:?}");
+}
+
 /// `keep(value)` hands the value as json to LumaCore's keep, refused over 1 MiB; `kept<T>()` reads LumaCore's kept
 /// bytes with T's reader, none when nothing was kept, and a log line when the bytes are not a T.
 #[test]

@@ -76,7 +76,7 @@
     },
     {
       "fact": "modlog",
-      "has": {
+      "matching": {
         "mod": "k11-user",
         "file": "cb.lum"
       },
