@@ -1,0 +1,43 @@
+// K11 (docs/modding/concepts/when-a-mod-fails.md): a library that keeps its users' callbacks. At frame 5 it calls each
+// with 7: one faults, which turns only its maker off; the library goes on to the next (calls 2, sum 70 from k11-good's
+// x * 10). Its `through` calls k11deep's boom, which faults under k11-user's call: k11-user is off, and this library's
+// call was cut (`on mods.cut`). At frame 20 its own arithmetic overflows: the report is this library's, at its own
+// line, not k11-user's (the cut put its calls in progress back).
+
+use k11deep.deep
+
+var fns: list<fn(i32) -> i32> = []
+var frames = 0
+var top: i32 = 2147483600
+
+pub fn add(f: fn(i32) -> i32) {
+    fns.push(f)
+}
+
+pub fn through(x: i32) -> i32 {
+    return deep.boom(x) + 1
+}
+
+on frame {
+    frames += 1
+    if frames == 5 {
+        var sum: i32 = 0
+        var calls = 0
+        for i in 0..fns.len() {
+            let f = fns[i]
+            sum += f(7)
+            calls += 1
+        }
+        log fact "calls" calls
+        log fact "sum" sum
+    }
+    if frames == 20 {
+        log fact "overflow_next" true
+        let v = top + 100
+        log fact "overflowed" v
+    }
+}
+
+on mods.cut(name) {
+    log fact "cut" name
+}

@@ -1,0 +1,16 @@
+// K11: a callback whose C writes through a null pointer.
+use c "bad.h"
+use k11lib.cb
+
+extern c fn k11_bad(x: i32) -> i32
+
+fn faults(x: i32) -> i32 {
+    log fact "entered" true
+    let v = k11_bad(x)
+    log fact "survived" true
+    return v
+}
+
+on start {
+    cb.add(faults)
+}

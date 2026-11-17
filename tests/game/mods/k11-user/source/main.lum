@@ -1,0 +1,14 @@
+// K11: at frame 10, a call into k11lib, whose call into k11deep faults: this mod is off (it needs k11lib, which needs
+// k11deep), both libraries stay on.
+use k11lib.cb
+
+var frames = 0
+
+on frame {
+    frames += 1
+    if frames == 10 {
+        log fact "before" true
+        let v = cb.through(3)
+        log fact "after" v
+    }
+}

@@ -1,0 +1,64 @@
+{
+  "harness": 1,
+  "name": "k11-callback",
+  "about": "A library's call of another mod's function value goes through that mod's boundary (LumaCore.call_mod): k11-bad's callback faults in its C, so k11-bad is off; k11lib goes on to k11-good's callback in the same frame (calls 2, sum 70) and stays on",
+  "proves": [
+    "script.build",
+    "kernel.guard.callback",
+    "script.fn_value.other_mod"
+  ],
+  "mods": [
+    "../../mods/k11deep",
+    "../../mods/k11lib",
+    "../../mods/k11-good",
+    "../../mods/k11-bad"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "faults": [
+    {
+      "mod": "k11-bad"
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k11lib.calls",
+      "is": 2
+    },
+    {
+      "fact": "mod.k11lib.sum",
+      "is": 70
+    },
+    {
+      "fact": "mod.k11-bad.entered",
+      "is": true
+    },
+    {
+      "fact": "mod.k11-bad.survived",
+      "absent": true
+    },
+    {
+      "fact": "takeout.k11-bad",
+      "exists": true
+    },
+    {
+      "fact": "takeout.k11lib",
+      "absent": true
+    },
+    {
+      "fact": "takeout.k11-good",
+      "absent": true
+    },
+    {
+      "log": "\\[mod k11-bad\\] GUARD: its code failed \\(call from another mod: k11lib\\)"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k11-good",
+  "version": "1.0.0",
+  "name": "k11-good",
+  "summary": "k11-good (a conformance mod): gives a library a callback that returns.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "k11lib",
+      "version": ">=1.0.0"
+    }
+  ]
+}

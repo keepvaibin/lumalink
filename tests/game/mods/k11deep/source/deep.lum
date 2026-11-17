@@ -1,0 +1,14 @@
+// K11, the inner library: boom calls its C, which writes through a null pointer (a fault, not a script error).
+// Its `on mods.cut` says the export the fault cut short.
+
+use c "deep.h"
+
+extern c fn k11_crash(x: i32) -> i32
+
+pub fn boom(x: i32) -> i32 {
+    return k11_crash(x)
+}
+
+on mods.cut(name) {
+    log fact "cut" name
+}

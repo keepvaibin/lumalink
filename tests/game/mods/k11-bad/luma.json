@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k11-bad",
+  "version": "1.0.0",
+  "name": "k11-bad",
+  "summary": "k11-bad (a conformance mod): gives a library a callback whose C code faults.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "k11lib",
+      "version": ">=1.0.0"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "harness": 1,
+  "name": "k11-cut",
+  "about": "k11-user calls k11lib's through, which calls k11deep's boom, whose C faults: k11-user is off (the need walk), both libraries stay on and each is told its call was cut (on mods.cut, the export's name); later, k11lib's own overflow is reported as k11lib's at its own line, not k11-user's",
+  "proves": [
+    "script.build",
+    "kernel.guard.need_walk",
+    "kernel.guard.cut",
+    "script.on_cut"
+  ],
+  "mods": [
+    "../../mods/k11deep",
+    "../../mods/k11lib",
+    "../../mods/k11-user"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "faults": [
+    {
+      "mod": "k11-user"
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k11-user.before",
+      "is": true
+    },
+    {
+      "fact": "mod.k11-user.after",
+      "absent": true
+    },
+    {
+      "fact": "takeout.k11-user",
+      "exists": true
+    },
+    {
+      "fact": "takeout.k11lib",
+      "absent": true
+    },
+    {
+      "fact": "takeout.k11deep",
+      "absent": true
+    },
+    {
+      "fact": "mod.k11lib.cut",
+      "is": "cb.through"
+    },
+    {
+      "fact": "mod.k11deep.cut",
+      "is": "deep.boom"
+    },
+    {
+      "fact": "mod.k11lib.overflow_next",
+      "is": true
+    },
+    {
+      "fact": "mod.k11lib.overflowed",
+      "absent": true
+    },
+    {
+      "fact": "modlog",
+      "has": {
+        "mod": "k11lib",
+        "file": "cb.lum",
+        "line": 36
+      },
+      "when": "any"
+    },
+    {
+      "fact": "modlog",
+      "has": {
+        "mod": "k11-user",
+        "file": "cb.lum"
+      },
+      "absent": true
+    }
+  ]
+}

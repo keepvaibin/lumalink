@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k11deep",
+  "version": "1.0.0",
+  "name": "k11deep",
+  "summary": "k11deep (a conformance mod): a library whose C code faults.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

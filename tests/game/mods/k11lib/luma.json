@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k11lib",
+  "version": "1.0.0",
+  "name": "k11lib",
+  "summary": "k11lib (a conformance mod): a library that keeps callbacks and calls another library.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "k11deep",
+      "version": ">=1.0.0"
+    }
+  ]
+}

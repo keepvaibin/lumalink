@@ -1,0 +1,10 @@
+// K11: a callback that returns x * 10.
+use k11lib.cb
+
+fn times_ten(x: i32) -> i32 {
+    return x * 10
+}
+
+on start {
+    cb.add(times_ten)
+}

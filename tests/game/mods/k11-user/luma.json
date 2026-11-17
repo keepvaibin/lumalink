@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k11-user",
+  "version": "1.0.0",
+  "name": "k11-user",
+  "summary": "k11-user (a conformance mod): calls a library whose library faults.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "k11lib",
+      "version": ">=1.0.0"
+    }
+  ]
+}
