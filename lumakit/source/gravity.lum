@@ -1,7 +1,9 @@
 // kit.gravity: the player's gravity overridden, new gravity shapes placeable like the game's, the
 // gravity at a point.
-// The player's override: the player asks its gravity through MR::calcGravityVectorOrZero (MarioActor::updateGravityVec,
-// at its place, its centre and ahead of it); for the player the kit's field answers instead while an override holds, so
+// The player's override (player 1's, the game's own; extra players of svc.player keep the game's gravity, and an
+// override's frames are player 1's steps): the player asks its gravity through MR::calcGravityVectorOrZero
+// (MarioActor::updateGravityVec, at its place, its centre and ahead of it); for the player the kit's field answers
+// instead while an override holds, so
 // the game's own turning, jumping and camera follow it as they follow a planet's. The newest override holds;
 // ending it gives the one before, then the game's.
 // Shapes: define_shape aliases the shape's name (std alias_class) to KitGravityPlace; where a stage places that name,
@@ -190,8 +192,11 @@ hook after MR::calcGravityVectorOrZero(actor, at, gravity, info, _) -> found {
     result = length(g) > 0.0
 }
 
-// Once a frame (the player's gravity step): overrides with frames count down and end.
+// Once a frame (player 1's gravity step; an extra player's is not counted): overrides with frames count down and end.
 hook after MarioActor::updateGravityVec(reset, use_position) {
+    if self.mExtra {
+        return
+    }
     var i = overrides.len()
     while i > 0 {
         i -= 1

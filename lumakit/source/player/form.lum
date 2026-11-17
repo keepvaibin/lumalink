@@ -19,6 +19,8 @@
 // form on damage is held back otherwise), by another form given over it for good (Ended.Replaced), by end()
 // (Ended.Ended), or with its mod (Ended.ModStopped: its closures are not called).
 // The game's own forms are given like a mod's: game(GameForm) is a FormId.
+// The player is player 1, the game's own: an extra player (svc.player, kit.player.character's second_player) is
+// drawn, damaged and changes form as the game does, and none of it touches player 1's form.
 // Data: kit/player.form/<id>.json of the calling mod, read by find(): the fields but the `fn` ones,
 // content by name, physics as a map of the player's constants by name.
 
@@ -460,8 +462,12 @@ hook after MarioSubMeter::init(rIter) {
     sub_meter = ref(self)
 }
 
-// A new scene builds the player anew: what the holder puts on is put on the new player.
+// A new scene builds the player anew: what the holder puts on is put on the new player. An extra player (svc.player;
+// mExtra, as the holder does not know player 1 yet here) changes nothing of player 1's form.
 hook after MarioActor::initDrawAndModel() {
+    if self.mExtra {
+        return
+    }
     applied = 0
     look_model = none
     look_shown = false
@@ -471,13 +477,16 @@ hook after MarioActor::initDrawAndModel() {
     settle()
 }
 
-// The game's own body is not drawn while a form's look shows.
+// Player 1's own body is not drawn while a form's look shows; an extra player's is.
 hook before MarioActor::drawMarioModel() {
-    if look_shown { skip }
+    if look_shown and not self.mExtra { skip }
 }
 
-// The game takes its form away on damage: held back while a form that does not end on damage holds.
+// The game takes player 1's form away on damage: held back while a form that does not end on damage holds.
 hook before MarioActor::resetPlayerModeOnDamage() {
+    if self.mExtra {
+        return
+    }
     if let k = def_of(applied) {
         if not defs[k].ends_on_damage { skip }
     }
@@ -486,7 +495,7 @@ hook before MarioActor::resetPlayerModeOnDamage() {
 // The game changes its form itself (a pickup, its own timer, damage): the holder, a mod's form or a game form given
 // by the kit, is replaced for good when the game's form is no longer the one the holder put on.
 hook after MarioActor::setPlayerMode(mode, change) {
-    if setting or held.len() == 0 {
+    if setting or held.len() == 0 or self.mExtra {
         return
     }
     var put: u16 = 0

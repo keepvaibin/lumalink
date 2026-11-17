@@ -1,0 +1,83 @@
+// kit-extra: LumaKit with an extra player (svc.player, through kit.player.character's second_player) on
+// EggStarGalaxy. Every kit hook that runs per MarioActor acts for player 1 alone (M-045). kit-area's layer places
+// orderCube at the start + 4000 along x. Facts:
+// extra_alive      the extra player was made
+// area_enter       entering the area with player 1 (the extra player stays at the start): one enter
+// area_inside      20 frames inside: 20 inside calls, each with player 1 (40 before the fix: one per MarioActor)
+// gravity_frames   an override of 60 frames lives 60 of player 1's steps (30 before: the extra player's counted too)
+// form_kept        a mod's form on player 1, then the extra player takes a Fire Flower (its setPlayerMode): the form
+//                  still holds (before, player 1's form ended as Replaced)
+// extra_mode       the extra player's form is the Fire Flower's (2)
+use kit.area
+use kit.gravity
+use kit.player.form
+use kit.player.character as pc
+
+let home = vec3(-1264.6, -13081.3, -15332.0)
+
+var entered: i64 = 0
+var inside_calls: i64 = 0
+var inside_other: i64 = 0
+
+fn on_enter(p: MarioActor) {
+    entered += 1
+}
+
+fn on_inside(p: MarioActor) {
+    inside_calls += 1
+    if p.mExtra {
+        inside_other += 1
+    }
+}
+
+on start {
+    area.define(area.Kind { name: "order", on_enter: on_enter, on_inside: on_inside })
+}
+
+task run() {
+    wait 300 frames
+    let extra = pc.second_player(pc.Second { pad: 1 })
+    wait 30 frames
+    log fact "extra_alive" pc.second_alive(extra)
+
+    // area: player 1 in orderCube for 20 frames.
+    let order = area.find("order")!
+    entered = 0
+    MR::setPlayerPos(home + vec3(4000.0, 0.0, 0.0))
+    wait 1 frames
+    inside_calls = 0
+    inside_other = 0
+    wait 20 frames
+    log fact "area_enter" entered
+    log fact "area_inside" inside_calls
+    log fact "area_inside_extra" inside_other
+    MR::setPlayerPos(home)
+    wait 10 frames
+
+    // gravity: an override of 60 frames.
+    let o = gravity.override_player(gravity.Field.Parallel { direction: vec3(0.0, -1.0, 0.0) }, 60)
+    var lived: i64 = 0
+    while gravity.override_alive(o) and lived < 200 {
+        wait 1 frames
+        lived += 1
+    }
+    log fact "gravity_frames" lived
+
+    // form: a mod's form on player 1, then the extra player takes a Fire Flower.
+    let glow = form.define(form.Form { id: "glow" })
+    form.set(glow)
+    wait 5 frames
+    if let v = pc.second_view(extra) {
+        v.setPlayerMode(2, true)
+    }
+    wait 5 frames
+    if let v = pc.second_view(extra) {
+        log fact "extra_mode" v.mPlayerMode as i64
+    }
+    log fact "form_kept" form.is_current_form(glow)
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

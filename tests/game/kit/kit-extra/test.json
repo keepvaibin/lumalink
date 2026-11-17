@@ -1,0 +1,70 @@
+{
+  "harness": 1,
+  "name": "kit-extra",
+  "about": "LumaKit with an extra player (M-045). kit-extra on EggStarGalaxy makes a second player (kit.player.character second_player, svc.player), then: kit.area's orderCube (kit-area's layer) entered by player 1 alone gives one enter and one inside call a frame, never with the extra player; a kit.gravity override of 60 frames lives 60 frames; a mod's kit.player.form form on player 1 still holds after the extra player takes a Fire Flower. Before the fix each hook acted per MarioActor: 40 inside calls, 30 frames, the form ended.",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.area",
+    "kit.gravity",
+    "kit.player.form",
+    "kit.player.character"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-extra"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-extra.done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 3000
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-extra.extra_alive",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-extra.area_enter",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-extra.area_inside",
+      "is": 20
+    },
+    {
+      "fact": "mod.kit-extra.area_inside_extra",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-extra.gravity_frames",
+      "near": 60,
+      "within": 1
+    },
+    {
+      "fact": "mod.kit-extra.extra_mode",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-extra.form_kept",
+      "is": true
+    },
+    {
+      "fact": "guard.kit-extra",
+      "absent": true
+    },
+    {
+      "fact": "guard.lumakit",
+      "absent": true
+    }
+  ]
+}

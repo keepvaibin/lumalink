@@ -7,6 +7,7 @@
 // LumaAreaCube, LumaAreaSphere, LumaAreaCylinder), whose first argument is the kind. The objects are the game's
 // AreaObj: the placement's own form, switches and following; each joins the manager its row names, "LumaArea" (no
 // game code reads it, so no game query sees them).
+// The player is player 1, the game's own; extra players (svc.player) are not counted.
 // Once a frame, before the player moves (MarioActor::movement), each kind finds whether the player is inside one of
 // its areas: enter, then inside each frame, then leave, each once in that order. Inside, the player's walking speed
 // is the game's own resist (MR::setPlayerWalkingResist, as SnowFloor; the player's movement clears it each frame),
@@ -252,8 +253,12 @@ fn leave(i: int, mario: MarioActor?) {
     }
 }
 
-// Before the player moves (once a frame): each kind entered, kept or left, and what it does inside.
+// Before player 1 moves (once a frame): each kind entered, kept or left, and what it does inside. An extra player
+// (svc.player) is not in an area's count.
 hook before MarioActor::movement() {
+    if self.mExtra {
+        return
+    }
     // Areas of a stage gone are forgotten.
     var g = area_ref.len()
     while g > 0 {

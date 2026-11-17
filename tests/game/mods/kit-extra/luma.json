@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-extra",
+  "version": "1.0.0",
+  "name": "kit-extra",
+  "summary": "LumaKit with an extra player: kit.area, kit.gravity and kit.player.form act for player 1 alone.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}
