@@ -238,7 +238,7 @@ enum Command {
         /// The run lock. Default: LUMA_TEST_LOCK, then run.lock in the work folder.
         #[arg(long, value_name = "FILE")]
         lock: Option<PathBuf>,
-        /// d3d12 or vulkan. Default: the runner's.
+        /// d3d12, d3d11, vulkan or metal. Default: each test's own list.
         #[arg(long, value_name = "RENDERER")]
         renderer: Option<String>,
         /// Your imported game (Nebula's game.pak), the one each run plays. Default: the game.pak of the install the bin
@@ -856,6 +856,14 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
             println!("{}", say!("LumaLink.Test.Verdict", test = r.test, renderer = r.renderer, verdict = r.verdict, reason = r.reason));
             for (check, result, actual) in &r.checks {
                 println!("{}", say!("LumaLink.Test.Check", result = result, check = check, actual = actual));
+            }
+        }
+        for why in &run.unreadable {
+            println!("{why}");
+        }
+        if !run.results.is_empty() {
+            for renderer in run.missing() {
+                println!("{}", say!("LumaLink.Test.NoResultOn", test = name, renderer = renderer));
             }
         }
     };

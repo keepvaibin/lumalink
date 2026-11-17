@@ -864,12 +864,14 @@ pub struct TestSetup {
     pub half: Option<PathBuf>,
 }
 
-/// One test's run: the test folder, every result it left (one per renderer), and what the runner said when it left
-/// none (its exit code and output).
+/// One test's run: the test folder, the renderers it was asked to run on, every result it left (one per renderer),
+/// each result file that did not read (the reason, said whole), and what the runner said (its exit code and output).
 #[derive(Clone, Debug)]
 pub struct TestRun {
     pub test: PathBuf,
+    pub asked: Vec<String>,
     pub results: Vec<TestResult>,
+    pub unreadable: Vec<String>,
     pub code: i32,
     pub said: String,
 }
@@ -886,10 +888,38 @@ pub struct TestResult {
 }
 
 impl TestRun {
-    /// A test passes when it left a result for each renderer run and every verdict is `pass` (docs/modding/lumalink/test-harness.md, section 5: only pass
-    /// is proof).
+    /// A test passes when each renderer it was asked to run on left a result, every result read, and every verdict is
+    /// `pass` (docs/modding/lumalink/test-harness.md, section 5: only pass is proof).
     pub fn passed(&self) -> bool {
-        !self.results.is_empty() && self.results.iter().all(|r| r.verdict == "pass")
+        !self.asked.is_empty()
+            && self.missing().is_empty()
+            && self.unreadable.is_empty()
+            && self.results.iter().all(|r| r.verdict == "pass")
+    }
+
+    /// The renderers asked for that left no result.
+    pub fn missing(&self) -> Vec<&str> {
+        self.asked.iter().filter(|a| !self.results.iter().any(|r| &r.renderer == *a)).map(String::as_str).collect()
+    }
+}
+
+/// The renderers a test runs on, by the runner's rule (tools/lumacore/luma_test.py): the one `--renderer` names, else
+/// the test's own `renderers` list, else Direct3D 12. A list the runner would refuse is taken as written: the runner
+/// then leaves no result, and the test does not pass.
+pub fn asked_renderers(test: &Path, given: Option<&str>) -> Vec<String> {
+    if let Some(r) = given {
+        return vec![r.to_string()];
+    }
+    let listed = std::fs::read_to_string(test.join("test.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("renderers").cloned());
+    match listed {
+        None => vec!["d3d12".to_string()],
+        Some(serde_json::Value::Array(a)) if !a.is_empty() => {
+            a.iter().map(|r| r.as_str().map_or_else(|| r.to_string(), str::to_string)).collect()
+        }
+        Some(other) => vec![other.to_string()],
     }
 }
 
@@ -1113,11 +1143,17 @@ pub fn test(folder: &Path, setup: &TestSetup, build: &dyn Fn(&Path) -> Result<()
         if name != folder_name {
             result_files(&suite_runs.join(&folder_name), &mut files);
         }
+        // One result that does not read is that result's failure, not the run's: the others are still heard.
         let mut results = Vec::new();
+        let mut unreadable = Vec::new();
         for f in &files {
-            results.push(test_result(f)?);
+            match test_result(f) {
+                Ok(r) => results.push(r),
+                Err(e) => unreadable.push(format!("{e:#}")),
+            }
         }
-        let run = TestRun { test: test.clone(), results, code, said: said.clone() };
+        let asked = asked_renderers(test, setup.renderer.as_deref());
+        let run = TestRun { test: test.clone(), asked, results, unreadable, code, said: said.clone() };
         each(&run);
         runs.push(run);
     }
@@ -1250,7 +1286,7 @@ mod tests {
         assert_eq!(r.checks, vec![("fact m.x is 1".to_string(), "fail".to_string(), serde_json::json!(2))]);
         std::fs::write(&file, r#"{"test": "t"}"#).unwrap();
         assert!(test_result(&file).is_err());
-        let run = TestRun { test: m.clone(), results: vec![], code: 1, said: String::new() };
+        let run = TestRun { test: m.clone(), asked: vec!["d3d12".into()], results: vec![], unreadable: vec![], code: 1, said: String::new() };
         assert!(!run.passed(), "no result is no pass");
         // A mod with no tests is refused by name.
         let none = dir.path().join("none");
@@ -1322,6 +1358,60 @@ lock.unlink()
         assert_eq!(listed.len(), 2);
         assert!(listed[0].ends_with("m/tests/a-first") && listed[1].ends_with("m/tests/b-second"), "{listed:?}");
         assert!(std::path::Path::new(&listed[0]).is_absolute());
+    }
+
+    /// M-164: a test asked to run on two renderers that left a pass on one passes only when the other passes too, and a
+    /// result file that does not read fails that test without losing the other tests' results. The stand-in runner
+    /// writes, for test "both" (Direct3D 12 and Vulkan asked), a pass for Direct3D 12 only; for test "torn", a pass for
+    /// Direct3D 12 and an unreadable Vulkan result; for test "fine", a pass.
+    #[test]
+    fn a_test_passes_only_when_every_renderer_asked_left_a_pass() {
+        if std::process::Command::new("python").arg("--version").output().is_err() {
+            eprintln!("skipped: no python on the path to run the stand-in runner");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let m = dir.path().join("m");
+        for (t, text) in [
+            ("tests/a-both", r#"{"name": "both", "renderers": ["d3d12", "vulkan"]}"#),
+            ("tests/b-torn", r#"{"name": "torn", "renderers": ["d3d12", "vulkan"]}"#),
+            ("tests/c-fine", r#"{"name": "fine"}"#),
+        ] {
+            std::fs::create_dir_all(m.join(t)).unwrap();
+            std::fs::write(m.join(t).join("test.json"), text).unwrap();
+        }
+        std::fs::write(m.join("luma.json"), "{}").unwrap();
+        let runner = dir.path().join("runner.py");
+        std::fs::write(
+            &runner,
+            r#"import json, pathlib, sys
+a = sys.argv[1:]
+suite = pathlib.Path(a[1])
+work = pathlib.Path(a[a.index("--work") + 1])
+def put(test, renderer, text):
+    out = work / "runs" / suite.parent.name / test / renderer
+    out.mkdir(parents=True)
+    (out / "result.json").write_text(text)
+ok = lambda t, r: json.dumps({"harness": 1, "test": t, "renderer": r, "verdict": "pass", "reason": "", "checks": []})
+put("both", "d3d12", ok("both", "d3d12"))
+put("torn", "d3d12", ok("torn", "d3d12"))
+put("torn", "vulkan", "{ not json")
+put("fine", "d3d12", ok("fine", "d3d12"))
+"#,
+        )
+        .unwrap();
+        let work = dir.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: "python".into(), work, lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
+        let runs = test(&m, &setup, &|_| Ok(()), &mut |_| {}).expect("one unreadable result does not lose every result");
+        let verdict: Vec<(String, bool, usize)> =
+            runs.iter().map(|r| (r.test.file_name().unwrap().to_string_lossy().into_owned(), r.passed(), r.results.len())).collect();
+        assert_eq!(
+            verdict,
+            [("a-both".to_string(), false, 1), ("b-torn".to_string(), false, 1), ("c-fine".to_string(), true, 1)],
+            "{}",
+            runs[0].said
+        );
     }
 
     #[test]
