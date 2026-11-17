@@ -67,7 +67,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// libraries built with different layouts must never bind: every export's signature is taken over it, so the kernel
 /// refuses the bind at load (L505 Name.FunctionSig), and a mod's build refuses a needed mod whose interface file
 /// carries another (S0160). 1: every build before text rows; 2: a text block may be a row of the game's messages.
-pub const RUNTIME_LAYOUT: u32 = 2;
+pub const RUNTIME_LAYOUT: u32 = 3;
 
 /// An export's signature (item 3): `lumi1:` and the first 8 bytes of SHA-256 over `lumart<RUNTIME_LAYOUT>:` and its
 /// canonical text `<path>(<param types>)-><result type>`, in lowercase hex.
@@ -242,7 +242,7 @@ mod tests {
             hex(sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
-        assert_eq!(signature("abc"), "lumi1:d6b34f3b6257033c");
+        assert_eq!(signature("abc"), "lumi1:4da018141ba4b4a9"); // sha256("lumart3:abc"): the layout is part of it
     }
 
     #[test]

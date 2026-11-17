@@ -108,6 +108,34 @@ static inline const char* lumart_sb_c(const lumart_sb* b) {
 }
 /* Every chunk back to the mod's memory (the mod stops). */
 void lumart_scratch_free_all(void);
+
+/* ---------------------------------------------------------------- calls in progress (docs/modding/concepts/when-a-mod-fails.md, "Code cut short")
+
+   Each export wrapper, task step and entry another mod called keeps, in its own frame, what it changes of the
+   runtime's per-call state (lumart_caller, the scratch's top) and links it to the one around it. A fault in another
+   mod's code can end such a call without its return (LumaModInfo.cut): lumart_cut then puts back, from each frame
+   left below the stack pointer the kernel gives, what it had changed, the innermost first. Game thread only. */
+typedef struct lumart_as_link {
+    lumart_as was;
+    uint64_t scratch;
+    struct lumart_as_link* prev;
+} lumart_as_link;
+extern lumart_as_link* lumart_as_top;
+static inline void lumart_as_enter(lumart_as_link* l, const LumaMod* mod, const char* file, uint32_t line) {
+    l->was = lumart_caller;
+    l->scratch = lumart_scratch_mark();
+    l->prev = lumart_as_top;
+    lumart_as_top = l;
+    lumart_caller.mod = mod;
+    lumart_caller.file = file;
+    lumart_caller.line = line;
+}
+static inline void lumart_as_leave(lumart_as_link* l) {
+    lumart_caller = l->was;
+    lumart_as_top = l->prev;
+}
+/* The runtime's part of a cut: every call in progress whose frame is below `stack` ended. */
+void lumart_cut(uintptr_t stack);
 /* In the mod's finish, after luma.h's: the runtime's tables (kept functions and texts, their UTF-16 copies, the
    handle table, the task lists) and every pool page given back. */
 void lumart_end(void);
@@ -173,12 +201,17 @@ static inline void lm_cp_lumart_text(lumart_text* d, lumart_text s) {
 /* A function value (docs/modding/language/language.md, section 5.4): a counted block; `code` is its C function, `int32_t f(lumart_fn self, P..., R*)`,
    called with the block itself first. A closure's block carries its captures after this head; `drop`, the maker's
    code, gives their counts back and frees the block (`size` bytes); a closure without captures and a mod function used as a value
-   are static blocks counted LUMART_FOREVER. */
+   are static blocks counted LUMART_FOREVER. `owner`: the maker's luma_rt_self's address (which mod made it); `entry`:
+   the maker's `uint64_t entry(self, argv, out, 0)` for its type, which another mod calls it by through
+   LumaCore.call_mod (lumart_call_other), so a fault in it turns the maker off and the caller goes on
+   (docs/modding/concepts/when-a-mod-fails.md). */
 typedef struct lumart_fn_block {
     uint32_t rc;
     uint32_t size;
     void (*drop)(struct lumart_fn_block* b);
     const void* code;
+    const void* owner;
+    uint64_t (*entry)(uint64_t self, uint64_t argv, uint64_t out, uint64_t unused);
 } lumart_fn_block;
 
 typedef lumart_fn_block* lumart_fn;
@@ -201,6 +234,12 @@ static inline void lm_cp_lumart_fn(lumart_fn* d, lumart_fn s) {
     *d = s;
     lm_rel_lumart_fn(&old);
 }
+
+/* A call of another mod's function value `f` (f->owner is not this mod's): its maker's entry through
+   LumaCore.call_mod, the arguments by `argv`'s pointers, the result written to `out` (unit: null). 0: it ran; else it
+   did not run to its end (its maker's code failed and the maker is off, or was off already; or its code ended in a
+   script error, said in its maker's log): `out` holds what it had, zero as the caller made it unless written. */
+int32_t lumart_call_other(lumart_fn f, void* const* argv, void* out);
 
 /* A function value given to a service that calls it back (draw.at's fn): its count taken once, kept until the mod
    ends (the service may call it until replaced, and a call site cannot know when another replaced it). The same block

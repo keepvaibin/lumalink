@@ -381,6 +381,7 @@ pub(super) fn bodies(c: &mut Checker<'_>) {
                 ast::OnEvent::Start => ("start", Some(m)),
                 ast::OnEvent::Stop => ("stop", Some(m)),
                 ast::OnEvent::Event { .. } if on.event.is_kit_stopped() => ("mods.stopped", Some(m)),
+                ast::OnEvent::Event { .. } if on.event.is_kit_cut() => ("mods.cut", Some(m)),
                 ast::OnEvent::Load => ("load", None),
                 ast::OnEvent::Layers(_) => ("layers", None),
                 ast::OnEvent::Step(_) => ("step", None),
@@ -1826,9 +1827,10 @@ impl<'w, 'a> Walk<'w, 'a> {
                 _ => None,
             };
             let stopped = on.event.is_kit_stopped();
+            let cut = on.event.is_kit_cut();
             match service {
                 // A service's event (part f); svc.mods' STOPPED only with its record type written.
-                Some((s, kind)) if !stopped => {
+                Some((s, kind)) if !stopped && !cut => {
                     // A type written on its name is the event's record, or a mismatch.
                     if let (Some(t), Some(first)) = (ty, names.as_ref().and_then(|n| n.first())) {
                         let m = self.m;
@@ -1847,6 +1849,15 @@ impl<'w, 'a> Walk<'w, 'a> {
                     self.frame_mut().waits_ok = false;
                     for n in names.iter().flatten() {
                         let id = self.bind(n, Ty::Int(Scalar::U64), false);
+                        self.params.insert(id);
+                    }
+                }
+                // `on mods.cut(name)`: a call of this mod's code was cut short by a fault in another mod's; `name` the
+                // export it was in, or "". It runs before any other code of the mod on that thread, and waits on nothing.
+                _ if cut => {
+                    self.frame_mut().waits_ok = false;
+                    for n in names.iter().flatten() {
+                        let id = self.bind(n, Ty::Text, false);
                         self.params.insert(id);
                     }
                 }

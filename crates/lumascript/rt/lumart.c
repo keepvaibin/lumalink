@@ -99,6 +99,31 @@ static char* digits_u64(char* end, uint64_t v) {
 /* ---------------------------------------------------------------- script errors */
 
 lumart_as lumart_caller;
+lumart_as_link* lumart_as_top;
+
+void lumart_cut(uintptr_t stack) {
+    lumart_as_link* l = lumart_as_top;
+    while (l != 0 && (uintptr_t)l < stack) {
+        lumart_caller = l->was;
+        lumart_scratch_release(l->scratch);
+        l = l->prev;
+    }
+    lumart_as_top = l;
+}
+
+int32_t lumart_call_other(lumart_fn f, void* const* argv, void* out) {
+    uint64_t status = 0;
+#if defined(LUMA_CALL_MOD)
+    if (luma_rt_core != 0 && luma_rt_core->size >= offsetof(LumaCore, call_mod) + sizeof(luma_rt_core->call_mod) &&
+        luma_rt_core->call_mod != 0) {
+        const int32_t r = luma_rt_core->call_mod(luma_rt_self, (const void*)f->entry, (uint64_t)(uintptr_t)f,
+                                                 (uint64_t)(uintptr_t)argv, (uint64_t)(uintptr_t)out, 0, &status);
+        return r != 0 ? r : (int32_t)status;
+    }
+#endif
+    status = f->entry((uint64_t)(uintptr_t)f, (uint64_t)(uintptr_t)argv, (uint64_t)(uintptr_t)out, 0);
+    return (int32_t)status;
+}
 
 int32_t lumart_raise(const char* file, uint32_t line, uint32_t code, uint32_t argc, const char* const* args) {
     if (luma_rt_core == 0) return 1;
@@ -3487,13 +3512,13 @@ static void task_end(lumart_task_head* h) {
 
 /* One run of the step function; a task stopped while it ran goes on to its way out now. */
 static int32_t task_resume(lumart_task_head* h) {
-    const lumart_as was = lumart_caller;
-    lumart_caller = h->as;
+    lumart_as_link link;
+    lumart_as_enter(&link, h->as.mod, h->as.file, h->as.line);
     h->running = 1;
     int32_t r = h->run(h);
     if (r == LUMART_PARKED && h->stop) r = h->run(h);
     h->running = 0;
-    lumart_caller = was;
+    lumart_as_leave(&link);
     if (r != LUMART_PARKED) task_end(h);
     return r;
 }

@@ -63,6 +63,9 @@ pub const C_FLAGS: &[&str] = &[
     // Unwind tables (.pdata on Windows, .eh_frame on ELF, compact unwind on Mach-O): the game can walk a crash
     // through a mod's frames. -ffreestanding alone gives none.
     "-fasynchronous-unwind-tables",
+    // Frame records on every target: on Linux, Android and macOS the guard follows them from a fault through each
+    // mod's frames to name the mod a fault turns off (when-a-mod-fails.md); x86-64 Linux omits them by default.
+    "-fno-omit-frame-pointer",
 ];
 
 /// The generated files, by their path under the build's work folder.
@@ -185,6 +188,8 @@ pub fn emit_with(
         exports: Vec::new(),
         stops: Vec::new(),
         gones: Vec::new(),
+        cuts: Vec::new(),
+        fn_entries: HashMap::new(),
         inits: Vec::new(),
         globals: Vec::new(),
         typedefs: Vec::new(),
@@ -345,6 +350,10 @@ struct Gen<'a> {
     stops: Vec<String>,
     /// `on mods.stopped(m)` handlers, called by the mod's dependent_gone (docs/modding/lumalink/loader.md).
     gones: Vec<String>,
+    /// `on mods.cut(name)` handlers, called by the mod's cut after the runtime's own (lumart_cut).
+    cuts: Vec<String>,
+    /// The entry of this mod's function values per C type (closure.rs fn_entry), by the type's cast.
+    fn_entries: HashMap<String, String>,
     /// Each module's initialiser of its `let`s and `var`s, in module order.
     inits: Vec<String>,
     /// Module values, declared in `lm.h`.
@@ -961,6 +970,21 @@ impl<'a> Gen<'a> {
                         out.push_str(&fx.function(&format!("int32_t {name}(uint64_t lm_gone)"), on.at));
                         self.protos.push(format!("int32_t {name}(uint64_t lm_gone);"));
                         self.gones.push(name);
+                    }
+                    ast::OnEvent::Event { ref names, .. } if on.event.is_kit_cut() => {
+                        let name = format!("lm_on_cut_{m}_{}", self.cuts.len());
+                        let mut fx = Fx::new(&file, m);
+                        if let Some(n) = names.as_ref().and_then(|n| n.first()) {
+                            if let Some(Resolved::Local(id)) = self.checked.named.get(&(m, n.at)) {
+                                fx.places.insert(*id, "lm_cut_name".into());
+                                fx.declared.insert(*id);
+                            }
+                        }
+                        self.block(&mut fx, &on.body);
+                        self.out_defers(&mut fx);
+                        out.push_str(&fx.function(&format!("int32_t {name}(lumart_text lm_cut_name)"), on.at));
+                        self.protos.push(format!("int32_t {name}(lumart_text lm_cut_name);"));
+                        self.cuts.push(name);
                     }
                     // `on stage "<name>"` (section 10): a stage became ready. Written as `on start` is (a task when it waits),
                     // run by the frame handler on the first frame time says PLAY after a frame it said BOOT or LOADING and
@@ -1905,6 +1929,21 @@ impl<'a> Gen<'a> {
             c.push_str("}\n\n");
         }
         let gone = if gone_used { "lm_dependent_gone" } else { "0" };
+        // The mod's cut (LumaModInfo.cut, when the SDK has it): the runtime's calls in progress put back, then each
+        // `on mods.cut` with the cut export's name.
+        let cut_c = if self.game.mod_info_cut {
+            c.push_str("static void lm_cut(const LumaCut* cut) {\n    lumart_cut(cut->stack);\n");
+            for h in &self.cuts {
+                let _ = writeln!(
+                    c,
+                    "    {{\n        lumart_text n = 0;\n        if (lumart_text_from_game(&n, cut->function, \"cut\", 0u) == 0) (void){h}(n);\n        lm_rel_lumart_text(&n);\n    }}"
+                );
+            }
+            c.push_str("}\n\n");
+            ", .cut = lm_cut".to_string()
+        } else {
+            String::new()
+        };
         // The mod's finish: luma.h's (its exits and destructors), then the runtime gives back what it took
         // (lumart_end), after the game's grace, so no hook of the mod's is running.
         const LM_FINISH: &str = "static void lm_finish(void) {\n    luma_finish();\n    lumart_end();\n}\n";
@@ -1918,13 +1957,13 @@ impl<'a> Gen<'a> {
             let (list_c, count) = if table.is_empty() { ("0".to_string(), "0".to_string()) } else { ("lm_imports".to_string(), table.len().to_string()) };
             let _ = writeln!(
                 c,
-                "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish, 0, 0, {gone}{layout_c}}};"
+                "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish, 0, 0, {gone}{layout_c}{cut_c}}};"
             );
         } else if exports.is_empty() && self.layers.is_some() {
             let (list_c, count) = if table.is_empty() { ("0".to_string(), "0".to_string()) } else { ("lm_imports".to_string(), table.len().to_string()) };
             let _ = writeln!(
                 c,
-                "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish, 0, 0, {gone}, {layers_c}{layout_c}}};"
+                "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish, 0, 0, {gone}, {layers_c}{layout_c}{cut_c}}};"
             );
         } else if !exports.is_empty() {
             // A library mod (docs/modding/lumalink/loader.md): its exports sorted by name, for the kernel's binary search.
@@ -1936,7 +1975,7 @@ impl<'a> Gen<'a> {
             let (list_c, count) = if table.is_empty() { ("0".to_string(), "0".to_string()) } else { ("lm_imports".to_string(), table.len().to_string()) };
             let _ = writeln!(
                 c,
-                "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish, lm_exports, {}, {gone}{}{layout_c}}};",
+                "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish, lm_exports, {}, {gone}{}{layout_c}{cut_c}}};",
                 exports.len(),
                 if self.layers.is_some() { format!(", {layers_c}") } else { String::new() }
             );

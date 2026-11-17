@@ -6,6 +6,11 @@
 //! script function's. A closure's block carries a copy of each local of the body around it that the body reads
 //! (captured values are read, never written: 5.4), taken where the closure is made; one that reads none, and a function
 //! used as a value, is a static block counted LUMART_FOREVER. Nothing runs at run time but the C written here.
+//!
+//! A block names the mod that made it (`owner`) and an entry for its type (`entry`). A call of a value this mod made
+//! is a plain C call; a call of another mod's value goes through LumaCore.call_mod to its maker's entry
+//! (lumart_call_other), so a fault in that code turns its maker off and the caller goes on with an empty result
+//! (docs/modding/concepts/when-a-mod-fails.md, "A fault in another mod's code").
 
 use super::{c_string, counted, lost, Ex, Fx, Gen};
 use crate::ast::{self, Block, Expr};
@@ -23,6 +28,56 @@ impl<'a> Gen<'a> {
             cs.push(format!("{}*", self.c_type(r)?));
         }
         Some(format!("int32_t (*)({})", cs.join(", ")))
+    }
+
+    /// The entry another mod calls this mod's function values of type `fn(ps) -> r` by (one per C type, in this mod's
+    /// library, so the kernel finds this mod as the code's giver): `uint64_t e(self, argv, out, 0)`, each argument read
+    /// through argv's pointer, the status returned. Its code runs as this mod's own: its reports are this mod's.
+    pub(super) fn fn_entry(&mut self, ps: &[Ty], r: &Ty) -> Option<String> {
+        let cast = self.fn_cast(ps, r)?;
+        if let Some(name) = self.fn_entries.get(&cast) {
+            return Some(name.clone());
+        }
+        let name = format!("lm_fe_{}", self.fn_entries.len());
+        let mut pass = vec!["f".to_string()];
+        for (i, p) in ps.iter().enumerate() {
+            let ct = self.c_type(p)?;
+            pass.push(format!("*({ct}*)av[{i}]"));
+        }
+        if *r != Ty::Unit {
+            let ct = self.c_type(r)?;
+            pass.push(format!("({ct}*)(uintptr_t)o"));
+        }
+        let head = format!("static uint64_t {name}(uint64_t s, uint64_t a, uint64_t o, uint64_t u)");
+        self.protos.push(format!("{head};"));
+        let _ = writeln!(
+            self.closures,
+            "{head} {{\n    (void)a;\n    (void)o;\n    (void)u;\n    lumart_fn f = (lumart_fn)(uintptr_t)s;\n    void* const* av = (void* const*)(uintptr_t)a;\n    (void)av;\n    lumart_as_link lm_link;\n    lumart_as_enter(&lm_link, 0, 0, 0);\n    const int32_t st = (({cast})(f->code))({});\n    lumart_as_leave(&lm_link);\n    return (uint64_t)(uint32_t)st;\n}}\n",
+            pass.join(", ")
+        );
+        self.fn_entries.insert(cast, name.clone());
+        Some(name)
+    }
+
+    /// C that calls the function value `f` of type `fn(tys) -> r` with `args` (C expressions of the parameters' C
+    /// types) and `out` (the result's place, `&o`, or "0" for unit): `plain` is the statement for this mod's own value
+    /// (the caller's own call, with its status handling); another mod's goes through lumart_call_other, its status
+    /// dropped (a failure there is its maker's, said in its log). Lines without indentation.
+    pub(super) fn fn_value_call(&mut self, f: &str, tys: &[Ty], args: &[String], out: &str, plain: &str) -> Option<Vec<String>> {
+        let mut lines = vec![format!("if ({f}->owner == (const void*)&luma_rt_self) {{"), format!("    {plain}"), "} else {".to_string()];
+        let mut ptrs = Vec::new();
+        for (i, (t, a)) in tys.iter().zip(args).enumerate() {
+            let ct = self.c_type(t)?;
+            lines.push(format!("    {ct} lm_xa{i} = {a};"));
+            ptrs.push(format!("(void*)&lm_xa{i}"));
+        }
+        if ptrs.is_empty() {
+            ptrs.push("0".into());
+        }
+        lines.push(format!("    void* const lm_xv[] = {{{}}};", ptrs.join(", ")));
+        lines.push(format!("    (void)lumart_call_other({f}, lm_xv, (void*){out});"));
+        lines.push("}".into());
+        Some(lines)
     }
 
     /// A closure written where a value goes: its C function and, when it captures, its block's type, maker and drop,
@@ -85,10 +140,11 @@ impl<'a> Gen<'a> {
         }
         let mut code = String::new();
         self.protos.push(format!("{head};"));
+        let entry = self.fn_entry(pts, &r).ok_or_else(lost)?;
         if caps.is_empty() {
             // Declared at the module's head: the code reading it comes before the closures' code.
             self.literal_defs.push(format!("static lumart_fn_block {name}_b;"));
-            let _ = writeln!(code, "{text}static lumart_fn_block {name}_b = {{LUMART_FOREVER, 0, 0, (const void*){name}}};\n");
+            let _ = writeln!(code, "{text}static lumart_fn_block {name}_b = {{LUMART_FOREVER, 0, 0, (const void*){name}, (const void*)&luma_rt_self, {entry}}};\n");
             return Ok(self.closures_push(code, format!("((lumart_fn)&{name}_b)")));
         }
         // The block: its head, then each capture.
@@ -113,7 +169,7 @@ impl<'a> Gen<'a> {
         self.protos.push(format!("{mk};"));
         let _ = writeln!(code, "{mk} {{\n    {env}* b = ({env}*)lumart_alloc(sizeof({env}));");
         let _ = writeln!(code, "    if (b == 0) return 0;\n    __builtin_memset(b, 0, sizeof *b);");
-        let _ = writeln!(code, "    b->h.rc = 1;\n    b->h.size = (uint32_t)sizeof({env});\n    b->h.drop = {name}_drop;\n    b->h.code = (const void*){name};");
+        let _ = writeln!(code, "    b->h.rc = 1;\n    b->h.size = (uint32_t)sizeof({env});\n    b->h.drop = {name}_drop;\n    b->h.code = (const void*){name};\n    b->h.owner = (const void*)&luma_rt_self;\n    b->h.entry = {entry};");
         for (id, ct) in &caps {
             let _ = writeln!(code, "    {}", super::assign_line(&format!("b->c{id}"), &format!("c{id}"), ct));
         }
@@ -153,9 +209,10 @@ impl<'a> Gen<'a> {
             let head = format!("int32_t {key}({})", head.join(", "));
             self.protos.push(format!("{head};"));
             self.literal_defs.push(format!("static lumart_fn_block {key}_b;"));
+            let entry = self.fn_entry(ps, r).ok_or_else(lost)?;
             let _ = writeln!(
                 self.closures,
-                "{head} {{\n    (void)lm_fn;\n    return {c_name}({});\n}}\n\nstatic lumart_fn_block {key}_b = {{LUMART_FOREVER, 0, 0, (const void*){key}}};\n",
+                "{head} {{\n    (void)lm_fn;\n    return {c_name}({});\n}}\n\nstatic lumart_fn_block {key}_b = {{LUMART_FOREVER, 0, 0, (const void*){key}, (const void*)&luma_rt_self, {entry}}};\n",
                 pass.join(", ")
             );
         }
@@ -163,7 +220,8 @@ impl<'a> Gen<'a> {
     }
 
     /// `f(args)` for a value `f` of type `fn(ps) -> r`: its C function called with the value itself first; its status
-    /// passed on. A value never set (zero) is S0906.
+    /// passed on. A value never set (zero) is S0906. Another mod's value is called through its maker's entry
+    /// (fn_value_call): when that does not run to its end, the result is empty and the caller goes on.
     pub(super) fn call_fn_value(&mut self, fx: &mut Fx, e: &Expr, callee: &Expr, args: &[ast::Arg]) -> Ex {
         let m = fx.module;
         let Ty::Fn(ps, r) = self.ty(m, callee) else { return self.not_yet(fx, e, "a call of this value") };
@@ -171,11 +229,13 @@ impl<'a> Gen<'a> {
         let v = self.expr(fx, callee)?;
         let f = fx.temp("lumart_fn", &v);
         let mut cs = vec![f.clone()];
+        let mut xs = Vec::new();
         for (a, p) in args.iter().zip(ps.iter()) {
             let at = self.ty(m, &a.value);
             let x = self.expr(fx, &a.value)?;
             let x = self.coerce(fx, &x, &at, p, a.at)?;
-            cs.push(x);
+            cs.push(x.clone());
+            xs.push(x);
         }
         let out = if *r != Ty::Unit {
             let ct = self.c_type(&r).ok_or_else(lost)?;
@@ -187,7 +247,14 @@ impl<'a> Gen<'a> {
         };
         let src = c_string(&super::expr_text(callee));
         fx.fail_if(&format!("{f} == 0 && lumart_raise({}, {}, 906, 1, (const char* const[]){{{src}}})", c_string(&fx.file), e.at.line));
-        fx.fail_if(&format!("(({cast})({f}->code))({}) != 0", cs.join(", ")));
+        let place = out.as_ref().map_or_else(|| "0".to_string(), |o| format!("&{o}"));
+        let plain = format!("if ((({cast})({f}->code))({}) != 0) {{ lm_st = 1; goto lm_out; }}", cs.join(", "));
+        let lines = self.fn_value_call(&f, &ps, &xs, &place, &plain).ok_or_else(lost)?;
+        fx.emit("{".into());
+        for line in lines {
+            fx.emit(format!("    {line}"));
+        }
+        fx.emit("}".into());
         Ok(out.unwrap_or_default())
     }
 }

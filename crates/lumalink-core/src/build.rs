@@ -266,6 +266,16 @@ pub fn services_of_sdk(sdk: &Path) -> (lumascript::svc::Services, Vec<lumascript
 /// Whether the SDK's luma.h gives LumaModInfo a `runtime_layout` field (the mod's record then carries the runtime
 /// layout). An SDK without it, or none to read, builds the record as before.
 pub fn mod_info_has_layout(sdk: &Path) -> bool {
+    mod_info_has(sdk, "runtime_layout")
+}
+
+/// Whether the SDK's luma.h gives LumaModInfo a `cut` field (when-a-mod-fails.md, "Code cut short").
+pub fn mod_info_has_cut(sdk: &Path) -> bool {
+    mod_info_has(sdk, "cut")
+}
+
+/// Whether the SDK's LumaModInfo has the field `field` (its code, not a comment naming it).
+fn mod_info_has(sdk: &Path, field: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(sdk.join("luma.h")) else { return false };
     let Some(end) = text.find("} LumaModInfo;") else { return false };
     let start = text[..end].rfind("typedef struct LumaModInfo").unwrap_or(0);
@@ -283,7 +293,7 @@ pub fn mod_info_has_layout(sdk: &Path) -> bool {
             rest = &rest[c.len_utf8()..];
         }
     }
-    code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).any(|w| w == "runtime_layout")
+    code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).any(|w| w == field)
 }
 
 /// Why the game's tables do not read ([`game_tables`]).
@@ -716,6 +726,7 @@ pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, 
     } else {
         let mut game = game.clone();
         game.mod_info_layout = mod_info_has_layout(sdk);
+        game.mod_info_cut = mod_info_has_cut(sdk);
         let (_, emitted, notes) = generate(folder, &game, work)?;
         (emitted, notes)
     };

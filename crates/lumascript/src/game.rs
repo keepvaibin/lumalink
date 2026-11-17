@@ -309,6 +309,10 @@ pub struct Game {
     /// lumi::RUNTIME_LAYOUT, so the loader refuses by name two mods built with different runtime layouts. A build
     /// against an SDK without it writes the record as before.
     pub mod_info_layout: bool,
+    /// Whether the SDK's luma.h gives LumaModInfo its `cut` field (and LumaCore its call_mod): the mod's record then
+    /// names its cut (the runtime's calls in progress put back, then its `on mods.cut`). A build against an SDK without
+    /// it writes no cut; `on mods.cut` then never runs.
+    pub mod_info_cut: bool,
     /// The tables of the game's data LumaCore.table and set_table take, by name (docs/modding/language/numbers.md;
     /// luma_numbers.json's `tables`). None when LumaLink was given none, and then `set_table` and `table` cannot be
     /// laid out (S0150).

@@ -210,6 +210,15 @@ impl OnEvent {
         let plain = ty.as_ref().is_none_or(|t| t.optional == 0 && matches!(&t.kind, TypeKind::Named { parts, args, .. } if args.is_empty() && parts.len() == 1 && parts[0].name == "u64"));
         named && plain
     }
+
+    /// `on mods.cut(name)` (docs/modding/concepts/when-a-mod-fails.md, "Code cut short"): a fault in another mod's code
+    /// ended a call of this mod's code; `name: text` is the export it was in, or "".
+    pub fn is_kit_cut(&self) -> bool {
+        let OnEvent::Event { path, ty, .. } = self else { return false };
+        let named = matches!(path.as_slice(), [a, b] if a.name == "mods" && b.name == "cut");
+        let plain = ty.as_ref().is_none_or(|t| t.optional == 0 && matches!(&t.kind, TypeKind::Named { parts, args, .. } if args.is_empty() && parts.len() == 1 && parts[0].name == "text"));
+        named && plain
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

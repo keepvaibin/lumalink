@@ -445,7 +445,9 @@ impl Gen<'_> {
         let mut body = String::new();
         let mut call = Vec::new();
         let mut after = String::new();
-        let _ = writeln!(body, "    lumart_as lm_was = lumart_caller;\n    int32_t lm_r = 1;");
+        // Its frame's link (lumart.h, calls in progress): what it changes of lumart_caller and the scratch, put back
+        // on its return, or by lumart_cut when a fault in another mod's code ends the call without one.
+        let _ = writeln!(body, "    lumart_as_link lm_link;\n    int32_t lm_r = 1;");
         for (i, c) in crossing.iter().enumerate() {
             match c {
                 Cross::Plain(_) => call.push(format!("p{i}")),
@@ -474,7 +476,7 @@ impl Gen<'_> {
                 let _ = writeln!(after, "    lm_rel_{ct}(&lm_res);");
             }
         }
-        let _ = writeln!(body, "    lumart_caller.mod = lm_caller;\n    lumart_caller.file = lm_file;\n    lumart_caller.line = lm_line;");
+        let _ = writeln!(body, "    lumart_as_enter(&lm_link, lm_caller, lm_file, lm_line);");
         let fn_name = format!("{}.{name}", self.mod_id);
         for (i, c) in crossing.iter().enumerate() {
             match c {
@@ -540,7 +542,7 @@ impl Gen<'_> {
         }
         body.push_str("    goto lm_done;\nlm_done:\n");
         body.push_str(&after);
-        body.push_str("    lumart_caller = lm_was;\n    return lm_r != 0 ? 2 : 0;\n");
+        body.push_str("    lumart_as_leave(&lm_link);\n    return lm_r != 0 ? 2 : 0;\n");
         let head = format!("int32_t {wrapper}({})", head.join(", "));
         let _ = write!(self.export_code, "{head} {{\n{body}}}\n\n");
         self.protos.push(format!("{head};"));
