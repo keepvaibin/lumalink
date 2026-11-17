@@ -661,6 +661,11 @@ fn class_codes() {
     assert_eq!(said("class K : Kuribo {\n    override fn control() {\n        base.control()\n    }\n}\n"), vec![]);
     assert_eq!(heard("class K : LiveActor {\n    override fn control() {\n        base.appear()\n    }\n}\n"), vec![(code::BASE_CALL, 3, 14, args(&[("found", "appear"), ("name", "control")]))]);
     assert_eq!(said("class K : LiveActor {\n    override fn control() -> i32 {\n        return 1\n    }\n}\n"), vec![code::TYPE_MISMATCH, code::RETURN_NO_VALUE]);
+    // An override names the virtual's parameters, as many as it has.
+    assert_eq!(
+        heard("class K : LiveActor {\n    override fn control(a, b) {\n    }\n}\n"),
+        vec![(code::OVERRIDE_PARAMS, 2, 17, args(&[("name", "control"), ("found", "2"), ("expected", "0")]))]
+    );
     // Its own fields and the base's members, by name and on self.
     assert_eq!(said("class K : LiveActor {\n    var n = 0\n    override fn control() {\n        n += 1\n        self.n += 1\n        if isAlive() { base.control() }\n    }\n}\n"), vec![]);
     // `base` named by a local is that local.
