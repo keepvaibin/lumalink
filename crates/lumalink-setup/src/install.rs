@@ -321,7 +321,7 @@ fn present(path: &Path) -> bool {
 /// moved aside, and the list itself. Nothing else in the folder is LumaLink's.
 fn own_files(folder: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = match std::fs::read_to_string(folder.join(MANIFEST)) {
-        Ok(list) => list.lines().filter(|l| !l.is_empty() && !l.contains("..")).map(|l| folder.join(l)).collect(),
+        Ok(list) => list.lines().filter(|l| inside(l)).map(|l| folder.join(l)).collect(),
         Err(_) => [CLI, GUI, SETUP_NAME, "LICENSE", "README.md"]
             .iter()
             .map(|n| folder.join(n))
@@ -334,14 +334,20 @@ fn own_files(folder: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// Whether a line of the install's list names a place inside the install folder: a relative path of plain names only.
+/// An absolute path, a drive, `..` or `.` is not one of the files an install writes, so it is never removed.
+fn inside(line: &str) -> bool {
+    !line.is_empty() && Path::new(line).components().all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
 /// The files of `found` that a running program holds (a LumaLink window, `lumalink lsp` in an editor, a build). Only
 /// Windows keeps a running program's file from being removed.
 pub fn in_use(found: &Found) -> Vec<PathBuf> {
     system::in_use(own_files(&found.folder))
 }
 
-/// Removes LumaLink: its files (and its folder when nothing else is in it), its records in the system, and its
-/// settings (`update::data_folder`).
+/// Removes LumaLink: its files (and its folder when nothing else is in it), its records in the system, and its own
+/// files in its data folder (`update::remove_own_data`; the folder goes only when nothing else is in it).
 pub fn uninstall(found: &Found) -> Result<()> {
     let busy = in_use(found);
     if let Some(first) = busy.first() {
@@ -359,7 +365,7 @@ pub fn uninstall(found: &Found) -> Result<()> {
     remove_empty_folders(&found.folder);
     let _ = std::fs::remove_dir(&found.folder);
     if let Some(data) = update::data_folder() {
-        let _ = std::fs::remove_dir_all(data);
+        update::remove_own_data(&data);
     }
     system::forget();
     Ok(())
@@ -1287,6 +1293,24 @@ pub mod system {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// M-163: only plain relative lines of the install's list are taken as its files; an absolute path, a drive, `..`
+    /// or `.` never is, so uninstall cannot remove a file outside the install folder.
+    #[test]
+    fn the_install_list_names_only_files_inside_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("LumaLink");
+        std::fs::create_dir_all(folder.join("toolchain")).unwrap();
+        std::fs::write(folder.join("toolchain").join("clang"), "x").unwrap();
+        let outside = dir.path().join("keep.txt");
+        std::fs::write(&outside, "x").unwrap();
+        let absolute = outside.to_string_lossy().into_owned();
+        let list = format!("toolchain/clang\n{absolute}\n../keep.txt\n./toolchain/clang\nC:keep.txt\n/keep.txt\n\n");
+        std::fs::write(folder.join(MANIFEST), list).unwrap();
+        let mut found: Vec<String> = own_files(&folder).iter().map(|f| f.strip_prefix(&folder).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        found.sort();
+        assert_eq!(found, [MANIFEST.to_string(), "toolchain/clang".to_string()]);
+    }
 
     #[test]
     fn a_file_put_over_its_place_replaces_it() {

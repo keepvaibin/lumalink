@@ -754,16 +754,76 @@ pub fn start_setup(setup: &Path, open_window: bool) -> Result<()> {
 
 /// Removes downloaded Setups of versions no newer than this one (an update that has been installed).
 pub fn remove_old_downloads() {
-    let Some(data) = data_folder() else { return };
-    let Ok(entries) = std::fs::read_dir(&data) else { return };
+    if let Some(data) = data_folder() {
+        remove_old_downloads_in(&data);
+    }
+}
+
+/// [`remove_old_downloads`] in `data`: in each `update-<version>` folder no newer than this LumaLink, the files
+/// [`download`] wrote, then the folder when that leaves it empty.
+pub fn remove_old_downloads_in(data: &Path) {
+    let Ok(entries) = std::fs::read_dir(data) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if let Some(version) = name.strip_prefix("update-") {
-            if compare_versions(version, VERSION) != std::cmp::Ordering::Greater {
-                let _ = std::fs::remove_dir_all(entry.path());
+            if entry.file_type().is_ok_and(|t| t.is_dir()) && compare_versions(version, VERSION) != std::cmp::Ordering::Greater {
+                for f in download_files(&entry.path()) {
+                    let _ = std::fs::remove_file(f);
+                }
+                let _ = std::fs::remove_dir(entry.path());
             }
         }
     }
+}
+
+/// The files LumaLink keeps in its data folder ([`data_folder`]): the update choices, the last check's answer and
+/// Setup's record. Each downloaded Setup is in an `update-<version>` folder beside them. Nothing else in the folder is
+/// LumaLink's: `LUMALINK_DATA` may name a folder that holds other things.
+pub const DATA_FILES: [&str; 3] = ["settings.json", "update-check.json", "setup.json"];
+
+/// LumaLink's own files in `data`: [`DATA_FILES`], a write of one of them left half done (`.<name>.<process>.part`),
+/// and in each `update-<version>` folder the downloaded Setup and a download left half done. Links are not followed.
+pub fn own_data_files(data: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(data).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_file() && (DATA_FILES.contains(&name.as_str()) || half_written(&name)) {
+            out.push(entry.path());
+        } else if kind.is_dir() && name.strip_prefix("update-").is_some_and(|v| !v.is_empty()) {
+            out.extend(download_files(&entry.path()));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Whether `name` is [`write_atomically`]'s half-done write of one of [`DATA_FILES`].
+fn half_written(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('.').and_then(|r| r.strip_suffix(".part")) else { return false };
+    let Some((file, process)) = rest.rsplit_once('.') else { return false };
+    DATA_FILES.contains(&file) && !process.is_empty() && process.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// The files [`download`] writes in an `update-<version>` folder, those that are there (as files, not links).
+fn download_files(folder: &Path) -> Vec<PathBuf> {
+    [SETUP_NAME.to_string(), format!("{SETUP_NAME}.part")]
+        .iter()
+        .map(|n| folder.join(n))
+        .filter(|p| p.symlink_metadata().is_ok_and(|m| m.is_file()))
+        .collect()
+}
+
+/// Removes LumaLink's own files from `data` ([`own_data_files`]), then each folder that leaves empty, `data` included.
+/// Anything else in `data` stays, and so does every folder that holds it.
+pub fn remove_own_data(data: &Path) {
+    for f in own_data_files(data) {
+        let _ = std::fs::remove_file(&f);
+        if let Some(folder) = f.parent().filter(|p| *p != data) {
+            let _ = std::fs::remove_dir(folder);
+        }
+    }
+    let _ = std::fs::remove_dir(data);
 }
 
 pub mod http {
@@ -979,6 +1039,59 @@ pub mod http {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// M-153: removing LumaLink's data takes only LumaLink's own files from the folder (LUMALINK_DATA may name one that
+    /// holds other things), and the folder only when that leaves it empty.
+    #[test]
+    fn removing_lumalinks_data_leaves_everything_else_in_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let put = |rel: &str| {
+            let f = data.join(rel);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, "x").unwrap();
+        };
+        let ours = ["settings.json", "update-check.json", "setup.json", ".settings.json.4242.part"];
+        for f in ours {
+            put(f);
+        }
+        put(&format!("update-9.9.9/{SETUP_NAME}"));
+        put(&format!("update-9.9.9/{SETUP_NAME}.part"));
+        let theirs = ["notes.txt", "photos/a.jpg", "update-photos/b.jpg", ".notes.txt.12.part", "settings.json.bak"];
+        for f in theirs {
+            put(f);
+        }
+        remove_own_data(&data);
+        for f in ours {
+            assert!(!data.join(f).exists(), "{f} stayed");
+        }
+        assert!(!data.join("update-9.9.9").exists(), "the emptied download folder stayed");
+        for f in theirs {
+            assert!(data.join(f).is_file(), "{f} was removed");
+        }
+        // A folder that held only LumaLink's files goes.
+        let alone = dir.path().join("alone");
+        std::fs::create_dir_all(alone.join("update-1.0.0")).unwrap();
+        std::fs::write(alone.join("settings.json"), "x").unwrap();
+        std::fs::write(alone.join("update-1.0.0").join(SETUP_NAME), "x").unwrap();
+        remove_own_data(&alone);
+        assert!(!alone.exists());
+    }
+
+    /// M-153: old downloads go file by file; a folder named like one that holds other files keeps them.
+    #[test]
+    fn old_downloads_take_only_the_setups_they_wrote() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        std::fs::create_dir_all(data.join("update-0.0.1")).unwrap();
+        std::fs::write(data.join("update-0.0.1").join(SETUP_NAME), "x").unwrap();
+        std::fs::create_dir_all(data.join("update-notes")).unwrap();
+        std::fs::write(data.join("update-notes").join("plan.txt"), "x").unwrap();
+        std::fs::write(data.join("update-notes").join(SETUP_NAME), "x").unwrap();
+        remove_old_downloads_in(data);
+        assert!(!data.join("update-0.0.1").exists());
+        assert!(data.join("update-notes").join("plan.txt").is_file());
+    }
 
     fn list(releases: &[(&str, bool, &[&str])]) -> String {
         let items: Vec<serde_json::Value> = releases
