@@ -659,7 +659,7 @@ pub fn generate(folder: &Path, game: &Game, work: &Path) -> Result<(String, emit
 }
 
 /// The clang's release, from `clang --version` (`clang version 22.1.6`).
-fn clang_version(clang: &Path) -> Result<String, BuildError> {
+pub fn clang_version(clang: &Path) -> Result<String, BuildError> {
     let out = Command::new(clang).arg("--version").output().map_err(|e| BuildError::NoClang(clang.to_path_buf(), e))?;
     let text = String::from_utf8_lossy(&out.stdout);
     let found = text.split_whitespace().skip_while(|w| *w != "version").nth(1).unwrap_or("").to_string();
@@ -679,7 +679,8 @@ pub fn targets(platforms: &[String]) -> Result<Vec<&'static Target>, BuildError>
     Ok(TARGETS.iter().filter(|t| platforms.iter().any(|p| p == t.platform)).collect())
 }
 
-/// Builds the mod in `folder` for `platforms` (all nine when empty): its C written once to `work`, each library to
+/// Builds the mod in `folder` for `platforms` (all nine when empty): its C written once to `work` (none for a mod of C
+/// alone, whose own C declares its entry), each library to
 /// `folder/code/<platform>/mod.<ending>`, each platform built recorded in luma.json. A platform clang cannot build is
 /// [`BuildError::Platforms`] naming it, after every other is built.
 pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, platforms: &[String]) -> Result<Built, BuildError> {
@@ -698,11 +699,21 @@ pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, 
     if found != LLVM {
         return Err(BuildError::ClangVersion { path: clang.to_path_buf(), found });
     }
-    let mut game = game.clone();
-    game.mod_info_layout = mod_info_has_layout(sdk);
-    let (_, emitted, notes) = generate(folder, &game, work)?;
-    let c_bytes = emitted.files.iter().filter(|(p, _)| p.ends_with(".c") || p.ends_with(".h")).filter(|(p, _)| !p.contains("lumart")).map(|(_, t)| t.len() as u64).sum();
     let own = c_sources(folder)?;
+    // A mod of C alone (no LumaScript; its C declares its entry with LUMA_MOD, luma.h) is compiled and linked as it is:
+    // nothing is generated for it.
+    let alone = scripts(folder)?.is_empty() && !(own.c.is_empty() && own.cxx.is_empty());
+    let (emitted, notes) = if alone {
+        // clang runs in `work`, which the generator makes for a mod with LumaScript.
+        std::fs::create_dir_all(work).map_err(|e| BuildError::Write(work.to_path_buf(), e))?;
+        (emit::Emitted::default(), Vec::new())
+    } else {
+        let mut game = game.clone();
+        game.mod_info_layout = mod_info_has_layout(sdk);
+        let (_, emitted, notes) = generate(folder, &game, work)?;
+        (emitted, notes)
+    };
+    let c_bytes = emitted.files.iter().filter(|(p, _)| p.ends_with(".c") || p.ends_with(".h")).filter(|(p, _)| !p.contains("lumart")).map(|(_, t)| t.len() as u64).sum();
     let generated: Vec<&str> = emitted.files.iter().map(|(rel, _)| rel.as_str()).filter(|rel| rel.ends_with(".c")).collect();
     let mut libraries = Vec::new();
     let mut failed = Vec::new();
