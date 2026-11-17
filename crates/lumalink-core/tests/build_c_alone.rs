@@ -80,3 +80,35 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
     }
     out
 }
+
+/// An author's own C may have a frame of any size (luma.h gives the stack probe); the 4 KiB limit checks only the C the
+/// compiler generates.
+#[test]
+fn an_authors_c_may_have_a_frame_over_4_kib() {
+    let Some(sdk) = sdk() else {
+        eprintln!("skipped: no SDK (LUMA_SDK, or nebula/native/include beside this workspace)");
+        return;
+    };
+    let Some(host) = build::HOST else {
+        eprintln!("skipped: this system is none of the nine platforms");
+        return;
+    };
+    let clang = build::default_clang();
+    if build::clang_version(&clang).ok().as_deref() != Some(build::LLVM) {
+        eprintln!("skipped: no LLVM {} at {}", build::LLVM, clang.display());
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("big");
+    std::fs::create_dir_all(folder.join("source")).unwrap();
+    let (major, minor) = luma_validate::FORMAT;
+    std::fs::write(
+        folder.join("luma.json"),
+        format!("{{\n  \"format\": \"{major}.{minor}\",\n  \"id\": \"test.big\",\n  \"version\": \"1.0.0\",\n  \"name\": \"Big\",\n  \"summary\": \"A frame of 64 KiB.\",\n  \"authors\": [\"keepvaibin\"],\n  \"game\": {{ \"id\": \"RMG\" }}\n}}\n"),
+    )
+    .unwrap();
+    let source = "#include <luma.h>\n\nstatic int32_t start(const LumaCore* core, const LumaMod* mod) {\n    volatile unsigned char big[65536];\n    for (unsigned i = 0; i < sizeof(big); i++) big[i] = (unsigned char)i;\n    core->log(mod, big[1000] ? \"big\" : \"zero\");\n    return 0;\n}\n\nLUMA_MOD_NO_IMPORTS(start, 0);\n";
+    std::fs::write(folder.join("source/big.c"), source).unwrap();
+    let built = build::build(&folder, &Game::default(), &sdk, &clang, &dir.path().join("work"), &[host.to_string()]).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(built.recorded, [host]);
+}

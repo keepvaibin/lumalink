@@ -22,6 +22,12 @@ pub const COMMON_FLAGS: &[&str] = lumascript::emit::C_FLAGS;
 /// The flags a mod's C++ sources take in place of `-std=c17` (docs/modding/language/compiled-form.md, section 9): no exceptions, no RTTI, no standard library.
 pub const CXX_FLAGS: &[&str] = &["-std=c++20", "-fno-exceptions", "-fno-rtti"];
 
+/// The flags of a mod's own C and C++: [`COMMON_FLAGS`] without the frame limit, which is the compiler's check on the C
+/// it generates. An author's frame may be any size: luma.h supplies the stack probe of the Windows targets.
+pub fn own_flags() -> impl Iterator<Item = &'static str> {
+    COMMON_FLAGS.iter().copied().filter(|f| !f.contains("frame-larger-than"))
+}
+
 /// What one build made.
 #[derive(Debug)]
 pub struct Built {
@@ -797,32 +803,43 @@ fn build_one(t: &Target, folder: &Path, sdk: &Path, clang: &Path, work: &Path, g
     let msvc = t.triple.ends_with("-windows-msvc");
     // docs/modding/language/compiled-form.md, section 1.2: no path of this machine in the library; the mod's own sources are named from its folder.
     let maps = [format!("-ffile-prefix-map={}=.", work.display()), format!("-ffile-prefix-map={}=source", source.display())];
-    // The mod's C++ (docs/modding/language/compiled-form.md, section 9), each file to an object of its own with the same flags but the language's.
+    // The mod's own C and C++ (docs/modding/language/compiled-form.md, section 9), each file to an object of its own: the
+    // shared flags with the language's, but not the frame limit, which checks the generated C. The author's code may
+    // have frames of any size; luma.h gives the stack probe that makes that safe (and imports nothing).
     let mut objects = Vec::new();
-    for (i, file) in own.cxx.iter().enumerate() {
+    for (i, (file, cxx_file)) in own.c.iter().map(|f| (f, false)).chain(own.cxx.iter().map(|f| (f, true))).enumerate() {
         let obj = work.join("obj").join(t.platform).join(format!("{i}.o"));
         if let Some(parent) = obj.parent() {
             std::fs::create_dir_all(parent).map_err(|e| BuildError::Write(parent.to_path_buf(), e))?;
         }
-        let mut cxx = Command::new(clang);
-        cxx.current_dir(work);
-        cxx.arg(format!("--target={}", t.triple));
-        cxx.args(COMMON_FLAGS.iter().filter(|f| !f.starts_with("-std=") && **f != "-Werror=implicit-function-declaration")).args(CXX_FLAGS);
-        cxx.args(t.code).args(&maps);
+        let mut cc = Command::new(clang);
+        cc.current_dir(work);
+        cc.arg(format!("--target={}", t.triple));
+        if cxx_file {
+            cc.args(own_flags().filter(|f| !f.starts_with("-std=") && *f != "-Werror=implicit-function-declaration")).args(CXX_FLAGS);
+        } else {
+            cc.args(own_flags());
+        }
+        cc.args(t.code).args(&maps);
         if msvc {
             // No time stamp in the object (4.9: the same bytes for the same sources; the link has /Brepro).
-            cxx.arg("-mno-incremental-linker-compatible");
+            cc.arg("-mno-incremental-linker-compatible");
         }
-        cxx.arg("-I").arg(&lum).arg("-I").arg(sdk).arg("-I").arg(&source);
-        cxx.arg("-c").arg(file).arg("-o").arg(&obj);
-        if let Err(stopped) = run(&mut cxx, clang)? {
+        cc.arg("-I").arg(&lum).arg("-I").arg(sdk).arg("-I").arg(&source);
+        cc.arg("-c").arg(file).arg("-o").arg(&obj);
+        if let Err(stopped) = run(&mut cc, clang)? {
             return Ok(Err(stopped));
         }
         objects.push(obj);
     }
+    // The generated C with every shared flag (-nostdlib among them is the link's too), then the link of all. A mod of
+    // C alone is the link alone, where the compile flags have nothing to do.
     let mut cmd = Command::new(clang);
     cmd.current_dir(work);
     cmd.arg(format!("--target={}", t.triple)).args(COMMON_FLAGS).args(t.code);
+    if generated.is_empty() {
+        cmd.arg("-Qunused-arguments");
+    }
     cmd.args(&maps);
     cmd.arg("-I").arg(&lum).arg("-I").arg(sdk);
     if source.is_dir() {
@@ -831,8 +848,7 @@ fn build_one(t: &Target, folder: &Path, sdk: &Path, clang: &Path, work: &Path, g
     cmd.args(&link);
     cmd.arg("-o").arg(&library);
     cmd.args(generated);
-    // The mod's own C, then its C++ objects, in path order.
-    cmd.args(&own.c);
+    // The mod's own objects: its C, then its C++, each in path order.
     cmd.args(&objects);
     if let Err(stopped) = run(&mut cmd, clang)? {
         return Ok(Err(stopped));
