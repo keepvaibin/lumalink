@@ -514,16 +514,20 @@ class KitPlanet : LiveActor made by LumaObj {
                 }
             }
         }
-        if let look = planet_look {
-            self.initModelManagerWithAnm(look.name(), none, false)
+        guard let look = planet_look else {
+            // A planet is its look (a stage that places KitPlanet itself, or a make by name, gives none).
+            log "kit.stage: a planet with no model is placed; not made"
+            self.makeActorDead()
+            return
         }
+        self.initModelManagerWithAnm(look.name(), none, false)
         MR::connectToSceneMapObj(self)
         self.initHitSensor(1)
         let body = MR::addHitSensorMapObj(self, "body", 0, 0.0, vec3(0.0, 0.0, 0.0))
         if let c = planet_collision {
             // The collision is <name>.kcl in the planet's own archive, the look's (the importer puts a mod's
             // Name.kcl.glb there beside Name.glb). Without it the planet is not made, said by name.
-            if planet_look == none or not MR::isExistKcl(self, c.name()) {
+            if not MR::isExistKcl(self, c.name()) {
                 log "kit.stage: the planet's collision {c.name()}.kcl is not in the archive of its model; not made"
                 self.makeActorDead()
                 return

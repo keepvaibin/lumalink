@@ -19,7 +19,7 @@ use svc.mods
 pub struct Kind {
     name: text                                // the class name stages place it by
     base: text = "LiveActor"                  // a derivable game class; KitActor's is LiveActor
-    look: model? = none
+    look: model? = none                       // none: not drawn; no idle action, no "Down"
     idle_action: text? = none                 // started when it appears
     sensors: list<Sensor> = []
     on_ground: bool = true                    // stands on the ground as the game's walkers do: falls onto it, stays
@@ -404,12 +404,21 @@ class KitActor : LiveActor made by LumaObj {
             }
             self.initModelManagerWithAnm(look.name(), none, false)
         }
+        // A kind with no look moves, is touched and talks, but is not drawn: connected for its movement alone (a
+        // draw buffer and an animation read the model, which it has none of).
+        let drawn = k.look != none
         if k.on_talk != none {
             // A talkable kind moves with the game's talking characters, before the player (SceneExecutor: NPC, then
             // Player, then Enemy): A at its prompt starts the talk before the player reads A as a jump.
-            MR::connectToSceneNpc(self)
-        } else {
+            if drawn {
+                MR::connectToSceneNpc(self)
+            } else {
+                MR::connectToSceneNpcMovement(self)
+            }
+        } else if drawn {
             MR::connectToSceneEnemy(self)
+        } else {
+            MR::connectToSceneEnemyMovement(self)
         }
         self.initHitSensor(k.sensors.len() as i32 + 1)
         var body = false
@@ -459,7 +468,10 @@ class KitActor : LiveActor made by LumaObj {
         obj_ref.push(ref(self))
         self.makeActorAppeared()
         if let a = k.idle_action {
-            MR::tryStartAction(self, a)
+            // An action plays on the look: none without one.
+            if drawn {
+                MR::tryStartAction(self, a)
+            }
         }
         if let f = k.on_init {
             f(self)
@@ -477,7 +489,7 @@ class KitActor : LiveActor made by LumaObj {
         if down {
             // At most three seconds, then its drops and gone.
             down_for += 1
-            if MR::isActionEnd(self) or down_for >= down_frames_most {
+            if down_for >= down_frames_most or (k.look != none and MR::isActionEnd(self)) {
                 if let g = k.drops {
                     drop(self, g)
                 }
@@ -567,8 +579,8 @@ class KitActor : LiveActor made by LumaObj {
         down = true
         down_for = 0
         MR::invalidateHitSensors(self)
-        if not MR::tryStartAction(self, down_action) {
-            // No "Down" in its model: defeated at once.
+        if k.look == none or not MR::tryStartAction(self, down_action) {
+            // No look, or no "Down" in its model: defeated at once.
             down_for = down_frames_most
         }
         return true

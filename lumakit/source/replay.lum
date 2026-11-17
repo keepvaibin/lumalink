@@ -676,9 +676,12 @@ class KitPuppet : LiveActor made by LumaObj {
     override fn init(rIter: TableIter) {
         if let look = next_look {
             self.initModelManagerWithAnm(look.name(), none, false)
+            MR::connectToSceneMapObjStrongLight(self)
+            MR::initLightCtrl(self)
+        } else {
+            // No look: moved, never drawn (a draw buffer and a light read the model).
+            MR::connectToSceneMapObjMovement(self)
         }
-        MR::connectToSceneMapObjStrongLight(self)
-        MR::initLightCtrl(self)
         MR::invalidateClipping(self)
         self.makeActorAppeared()
     }
