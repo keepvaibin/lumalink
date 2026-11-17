@@ -43,7 +43,7 @@ pub struct Puppet {
     id: u32
     fn pose(self, t: Track, frame: u32) { pose(self, t, frame) }
     fn set_pose(self, p: Pose) { set_pose(self, p) }
-    fn view(self) -> LiveActor { return view(self) }
+    fn view(self) -> LiveActor? { return view(self) }
     fn remove(self) { remove(self) }
     fn alive(self) -> bool { return alive(self) }
 }
@@ -224,20 +224,16 @@ fn actor_pose(a: LiveActor) -> Pose {
     return Pose { at: a.mPosition, rotation: quat_of_degrees(a.mRotation), action: "", frame: MR::getBckFrame(a), form: none }
 }
 
-// The pose of `w` now. An actor that is gone, and What.Inputs (which has no pose): a script error.
-pub fn current_pose(w: What) -> Pose {
+// The pose of `w` now; none with no player (the boot, the title, a load, a movie), for an actor that is gone, and for
+// What.Inputs (inputs have no pose: record them and read the track).
+pub fn current_pose(w: What) -> Pose? {
     match w {
-        // No player (the file select, a movie): a script error at the caller's line, as a gone actor.
-        What.Player => return player_pose()!
+        What.Player => return player_pose()
         What.Actor(a) => {
-            // An actor that is gone: a script error at the caller's line (the unwrap of none).
-            return actor_pose(a.get()!)
+            guard let live = a.get() else { return none }
+            return actor_pose(live)
         }
-        What.Inputs => {
-            // Inputs have no pose: a script error (the unwrap of none); record them and read the track.
-            let no_pose: Pose? = none
-            return no_pose!
-        }
+        What.Inputs => return none
     }
 }
 
@@ -779,12 +775,12 @@ pub fn pose(p: Puppet, t: Track, frame: u32) {
     }
 }
 
-// The puppet's object, for a mod that draws on it (draw.inst opacity) or reads it. After remove(): a script error
-//.
-pub fn view(p: Puppet) -> LiveActor {
-    // A removed puppet, an empty handle or another mod's: the unwrap of none, a script error at the caller's line.
-    let i = puppet_at(p)!
-    return pup_actor[i]!.get()!
+// The puppet's object, for a mod that draws on it (draw.inst opacity) or reads it; none after remove(), once its scene
+// ended, or for an empty handle or another mod's.
+pub fn view(p: Puppet) -> LiveActor? {
+    guard let i = puppet_at(p) else { return none }
+    guard let r = pup_actor[i] else { return none }
+    return r.get()
 }
 
 pub fn alive(p: Puppet) -> bool {

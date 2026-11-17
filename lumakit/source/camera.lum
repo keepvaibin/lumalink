@@ -281,14 +281,15 @@ pub fn eye(of: LiveActor, joint: text = "Head", near: f32 = 5.0) -> view.Camera 
     return rig_of(view.Rig.Joint, 60.0, of, vec3(0.0, 0.0, 0.0), joint, near)
 }
 
-// A side camera for 2D sections: `distance` from the player along `normal` (world axes), looking at the player. Called
-// while a scene has a player (a rig's actor cannot be empty: a service struct's field cannot be none).
-pub fn side(normal: vec3, distance: f32) -> view.Camera {
+// A side camera for 2D sections: `distance` from the player along `normal` (world axes), looking at the player. none
+// while there is no player (the boot, the title, a load): a rig's actor cannot be empty.
+pub fn side(normal: vec3, distance: f32) -> view.Camera? {
     var n = normal
     if length(n) < 0.001 {
         n = vec3(0.0, 0.0, 1.0)
     }
-    return rig_of(view.Rig.World, 45.0, the_player()!, unit(n) * distance, "", 0.0)
+    guard let p = the_player() else { return none }
+    return rig_of(view.Rig.World, 45.0, p, unit(n) * distance, "", 0.0)
 }
 
 // Two rigs `eye_distance` apart across the rig's look (left, right), for a pair of views (VR). A fixed rig moves its eye

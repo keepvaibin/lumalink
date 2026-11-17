@@ -71,7 +71,7 @@ task run() {
     log fact "play_back_difference" different
     log fact "cut_short_is_none" replay.decode(b.slice(0, b.len() - 3)) == none
     log fact "wrong_head_is_none" replay.decode(b.slice(1, b.len())) == none
-    let now_pose = replay.current_pose(replay.What.Player)
+    let now_pose = replay.current_pose(replay.What.Player)!
     if let back_pose = replay.pose_decode(replay.pose_encode(now_pose)) {
         log fact "pose_round_trip" same(now_pose, back_pose)
     } else {
@@ -83,7 +83,7 @@ task run() {
     replay.pose(ghost, track, 100)
     if let p100 = replay.pose_at(track, 100) {
         if replay.alive(ghost) {
-            log fact "puppet_at_step_100" far(replay.view(ghost).mPosition, p100.at)
+            log fact "puppet_at_step_100" far(replay.view(ghost)!.mPosition, p100.at)
         }
     }
     replay.remove(ghost)
@@ -161,8 +161,8 @@ task second_run() {
         let at = here() + vec3(0.0, 200.0, 0.0)
         replay.set_pose(p, replay.Pose { at: at, rotation: quat(0.0, 0.0, 0.0, 1.0), action: "", frame: 0.0 })
         wait 2 frames
-        log fact "puppet_after_reload_at" far(replay.view(p).mPosition, at)
-        log fact "puppet_after_reload_shown" not MR::isHiddenModel(replay.view(p))
+        log fact "puppet_after_reload_at" far(replay.view(p)!.mPosition, at)
+        log fact "puppet_after_reload_shown" not MR::isHiddenModel(replay.view(p)!)
     }
     // pause_skipped: a recording across the game's pause menu (the harness opens it at pause_rec_ready and closes it
     // at pause_rec_mid, about 85 frames later) carries no step of the pause.

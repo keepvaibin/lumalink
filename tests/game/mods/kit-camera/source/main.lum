@@ -74,7 +74,7 @@ task run() {
     log fact "fp_near_back" MR::getNearZ() == near_game
 
     // side
-    let s = camera.take(camera.side(vec3(1.0, 0.0, 0.0), 1500.0))
+    let s = camera.take(camera.side(vec3(1.0, 0.0, 0.0), 1500.0)!)
     wait 10 frames
     log fact "side_distance" length(eye_now() - player_pos())
     camera.end(s)
