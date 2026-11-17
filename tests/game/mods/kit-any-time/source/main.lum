@@ -1,0 +1,553 @@
+// kit-any-time: every public function and task of LumaKit called at each moment of the game (M2, item 7): the first
+// boot frame, the title screen (the harness's MR::getRandom(0, 6803)), a stage just ready, play, the frames of leaving
+// a stage, its load, and the stage after. None may end the game or take the mod out: a call works, or gives its
+// documented empty or "not now" value. kit.net is left out: its calls are sockets and pages, none reads the game.
+// Its layer holds a sound (Voice, kit-talk's) for the calls that take one.
+// Calls that take an object get player 1 when there is one. What each call makes (an entry, a text, a screen, a
+// recorder, a puppet, a second player, a camera) is removed or ended at once. Tasks (shop.open, cutscene.play,
+// screen.message, talk.say ...) are called and stopped at once (`p.stop()`): one left open waits for the player, and
+// the harness's file setup with it. A log line names each module before its calls.
+// Facts: "<moment>" the number of calls made at that moment (all of them returned), "<moment>_player" whether the
+// player was there, "moments" how many moments ran.
+use kit.actor
+use kit.area
+use kit.camera
+use kit.cutscene
+use kit.gravity
+use kit.hud
+use kit.item
+use kit.menu
+use kit.pointer
+use kit.progress
+use kit.projectile
+use kit.replay
+use kit.ride
+use kit.screen
+use kit.shop
+use kit.stage
+use kit.talk
+use kit.player.character as pc
+use kit.player.form
+use kit.player.state as pst
+use kit.ui.kit as ui
+use svc.draw.view
+use svc.input
+
+var frames: i64 = 0
+var moments: i64 = 0
+var made = false
+var a_kind = actor.KindId { n: 0 }
+var an_area = area.KindId { n: 0 }
+var a_shape = gravity.ShapeId { n: 0 }
+var an_item = item.ItemId { n: 0 }
+var a_mount = ride.MountId { n: 0 }
+var a_character = pc.CharacterId { n: 0 }
+var a_form = form.FormId { n: 0 }
+var a_state = pst.StateId { n: 0 }
+var a_galaxy = stage.GalaxyId { name: "" }
+var leaving_at: i64 = 0
+var arrived = false
+var loading_calls: i64 = 0
+var loading_frames: i64 = 0
+
+fn nothing() {}
+fn nothing_int(i: int) {}
+fn nothing_f(v: f32) {}
+fn nothing_b(b: bool) {}
+fn nothing_actor(a: LiveActor) {}
+fn nothing_mario(m: MarioActor) {}
+fn a_star(galaxy: text, scenario: u32) -> progress.StarGet { return progress.StarGet.Star }
+fn grab(a: LiveActor) -> bool { return false }
+fn no_shot(from: vec3, toward: vec3) -> projectile.Shot {
+    return projectile.Shot { from: from, velocity: toward }
+}
+fn down(at: vec3) -> vec3? { return vec3(0.0, -1.0, 0.0) }
+fn tiny(b: stage.Builder) {}
+
+// Kinds, items and the rest defined once (in `on start`): their handles are used at every moment.
+fn define_all() {
+    a_kind = actor.define(actor.Kind { name: "KitAnyTimeActor" })
+    an_area = area.define(area.Kind { name: "kitAnyTime" })
+    a_shape = gravity.define_shape(gravity.Shape { name: "KitAnyTimeGravity", vector: down })
+    an_item = item.define(item.Item { id: "anytime", look: model "BeeMario", gives: item.Gives.Coins(1) })
+    a_mount = ride.define(ride.Mount { name: "KitAnyTimeMount", look: model "BeeMario", seat_joint: "Center" })
+    a_character = pc.define(pc.Character { id: "anytime", name: "Any Time" })
+    a_form = form.define(form.Form { id: "anytime" })
+    a_state = pst.define(pst.State { id: "anytime", starts: pst.Start.Code, action: "Wait" })
+    a_galaxy = stage.define_galaxy(stage.Galaxy { name: "KitAnyTimeGalaxy", title: "Any Time", dome: stage.Dome.Terrace,
+                                                  stars: [stage.Star { scenario: 1, title: "One" }] })
+    stage.define_dome(stage.DomeDef { name: "KitAnyTimeDome", title: "Any Time" })
+}
+
+// The calls that need no object of the game, one function a module (a function's frame has a limit).
+fn calls_actor() -> i64 {
+    var n: i64 = 0
+    log "any: actor"
+    let k = actor.find("KitAnyTimeActor")
+    let sp = actor.spawn(a_kind, vec3(0.0, 0.0, 0.0))
+    let every = actor.all(a_kind)
+    let kn = actor.name(a_kind)
+    let at = actor.attack_of(1)
+    let placed = actor.find_placed(actor.PlacementKey { stage: "EggStarGalaxy", zone: "EggStarGalaxy", layer: "", index: 0 })
+    let g = actor.spawn_game("Kuribo", vec3(0.0, 0.0, 0.0))
+    n += 7
+    return n
+}
+
+fn calls_area() -> i64 {
+    var n: i64 = 0
+    log "any: area"
+    let ak = area.find("kitAnyTime")
+    let inside_at = area.contains(an_area, vec3(0.0, 0.0, 0.0))
+    let inside = area.player_inside(an_area)
+    n += 3
+    return n
+}
+
+fn calls_camera() -> i64 {
+    var n: i64 = 0
+    log "any: camera"
+    let free_cam = camera.free()
+    camera.aim(free_cam, camera.now())
+    camera.end(free_cam)
+    let free_alive = camera.alive(free_cam)
+    if let side = camera.side(vec3(1.0, 0.0, 0.0), 1500.0) {
+        let (left, right) = camera.stereo(side, 10.0)
+        let taken = camera.take(side)
+        camera.end(taken)
+    }
+    camera.mirror(true)
+    camera.mirror(false)
+    camera.fov(70.0)
+    camera.fov(none)
+    camera.shake(0.5, 2)
+    let eye = camera.now()
+    n += 14
+    return n
+}
+
+fn calls_cutscene() -> i64 {
+    var n: i64 = 0
+    log "any: cutscene"
+    let scene = cutscene.find("none")
+    let playing = cutscene.active()
+    let shown = cutscene.play(cutscene.Scene { shots: [cutscene.Shot.Wait(1)] })
+    shown.stop()  // ended at once: a screen or a talk left open waits for the player
+    n += 3
+    return n
+}
+
+fn calls_gravity() -> i64 {
+    var n: i64 = 0
+    log "any: gravity"
+    let o = gravity.override_player(gravity.Field.Point { at: vec3(0.0, 0.0, 0.0) }, 2)
+    let o_alive = gravity.override_alive(o)
+    gravity.end_override(o)
+    let sn = gravity.shape_name(a_shape)
+    let pull = gravity.at(vec3(0.0, 0.0, 0.0))
+    n += 5
+    return n
+}
+
+fn calls_hud() -> i64 {
+    var n: i64 = 0
+    log "any: hud"
+    let t = hud.text(hud.Corner.Top, "any time", 2)
+    hud.set_text(t, "any time again")
+    hud.remove_text(t)
+    let c = hud.counter(hud.Corner.TopLeft, 1)
+    hud.set_counter(c, 2)
+    hud.remove_counter(c)
+    let m = hud.meter(hud.Corner.TopRight, 10)
+    hud.set_meter(m, 5)
+    hud.remove_meter(m)
+    let tm = hud.timer(hud.Corner.Bottom, 0)
+    hud.set_timer(tm, 60)
+    hud.run_timer(tm, true)
+    hud.remove_timer(tm)
+    hud.popup("Any time", "a line")
+    n += 14
+    return n
+}
+
+fn calls_item() -> i64 {
+    var n: i64 = 0
+    log "any: item"
+    item.give(item.Gives.Coins(1))
+    item.give(item.Gives.StarBits(1))
+    item.give(item.Gives.Lives(1))
+    item.give(item.Gives.Lives(4000000000))  // past the game's 99: held to 99, not four billion one-ups in a frame
+    item.give(item.Gives.Health(1))
+    item.give(item.Gives.Carry(1))
+    item.give(item.Gives.Form(a_form))
+    let key = item.save_key(caller(), "item", "carried", "anytime")
+    let owns = item.owns_key(caller(), "nothing", "item", "carried")
+    let kept = item.kept("nothing")
+    let im = item.model_of(caller(), "BeeMario")
+    let has = item.has_model(model "BeeMario")
+    let gives = item.gives_of(item.GivesData.Coins(1))
+    let found = item.find("anytime")
+    let spawned = item.spawn(an_item, vec3(0.0, 0.0, 0.0))
+    item.give_item(an_item)
+    let carried = item.carried(an_item)
+    let used = item.use_one(an_item)
+    let all_carried = item.carried_all()
+    n += 19
+    return n
+}
+
+fn calls_menu() -> i64 {
+    var n: i64 = 0
+    log "any: menu"
+    let e = menu.add_pause_entry("Any time", nothing)
+    menu.set_label(e, "Any time again")
+    menu.enable(e, false)
+    let e_alive = menu.alive(e)
+    menu.remove(e)
+    menu.close_pause()
+    n += 6
+    return n
+}
+
+fn calls_pointer() -> i64 {
+    var n: i64 = 0
+    log "any: pointer"
+    let ps = pointer.screen()
+    let pw = pointer.world()
+    let thrown = pointer.set_throw(pointer.Throw { shot: no_shot, cost: pointer.Cost.Free })
+    pointer.end(thrown)
+    let grabbed = pointer.on_grab(grab)
+    pointer.end(grabbed)
+    let src = pointer.source(input.Pad.Main, pointer.Source.Stick)
+    n += 7
+    return n
+}
+
+fn calls_progress() -> i64 {
+    var n: i64 = 0
+    log "any: progress"
+    let stars = progress.stars()
+    let has_star = progress.has_star("EggStarGalaxy", 1)
+    progress.give_star("KitAnyTimeGalaxy", 1)
+    progress.on_star(a_star)
+    progress.add_comet("KitAnyTimeGalaxy", 1, stage.Comet.Speedy)
+    let f = progress.flag("anytime")
+    let fv = progress.flag_get(f)
+    progress.flag_set(f, true)
+    progress.set_flag("anytime", false)
+    let num = progress.number("anytime")
+    let nv = progress.number_get(num)
+    progress.number_set(num, 2)
+    let added = progress.number_add(num, 1)
+    progress.on_new_file(nothing)
+    n += 14
+    return n
+}
+
+fn calls_projectile() -> i64 {
+    var n: i64 = 0
+    log "any: projectile"
+    let shot = projectile.throw(projectile.Shot { from: vec3(0.0, 0.0, 0.0), velocity: vec3(0.0, 1.0, 0.0) })
+    n += 1
+    return n
+}
+
+fn calls_replay() -> i64 {
+    var n: i64 = 0
+    log "any: replay"
+    let pose = replay.current_pose(replay.What.Player) ?? replay.Pose { at: vec3(0.0, 0.0, 0.0), rotation: quat(0.0, 0.0, 0.0, 1.0),
+                                                                         action: "", frame: 0.0 }
+    let pose_bytes = replay.pose_encode(pose)
+    let pose_back = replay.pose_decode(pose_bytes)
+    let input_pose = replay.current_pose(replay.What.Inputs)
+    let rec = replay.record(replay.What.Player)
+    let track = replay.stop_recording(rec)
+    let at0 = replay.pose_at(track, 0)
+    let track_bytes = replay.encode(track)
+    let track_back = replay.decode(track_bytes)
+    replay.free(track)
+    let rec2 = replay.record(replay.What.Inputs)
+    replay.discard(rec2)
+    let pup = replay.puppet(model "BeeMario")
+    replay.set_pose(pup, pose)
+    let pup_view = replay.view(pup)
+    let pup_alive = replay.alive(pup)
+    replay.remove(pup)
+    replay.seed(7)
+    let rw = replay.rewind([replay.What.Player], 1.0)
+    let went = replay.back(rw, 1)
+    replay.end(rw)
+    replay.put_player(pose)
+    n += 22
+    return n
+}
+
+fn calls_ride() -> i64 {
+    var n: i64 = 0
+    log "any: ride"
+    let mf = ride.find("KitAnyTimeMount")
+    let mount = ride.spawn(a_mount, vec3(0.0, 0.0, 0.0))
+    let riding = ride.riding()
+    ride.dismount()
+    n += 4
+    return n
+}
+
+fn calls_screen() -> i64 {
+    var n: i64 = 0
+    log "any: screen"
+    let ls = screen.list(screen.List { title: "Any time", rows: ["one"] })
+    screen.set_rows(ls, ["one", "two"])
+    let ls_alive = screen.alive(ls)
+    screen.close(ls)
+    if let lay = screen.layout("KitAnyTimeNone", false) {
+        screen.close_layout(lay)
+    }
+    screen.loading(["Any time"])
+    n += 6
+    return n
+}
+
+fn calls_shop() -> i64 {
+    var n: i64 = 0
+    log "any: shop"
+    let sh = shop.Shop { title: "Any time", wares: [shop.Ware { name: "coin", price: 1, gives: item.Gives.Coins(1) }],
+                         currency: shop.Currency.Coins }
+    let sf = shop.find("none")
+    let left_stock = shop.stock_left(sh, 0)
+    shop.restock(sh, 0)
+    let bought = shop.open(sh)
+    bought.stop()  // ended at once: a screen or a talk left open waits for the player
+    n += 4
+    return n
+}
+
+fn calls_stage() -> i64 {
+    var n: i64 = 0
+    log "any: stage"
+    let dome = stage.find_dome("KitAnyTimeDome")
+    stage.hub("")
+    let gf = stage.find("KitAnyTimeGalaxy")
+    let gn = stage.name(a_galaxy)
+    stage.comets_of(a_galaxy)
+    let path = stage.sound_path(caller(), sound "Voice")
+    stage.music("KitAnyTimeGalaxy", none, sound "Voice")
+    stage.appear_star(vec3(0.0, 0.0, 0.0), 1)
+    let holder = stage.star_holder(1)
+    stage.build("KitAnyTimeBuilt", tiny)
+    n += 10
+    return n
+}
+
+fn calls_talk() -> i64 {
+    var n: i64 = 0
+    log "any: talk"
+    let message = talk.prompt_message()
+    talk.voice("KitAnyTimeLine", sound "Voice")
+    let line = screen.message("Any time")
+    line.stop()  // ended at once: a screen or a talk left open waits for the player
+    let chose = screen.choose("Any time", ["Yes", "No"])
+    chose.stop()  // ended at once: a screen or a talk left open waits for the player
+    n += 4
+    return n
+}
+
+fn calls_player_character() -> i64 {
+    var n: i64 = 0
+    log "any: player.character"
+    let cf = pc.find("anytime")
+    let cc = pc.current()
+    let mario = pc.mario()
+    pc.play_character(a_character)
+    let is_c = pc.is_current_character(a_character)
+    pc.play_character(mario)
+    let second = pc.second_player(pc.Second { pad: 1 })
+    let sv = pc.second_view(second)
+    let s_alive = pc.second_alive(second)
+    pc.remove_second(second)
+    n += 10
+    return n
+}
+
+fn calls_player_form() -> i64 {
+    var n: i64 = 0
+    log "any: player.form"
+    let ff = form.find("anytime")
+    let ffo = form.find_for(caller(), "anytime")
+    let gf2 = form.game(form.GameForm.Bee)
+    form.set(a_form)
+    let is_f = form.is_current_form(a_form)
+    let fid = form.id_of(a_form)
+    let fc = form.current()
+    let fl = form.frames_left()
+    form.end()
+    form.kit_step()
+    n += 10
+    return n
+}
+
+fn calls_player_state() -> i64 {
+    var n: i64 = 0
+    log "any: player.state"
+    let sf2 = pst.find("anytime")
+    let sfo = pst.find_for(caller(), "anytime")
+    let sc = pst.current()
+    let entered = pst.enter_state(a_state)
+    pst.allow(a_state, true)
+    let is_s = pst.is_current_state(a_state)
+    pst.exit_state(a_state)
+    let is_k = pst.is_constant("mJumpHeight")
+    let tuning = pst.known(pst.Tuning { values: { "mJumpHeight": 1.0 } }, "mJumpHeight")
+    let tuned = pst.tune(tuning)
+    let t_alive = pst.tuned_alive(tuned)
+    pst.end_tuned(tuned)
+    n += 12
+    return n
+}
+
+fn calls_ui() -> i64 {
+    var n: i64 = 0
+    log "any: ui"
+    let open = ui.open(ui.Panel { widgets: [ui.Widget.Label("Any time"), ui.Widget.Button("Go", nothing)] })
+    ui.set(open, 0, ui.Widget.Label("Any time again"))
+    let o_open = ui.alive(open)
+    ui.close(open)
+    ui.touch_layout([])
+    n += 5
+    return n
+}
+
+fn calls_alone() -> i64 {
+    return calls_actor() + calls_area() + calls_camera() + calls_cutscene() +
+           calls_gravity() + calls_hud() + calls_item() + calls_menu() +
+           calls_pointer() + calls_progress() + calls_projectile() + calls_replay() +
+           calls_ride() + calls_screen() + calls_shop() + calls_stage() +
+           calls_talk() + calls_player_character() + calls_player_form() + calls_player_state() +
+           calls_ui()
+}
+
+// The calls that take an object: given player 1.
+fn calls_with(p: MarioActor) -> i64 {
+    var n: i64 = 0
+    log "any: with the player"
+    guard let a = as_class<LiveActor>(p) else { return 0 }
+    let rp = ref(a)
+    let sees = actor.sees_player(a, 1000.0, 90.0)
+    let near = actor.near_player(a, 1000.0)
+    let key = actor.placement(a)
+    let att = actor.attach(a, model "BeeMario", "Head")
+    let att_alive = actor.alive(att)
+    actor.remove(att)
+    let follow = camera.follow(a, 1000.0)
+    let eye = camera.eye(a)
+    let cage = item.cage_of(a)
+    let saying = talk.saying(a)
+    let rec = replay.record(replay.What.Actor(rp))
+    replay.discard(rec)
+    let pose = replay.current_pose(replay.What.Actor(rp))
+    let pup = replay.puppet(model "BeeMario")
+    let rec2 = replay.record(replay.What.Player)
+    let track = replay.stop_recording(rec2)
+    replay.pose(pup, track, 0)
+    replay.remove(pup)
+    replay.free(track)
+    let motion = pst.keep(p, pst.Motion { velocity: vec3(0.0, 0.0, 0.0) })
+    let scene = cutscene.play(cutscene.Scene { shots: [cutscene.Shot.Look(rp, vec3(0.0, 300.0, 600.0), 1),
+                                                         cutscene.Shot.Action(rp, "Wait"), cutscene.Shot.Line(rp, "anytime")] })
+    scene.stop()  // ended at once: a screen or a talk left open waits for the player
+    let said = talk.say(rp, "KitAnyTimeLine")
+    said.stop()  // ended at once: a screen or a talk left open waits for the player
+    let answer = talk.ask(rp, "KitAnyTimeLine", ["Yes", "No"])
+    answer.stop()  // ended at once: a screen or a talk left open waits for the player
+    let ran = talk.run(rp, "none")
+    ran.stop()  // ended at once: a screen or a talk left open waits for the player
+    let thrown = projectile.burst_always(projectile.Hit { at: vec3(0.0, 0.0, 0.0), map: true },
+                                         p.getSensor("body")!, p.getSensor("body")!)
+    n += 17
+    return n
+}
+
+// The calls of one moment: how many were made (all returned) and whether player 1 was there.
+// Every call once; whether the player was there. The caller counts the moment.
+fn probe() -> (i64, bool) {
+    let n = calls_alone()
+    if let p = MarioAccess::getPlayerActor() {
+        return (n + calls_with(p), true)
+    }
+    return (n, false)
+}
+
+on start {
+    define_all()
+}
+
+on frame {
+    frames += 1
+    if frames == 1 {
+        let (n, with) = probe()
+        moments += 1
+        log fact "moments" moments
+        log fact "boot" n
+        log fact "boot_player" with
+    }
+    if leaving_at != 0 {
+        let since = frames - leaving_at
+        if since == 1 {
+            let (n, with) = probe()
+            moments += 1
+            log fact "moments" moments
+            log fact "leaving" n
+            log fact "leaving_player" with
+        }
+        if since >= 2 and not arrived {
+            // Every frame of the change after the first, to the new stage's ready: the load's own frames, however
+            // few.
+            let (n, with) = probe()
+            if loading_frames == 0 {
+                moments += 1
+                log fact "moments" moments
+            }
+            loading_calls += n
+            loading_frames += 1
+            log fact "loading" loading_calls
+            log fact "loading_frames" loading_frames
+        }
+    }
+}
+
+// The title screen: the harness's call.
+hook after `MR::getRandom(s32, s32)`(low, high) {
+    if high == 6803 {
+        let (n, with) = probe()
+        moments += 1
+        log fact "moments" moments
+        log fact "title" n
+        log fact "title_player" with
+    }
+}
+
+on stage "EggStarGalaxy" {
+    let (n, with) = probe()
+    moments += 1
+    log fact "moments" moments
+    log fact "stage_ready" n
+    log fact "stage_ready_player" with
+    wait 200 frames
+    let (n2, with2) = probe()
+    moments += 1
+    log fact "moments" moments
+    log fact "play" n2
+    log fact "play_player" with2
+    leaving_at = frames
+    stage.go_to("HeavensDoorGalaxy", 1)
+}
+
+on stage "HeavensDoorGalaxy" {
+    arrived = true
+    let (n, with) = probe()
+    moments += 1
+    log fact "moments" moments
+    log fact "arrived" n
+    log fact "arrived_player" with
+    log fact "done" true
+}

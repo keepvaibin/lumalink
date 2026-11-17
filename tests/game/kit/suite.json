@@ -3,6 +3,8 @@
   "tests": [
     "k9-kit",
     "kit-actor",
+    "kit-any-time",
+    "kit-any-time-title",
     "kit-area",
     "kit-boot",
     "kit-boot-menus",

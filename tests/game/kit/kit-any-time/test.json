@@ -1,0 +1,84 @@
+{
+  "harness": 1,
+  "name": "kit-any-time",
+  "about": "Every public LumaKit call (kit.net aside) at boot frame 1, when EggStarGalaxy is ready, in play, on the first frame of leaving it for HeavensDoorGalaxy (stage.go_to), every frame of the change after that until the next stage is ready, and when HeavensDoorGalaxy is ready. Each returns, the game goes on, no guard.",
+  "proves": [
+    "kit.safe_any_time"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-any-time"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-any-time.done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 3000
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-any-time.boot",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.boot_player",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-any-time.stage_ready",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.stage_ready_player",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-any-time.play",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.play_player",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-any-time.leaving",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.loading",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.loading_frames",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.arrived",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.arrived_player",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-any-time.moments",
+      "is": 6
+    },
+    {
+      "fact": "guard.kit-any-time",
+      "absent": true
+    },
+    {
+      "fact": "guard.lumakit",
+      "absent": true
+    }
+  ]
+}

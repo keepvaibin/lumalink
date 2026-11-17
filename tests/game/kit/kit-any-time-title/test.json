@@ -1,0 +1,57 @@
+{
+  "harness": 1,
+  "name": "kit-any-time-title",
+  "about": "Every public LumaKit call (kit.net aside) at boot frame 1, with no scene and no player, and on the title screen (the harness's MR::getRandom(0, 6803)), a game scene with the player in it but no stage played and no file chosen: each returns, the game goes on, no guard. Before M2 the first call that read a scene object ended the game.",
+  "proves": [
+    "kit.safe_any_time"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-any-time"
+  ],
+  "steps": [
+    {
+      "at": 60,
+      "call": "MR::getRandom",
+      "signature": "s32(s32, s32)",
+      "args": [
+        0,
+        6803
+      ]
+    },
+    {
+      "at": 180,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-any-time.boot",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.boot_player",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-any-time.title",
+      "more": 0
+    },
+    {
+      "fact": "mod.kit-any-time.title_player",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-any-time.moments",
+      "is": 2
+    },
+    {
+      "fact": "guard.kit-any-time",
+      "absent": true
+    },
+    {
+      "fact": "guard.lumakit",
+      "absent": true
+    }
+  ]
+}

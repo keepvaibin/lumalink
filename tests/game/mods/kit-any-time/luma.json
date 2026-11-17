@@ -1,0 +1,25 @@
+{
+  "format": "1.0",
+  "id": "kit-any-time",
+  "version": "1.0.0",
+  "name": "kit-any-time",
+  "summary": "LumaKit at any time: every public call at boot, the title, a stage, play, a stage change.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {},
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}
