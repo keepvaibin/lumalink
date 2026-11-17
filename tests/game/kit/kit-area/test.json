@@ -1,0 +1,96 @@
+{
+  "harness": 1,
+  "name": "kit-area",
+  "about": "LumaKit area (lumakit.md 2.7, lumakit-modules.md row 10). kit-area on EggStarGalaxy; its layer places orderCube/orderSphere/orderCylinder (a kind from code with enter/inside/leave callbacks), slowCube and windCube overlapping (kinds from kit/area/slow.json, wind.json) and sideCube (kit/area/side.json, a Side camera 1500 along x). The script puts the player in each (MR::setPlayerPos). three_shapes_order: enter, inside, leave once each in order for each shape; contains true inside, false at the start. slow: the kit sets the game's walking resist 0.5. wind: the kit pushes the player 8 a frame along z (160 over 20 frames). overlap: in both, resist 0.5 and pushed. side_camera: the main camera 1500 from the player inside, back to the game's after leaving. mod_off: the mod taken out (its kinds end, the camera given back). WAITING: classes.alias, AreaObj::getManagerName row and the KitArea AreaObjMgr row, the factory facts of the area rows, LUMA_OUT on MR::calcCubeRotate (F); mods.kit_read, ref<AreaObj> (K).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.area"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-area"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-area.done",
+        "is": true
+      },
+      "take_out": "kit-area",
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "log": "kit-area: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-area.shapes_order",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.contains_cube",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.contains_start",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-area.slow_inside",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.slow_resist",
+      "near": 0.5,
+      "within": 0.001
+    },
+    {
+      "fact": "mod.kit-area.wind_inside",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.wind_push_z",
+      "near": 160,
+      "within": 1
+    },
+    {
+      "fact": "mod.kit-area.overlap_both",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.overlap_resist",
+      "near": 0.5,
+      "within": 0.001
+    },
+    {
+      "fact": "mod.kit-area.overlap_pushed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.side_distance",
+      "near": 1500,
+      "within": 20
+    },
+    {
+      "fact": "mod.kit-area.side_left",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-area.side_back",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

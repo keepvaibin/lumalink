@@ -1,0 +1,24 @@
+// K2 conformance, the hook kinds: a before that skips with a result, a wrap that writes an argument, proceeds and
+// changes the result, a replace; each acts only on the harness's own arguments.
+
+var befores: u32 = 0
+
+hook before MR::diffRadian(a, b) -> f32 {
+    befores += 1
+    if a == 1000.0 { skip 7.0 }
+}
+
+wrap MR::diffRadian(a, b) {
+    if a == 2000.0 {
+        b = 2000.0
+        proceed()
+        result = result + 100.0
+        log fact "wrapped" befores
+    } else {
+        proceed()
+    }
+}
+
+replace TripodBoss::getPartIDFromBoneID(id) {
+    result = id * 3
+}

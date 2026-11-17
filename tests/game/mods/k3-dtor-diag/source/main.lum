@@ -1,0 +1,18 @@
+// k3-refs diagnosis (not a conformance test): the destructor hooks a stage change reaches, on and off the game thread.
+
+use c "diag.h"
+
+extern c fn diag_start() -> i32
+extern c fn diag_count(which: i32) -> i32
+
+var calls = 0
+
+hook after MR::zeroVelocity(target) {
+    calls += 1
+    if calls == 1 {
+        log fact "hooked" diag_start()
+        return
+    }
+    let seen = [diag_count(0), diag_count(1), diag_count(2), diag_count(3), diag_count(4), diag_count(5), diag_count(6), diag_count(7)]
+    log fact "counts" seen
+}

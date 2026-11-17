@@ -1,0 +1,22 @@
+{
+  "format": "1.0",
+  "id": "kit-area",
+  "version": "1.0.0",
+  "name": "kit-area",
+  "summary": "LumaKit area conformance: three shapes entered and left in order, slow and wind from data, a side camera in and out, two areas overlapping, the mod turned off.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.area": 1
+  }
+}

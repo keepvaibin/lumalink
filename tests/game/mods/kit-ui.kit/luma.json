@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-ui.kit",
+  "version": "1.0.0",
+  "name": "kit-ui.kit",
+  "summary": "LumaKit ui.kit conformance: a panel of a button, slider, toggle, colour, list and text field worked with the pad, the pointer and the platform keyboard; a wheel panel; taken out with a panel open.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

@@ -1,0 +1,190 @@
+// kit.replay conformance (lumakit-modules.md row 15; lumakit.md 2.19). The harness moves the stick (test.json); each
+// case writes its facts:
+// play_back_exact         the player's poses recorded while walking, encoded, decoded and compared step for step
+//                         (difference 0); a puppet posed at step 100 stands where the player stood
+// decode_other_platform   the bytes' hash (the same number on every platform's run); cut or wrong bytes are none
+// fifteen_puppets         15 made, a 16th empty, all removed
+// inputs_same_end         the player back at the start, the same seed, the input track played: the same end place
+// rewind_5s               300 steps walked, back(300): the player stands where they stood
+use kit.replay
+
+fn far(a: vec3, b: vec3) -> f32 {
+    return length(a - b)
+}
+
+fn here() -> vec3 {
+    return MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+}
+
+fn same(a: replay.Pose, b: replay.Pose) -> bool {
+    return a.at == b.at and a.rotation == b.rotation and a.action == b.action and a.frame == b.frame and a.form == b.form
+}
+
+// FNV-1a over the bytes: one number a platform can be compared by. Its multiply wraps at 32 bits, which a u32's
+// checked arithmetic refuses: the product is taken in u64 (under 2^57) and reduced.
+fn hash_of(b: bytes) -> u32 {
+    var h: u64 = 2166136261
+    for k in 0..b.len() {
+        h = ((h ^ (b[k] as u64)) * 16777619) % 4294967296
+    }
+    return h as u32
+}
+
+task run() {
+    wait 120 frames
+    let start_at = here()
+    replay.seed(7)
+    let rec_poses = replay.record(replay.What.Player)
+    let rec_reads = replay.record(replay.What.Inputs)
+    log fact "recording" true
+    wait 130 frames
+    log fact "walk2" true
+    // The harness pushes right 60 frames from here; the recording runs on until the player has braked to rest, so
+    // the end place is a resting one, as at the end of the played track (its reads end, the player rests 20 frames).
+    wait 100 frames
+    let track = replay.stop_recording(rec_poses)
+    let reads = replay.stop_recording(rec_reads)
+    let end_at = here()
+    log fact "recorded_steps" track.frames
+
+    // play_back_exact, decode_other_platform
+    let b = replay.encode(track)
+    log fact "bytes_hash" hash_of(b)
+    var different: u32 = 0
+    if let again = replay.decode(b) {
+        if again.frames != track.frames {
+            different += 1
+        }
+        for f in 0..(track.frames as int) {
+            let p = replay.pose_at(track, f as u32)
+            let q = replay.pose_at(again, f as u32)
+            if p == none or q == none {
+                different += 1
+            } else if not same(p!, q!) {
+                different += 1
+            }
+        }
+        replay.free(again)
+    } else {
+        different = 999999
+    }
+    log fact "play_back_difference" different
+    log fact "cut_short_is_none" replay.decode(b.slice(0, b.len() - 3)) == none
+    log fact "wrong_head_is_none" replay.decode(b.slice(1, b.len())) == none
+    let now_pose = replay.current_pose(replay.What.Player)
+    if let back_pose = replay.pose_decode(replay.pose_encode(now_pose)) {
+        log fact "pose_round_trip" same(now_pose, back_pose)
+    } else {
+        log fact "pose_round_trip" false
+    }
+
+    // A puppet at step 100.
+    let ghost = replay.puppet(model "Ghost")
+    replay.pose(ghost, track, 100)
+    if let p100 = replay.pose_at(track, 100) {
+        if replay.alive(ghost) {
+            log fact "puppet_at_step_100" far(replay.view(ghost).mPosition, p100.at)
+        }
+    }
+    replay.remove(ghost)
+
+    // fifteen_puppets
+    var made: list<replay.Puppet> = []
+    for k in 0..15 {
+        made.push(replay.puppet(model "Ghost"))
+    }
+    var alive_now: u32 = 0
+    for p in made {
+        if replay.alive(p) {
+            alive_now += 1
+        }
+    }
+    log fact "puppets_made" alive_now
+    let extra = replay.puppet(model "Ghost")
+    log fact "sixteenth_empty" not replay.alive(extra)
+    for p in made {
+        replay.remove(p)
+    }
+    wait 2 frames
+    var left: u32 = 0
+    for p in made {
+        if replay.alive(p) {
+            left += 1
+        }
+    }
+    log fact "puppets_left" left
+
+    // inputs_same_end: the player put back at the recording's first pose (place and turn, not only the place).
+    if let first = replay.pose_at(track, 0) {
+        replay.put_player(first)
+    } else {
+        MR::setPlayerPos(start_at)
+    }
+    wait 30 frames
+    if let first = replay.pose_at(track, 0) {
+        log fact "inputs_start_distance" far(here(), first.at)
+    }
+    replay.seed(7)
+    wait replay.play_inputs(reads)
+    wait 20 frames
+    log fact "inputs_end_distance" far(here(), end_at)
+
+    // rewind_5s
+    let keep = replay.rewind([replay.What.Player], 6.0)
+    let before = here()
+    log fact "rewind_armed" true
+    wait 5 seconds
+    let gone = replay.back(keep, 300)
+    log fact "rewind_steps" gone
+    wait 1 frames
+    log fact "rewind_distance" far(here(), before)
+    replay.end(keep)
+
+    // puppets_after_reload: 15 puppets left standing when the stage is loaded again (a mod that makes its ghost at
+    // each attempt and never removes the last one); the stage's objects go with it, so the next stage makes puppets.
+    var kept: u32 = 0
+    for k in 0..15 {
+        if replay.alive(replay.puppet(model "Ghost")) {
+            kept += 1
+        }
+    }
+    log fact "puppets_before_reload" kept
+    log fact "done" true
+}
+
+// After the stage is loaded again: a puppet is made, stands where it is posed and is drawn.
+task second_run() {
+    wait 60 frames
+    let p = replay.puppet(model "Ghost")
+    log fact "puppet_after_reload" replay.alive(p)
+    if replay.alive(p) {
+        let at = here() + vec3(0.0, 200.0, 0.0)
+        replay.set_pose(p, replay.Pose { at: at, rotation: quat(0.0, 0.0, 0.0, 1.0), action: "", frame: 0.0 })
+        wait 2 frames
+        log fact "puppet_after_reload_at" far(replay.view(p).mPosition, at)
+        log fact "puppet_after_reload_shown" not MR::isHiddenModel(replay.view(p))
+    }
+    // pause_skipped: a recording across the game's pause menu (the harness opens it at pause_rec_ready and closes it
+    // at pause_rec_mid, about 85 frames later) carries no step of the pause.
+    let pr = replay.record(replay.What.Player)
+    log fact "pause_rec_ready" true
+    wait 90 frames
+    log fact "pause_rec_mid" true
+    wait 150 frames
+    let pt = replay.stop_recording(pr)
+    log fact "pause_rec_frames" pt.frames
+    log fact "pause_skipped" pt.frames + 40 <= 240
+    replay.free(pt)
+    log fact "reload_done" true
+}
+
+var runs: u32 = 0
+
+on stage "EggStarGalaxy" {
+    runs += 1
+    if runs == 1 {
+        start run()
+    } else {
+        start second_run()
+    }
+}

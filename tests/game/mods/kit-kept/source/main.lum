@@ -1,0 +1,84 @@
+// kit save values across a game start (lumakit.md 2.4 and 2.14; services-mods.md section 10). Two runs of one save
+// (the suite's kit-kept-a, then kit-kept-b continuing from its save, a new game process):
+// first run   the stage places "kit-kept/key" (kit/item/key.json, Carry 1) in front of the start; the harness walks
+//             into it (the game calls the kit's pickup); the mod sets its progress number "kept" to 40 through the
+//             export; the game's own save runs (its two windows pressed by the harness)
+// next run    the same file loaded in a new game: the key is carried once and the number is 40, both read through
+//             the exports
+use kit.item
+use kit.progress
+
+var saving = false
+var window: text = ""
+var waited: u32 = 0
+var focus_said = false
+
+// The save's windows: which one appears while this mod's save runs; the harness presses one only once it waits.
+hook before SysInfoWindow::appear(id, _, _, _) {
+    window = ""
+    waited = 0
+    if saving {
+        if let w = id {
+            if w == "System_Save00" or w == "System_Save02" {
+                window = w
+            }
+        }
+    }
+}
+
+hook after SysInfoWindow::exeWait() {
+    if window == "" {
+        return
+    }
+    waited += 1
+    if waited == 30 {
+        if window == "System_Save00" {
+            log fact "confirm_ready" true
+        } else {
+            log fact "done_ready" true
+        }
+    } else if waited > 30 and not focus_said and window == "System_Save00" and NebulaMenuFocus::isActive() {
+        log fact "focused" true
+        focus_said = true
+    }
+}
+
+task run() {
+    wait 60 frames
+    guard let key = item.find("key") else {
+        log fact "key_found" false
+        return
+    }
+    let kept = progress.number("kept")
+    let number = progress.number_get(kept)
+    log fact "carried_at_start" item.carried(key)
+    log fact "number_at_start" number
+    if number != 0 {
+        log fact "next_done" true
+        return
+    }
+    log fact "ready" true
+    var w: u32 = 0
+    while w < 300 and item.carried(key) == 0 {
+        wait 1 frames
+        w += 1
+    }
+    log fact "first_carried" item.carried(key)
+    progress.number_set(kept, 40)
+    log fact "first_number" progress.number_get(kept)
+    saving = true
+    GameSequenceFunction::startGameDataSaveSequence(false, false)
+    wait 2 frames
+    while GameSequenceFunction::isActiveSaveDataHandleSequence() {
+        wait 1 frames
+    }
+    saving = false
+    window = ""
+    log fact "saved" true
+    log fact "save_ok" GameSequenceFunction::isSuccessSaveDataHandleSequence()
+    log fact "first_done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

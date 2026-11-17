@@ -1,0 +1,115 @@
+// kit.talk conformance (lumakit-modules.md row 20; lumakit.md 2.14). The speaker is the stage's first Goomba. While a
+// phase waits for the player, `on frame` writes the fact "cue" = phase * 10 + n every 90 frames, and the test
+// (agents/luma/j/tests/kit-talk) presses on each:
+// 1 say            cue 11 A: the balloon closes, say ends ("said")
+// 2 ask_two        cue 21 A (the line), 22 DOWN, 23 A: row 1 ("ask_two")
+// 3 ask_four       cue 31 A, 32 DOWN, 33 DOWN, 34 DOWN, 35 A: row 3 ("ask_four")
+// 4 tree_loop_flag kit/talk/loop.json: start, ask; Yes loops to start (setting kit_talk_looped), No ends at "ask".
+//                  cue 41 A, 42 A, 43 A (Yes), 44 A, 45 A, 46 DOWN, 47 A (No): "tree_end" "ask", "flag" true
+// 5 voiced         a line with a voice: cue 51 A ("voiced")
+// 6 speaker_killed a line; the Goomba killed 30 frames in: say ends without a press ("killed_ended")
+use kit.talk
+use kit.progress
+use svc.time
+
+var phase: u32 = 0
+var since: u32 = 0
+var cues: u32 = 0
+
+fn begin(p: u32, n: u32) {
+    phase = p
+    since = 0
+    cues = n
+}
+
+// Cues count only while a scene runs or the game holds it: never during boot or a load.
+// The test's stage is ready and the player has control (300 frames after its opening: the landing and the
+// game's key lock): before it, the harness makes its file and waits for the player to take input, which
+// a panel or a talk would hold.
+var staged = false
+
+task settle() {
+    wait 300 frames
+    staged = true
+}
+
+on stage "EggStarGalaxy" {
+    start settle()
+}
+
+fn in_scene() -> bool {
+    if not staged {
+        return false
+    }
+    let s = time.now().state
+    return s == time.State.Play or s == time.State.Menu
+}
+
+on frame {
+    if phase == 0 or not in_scene() {
+        return
+    }
+    // 90 frames: the game turns a page only on a press after the whole page is up (TalkStateEvent::talk), and the
+    // talk's start, the balloon's opening and the typing take longer than 30.
+    since += 1
+    if since % 90 == 0 and since / 90 <= cues {
+        log fact "cue" phase * 10 + since / 90
+    }
+}
+
+// The first live Goomba of the stage.
+fn goomba() -> ref<LiveActor>? {
+    if let o = NameObjFinder::find("クリボー") {
+        if let a = as_class<LiveActor>(o) {
+            return ref(a)
+        }
+    }
+    return none
+}
+
+task kill_later(k: ref<LiveActor>) {
+    wait 30 frames
+    if let a = k.get() {
+        a.kill()
+    }
+}
+
+task flow() {
+    wait until in_scene()
+    guard let g = goomba() else {
+        log fact "speaker" false
+        return
+    }
+    log fact "speaker" true
+
+    begin(1, 1)
+    wait talk.say(g, "A line from the kit.")
+    log fact "said" true
+
+    begin(2, 3)
+    let two = wait talk.ask(g, "Two choices.", ["First", "Second"])
+    log fact "ask_two" two
+
+    begin(3, 5)
+    let four = wait talk.ask(g, "Four choices.", ["A", "B", "C", "D"])
+    log fact "ask_four" four
+
+    begin(4, 7)
+    let ended = wait talk.run(g, "loop")
+    log fact "tree_end" ended ?? ""
+    log fact "flag" progress.flag_get(progress.flag("kit_talk_looped"))
+
+    talk.voice("A voiced line.", sound "Voice")
+    begin(5, 1)
+    wait talk.say(g, "A voiced line.")
+    log fact "voiced" true
+
+    begin(6, 0)
+    start kill_later(g)
+    wait talk.say(g, "Cut short.")
+    log fact "killed_ended" true
+}
+
+on start {
+    start flow()
+}

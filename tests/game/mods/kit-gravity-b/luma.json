@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-gravity-b",
+  "version": "1.0.0",
+  "name": "kit-gravity-b",
+  "summary": "LumaKit gravity conformance, the second mod: overrides the player's gravity over kit-gravity's for 30 frames (rule 7).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

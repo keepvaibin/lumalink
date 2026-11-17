@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k2-core",
+  "version": "1.0.0",
+  "name": "k2-core",
+  "summary": "k2-core (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

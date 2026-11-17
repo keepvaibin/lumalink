@@ -1,0 +1,56 @@
+// K9 (plan 5.2, lumakit.md 2.4 and 2.6): an enemy kind of a mod's own, built on LumaKit. Every Goomba of the stage is
+// made as Chaser (replaces). A Chaser walks toward the player when near, as the game's own Goombas do; told of the
+// player's attack, it names it through kit.actor; when it is defeated it drops coins through kit.actor and kit.item.
+// Facts: how far the chasers walked, which attacks they were told of, how many coins they dropped.
+
+use kit.actor
+use kit.item
+
+var walked = 0.0
+var told = 0
+var trampled = 0
+var dropped = 0
+
+class Chaser : Kuribo replaces Kuribo {
+    // Where it stood at its last control: the game moves it after control (its binder), so a step's walk is seen
+    // at the next one.
+    var last: vec3 = vec3(0.0, 0.0, 0.0)
+    var seen: bool = false
+
+    override fn control() {
+        if seen {
+            walked += length(self.mPosition - last)
+        }
+        last = self.mPosition
+        seen = true
+        if actor.near_player(self, 1500.0) {
+            actor.move_toward_player(self, 0.3)
+        }
+        base.control()
+    }
+
+    override fn receiveMsgPlayerAttack(msg, sender, receiver) -> bool {
+        if let at = actor.attack_of(msg) {
+            told += 1
+            if at == actor.Attack.Trample or at == actor.Attack.HipDrop {
+                trampled += 1
+            }
+        }
+        return base.receiveMsgPlayerAttack(msg, sender, receiver)
+    }
+
+    override fn kill() {
+        actor.drop(self, item.Gives.Coins(2))
+        dropped += 2
+        log fact "dropped" dropped
+        log fact "trampled" trampled
+        log fact "told" told
+        base.kill()
+    }
+}
+
+on frame {
+    if walked > 0.0 {
+        log fact "walked" walked > 100.0
+    }
+}

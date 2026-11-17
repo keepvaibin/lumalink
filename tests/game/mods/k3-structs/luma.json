@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k3-structs",
+  "version": "1.0.0",
+  "name": "k3-structs",
+  "summary": "k3-structs (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

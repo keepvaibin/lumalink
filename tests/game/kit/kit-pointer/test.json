@@ -1,0 +1,129 @@
+{
+  "harness": 1,
+  "name": "kit-pointer",
+  "about": "LumaKit pointer (lumakit.md 2.22, lumakit-modules.md row 12). kit-pointer on EggStarGalaxy with the pointer held below the player (0.5, 0.8): at the middle it is on the player, whose drawn depth is where the shooter searches, while world() goes through to the map behind. world_point: world() finds the map under the pointer, its normal unit length. throw_coins_cost: with set_throw(Coins(1)) B throws the mod's shot once and takes one coin, star bits untouched. out_of_coins: with no coins B throws nothing and the game's CS_NO_SPIECE sound plays. grab: a Kuribo made under the pointer; A calls the grab function with it. gyro_and_refusal: source(pad 0, Infrared) taken; source(pad 0, Gyro) refused on the harness's pad (no motion device), the log naming it. mod_off: the mod taken out. WAITING: kit.projectile (FB, next); LUMA_OUT on MR::calcWorldRayDirectionFromScreen and MR::getFirstPolyNormalOnLineToMap, MR::payCoin (F); input.Pad, input.PointerSource, input.pointer_source (H, input 1.x after net.kit); std make/MakePlace (K).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.pointer"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-pointer"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-pointer.ready_point",
+        "is": true
+      },
+      "pointer": [
+        0.5,
+        0.8
+      ],
+      "frames": 1200,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-pointer.ready_throw",
+        "is": true
+      },
+      "hold": [
+        "B"
+      ],
+      "frames": 2,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-pointer.ready_empty",
+        "is": true
+      },
+      "hold": [
+        "B"
+      ],
+      "frames": 2,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-pointer.ready_grab",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 2,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-pointer.done",
+        "is": true
+      },
+      "take_out": "kit-pointer",
+      "timeout": 900
+    },
+    {
+      "after": {
+        "log": "kit-pointer: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-pointer.screen_in",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-pointer.world_found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-pointer.world_normal",
+      "near": 1,
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-pointer.shots",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-pointer.coins_taken",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-pointer.bits_same",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-pointer.shots_empty",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-pointer.no_piece_sound",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-pointer.grabbed",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-pointer.grabbed_kuribo",
+      "is": true
+    },
+    {
+      "log": "[Gg]yro"
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

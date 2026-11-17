@@ -1,0 +1,41 @@
+// K2 conformance, the game's arrays (C42-4) and matrices: a global of numbers in two extents, indexed by literals
+// and by a variable; a global of pointers; a field of pointers to plain records and their arrays of numbers; an
+// array of records held inside the player, each element's fields read through the record's size row; a matrix
+// field read, compared and shown.
+
+on start {
+    let iir = (cIIRCutoff[1][2], cIIRCutoff[3][3], cIIRCutoff[128][0])
+    log fact "iir" iir
+    var k = 120
+    k += 7
+    log fact "iir_var" cIIRCutoff[k][0]
+}
+
+hook after MR::zeroVelocity(target) {
+    guard let actor = target, let me = MarioAccess::getPlayerActor(), same(actor, me) else { return }
+    let buffers = (ModelSys::mDrawBuffer[0] != none, ModelSys::mDrawBuffer[1] != none)
+    log fact "buffers" buffers
+    // Mario's and Luigi's constant tables (plain records, read in place along each chain): pointers in an array,
+    // each table's numbers in arrays of their own.
+    let mario_jump = me.mConst!.mTable[0]!.mJumpHeight[2]
+    let luigi_jump = me.mConst!.mTable[1]!.mJumpHeight[2]
+    let consts = (mario_jump, luigi_jump, me.mConst!.mTable[1]!.mGravityJumping[7], me.mConst!.mTable[0]!.mGravityJumping[8])
+    log fact "consts" consts
+    // Every blur pose is made by Model::initPose, or each copied from the same pose: one block and one joint count.
+    let block = me.mBlurPoses[0][0].mBlock
+    let joints = me.mBlurPoses[0][0].mJointCount
+    var same_block = 0
+    var same_joints = 0
+    for i in 0..2 {
+        for j in 0..8 {
+            if me.mBlurPoses[i][j].mBlock == block { same_block += 1 }
+            if me.mBlurPoses[i][j].mJointCount == joints { same_joints += 1 }
+        }
+    }
+    let poses = (same_block, same_joints, block != 0, same(me.mBlurPoses[1][7], me.mBlurPoses[0][0]))
+    log fact "poses" poses
+    let first = me.mBlurPoses[0][0].mView
+    let last = me.mBlurPoses[1][7].mView
+    log fact "views_equal" first == last
+    log fact "view" first
+}

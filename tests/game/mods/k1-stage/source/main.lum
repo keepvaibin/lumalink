@@ -1,0 +1,13 @@
+use kit.stage
+
+// The galaxy, its one star, and its planet: the mod's model with the collision beside it (assets/NebulaPlanet.glb and
+// NebulaPlanet.kcl.glb), at the centre of the stage's point gravity.
+on start {
+    let galaxy = "K1StageGalaxy"
+    stage.define_galaxy(stage.Galaxy { name: galaxy, title: "K1 stage", dome: stage.Dome.Terrace,
+        stars: [stage.Star { scenario: 1, title: "One" }] })
+    stage.build(galaxy, fn(b: stage.Builder) {
+        stage.planet(b, model "NebulaPlanet", model "NebulaPlanet", vec3(0.0, 0.0, 0.0))
+    })
+    log fact "defined" true
+}

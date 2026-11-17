@@ -1,0 +1,40 @@
+{
+  "harness": 1,
+  "name": "1168-stage-of-sources",
+  "about": "a stage made only of a mod's table sources (one zone, a start position, a point gravity, a ScenarioStarter row that names no rail) with the kit's planet of the mod's own model and collision: the planet's collision is found in its archive, the starter with no rail is not made and said, the player lands and gets control",
+  "proves": [
+    "kit.stage"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/k1-stage"
+  ],
+  "stage": {
+    "name": "K1StageGalaxy",
+    "scenario": 1
+  },
+  "limit_seconds": 240,
+  "steps": [
+    {
+      "at": 240,
+      "picture": "standing"
+    },
+    {
+      "at": 300,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k1-stage.defined",
+      "is": true
+    },
+    {
+      "log": "ScenarioStarter: its rail is not in the stage \\(CommonPath_ID names no rail with two points\\); not made",
+      "times": 1
+    },
+    {
+      "no_log": "its collision .* is not in its archive"
+    }
+  ]
+}

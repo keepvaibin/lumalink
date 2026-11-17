@@ -1,0 +1,15 @@
+// The value c-tables writes, then the game's own again once c-tables is taken out.
+on start {
+    start watch()
+}
+
+fn jump() -> f32 {
+    return table("Game/Player/MarioConst.cpp#gMarioConstDefault", "mJumpHeight", 0) ?? -1.0
+}
+
+task watch() {
+    wait until jump() == 30.0
+    log fact "saw_set" true
+    wait until jump() == 22.0
+    log fact "saw_back" true
+}

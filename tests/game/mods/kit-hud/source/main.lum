@@ -1,0 +1,54 @@
+// kit.hud conformance (lumakit-modules.md row 4): an element in every corner, two stacked in one, a counter set each
+// frame, a meter held in its range, a timer counting, a popup, a text that removes itself, and removal; the elements
+// kept across a stage loaded again (kept_after_stage: the counter still set 120 frames into the new stage).
+use kit.hud
+
+var stages: u32 = 0
+var stage_frames: u32 = 0
+
+var frames: u32 = 0
+var made = false
+var score = hud.Counter { slot: 0 }
+var bar = hud.Meter { slot: 0, max: 1 }
+var clock = hud.Timer { slot: 0 }
+var gone = hud.Text { slot: 0 }
+
+on frame {
+    frames += 1
+    if frames == 60 {
+        let a = hud.text(hud.Corner.TopLeft, "LumaKit")
+        let b = hud.text(hud.Corner.TopLeft, "second row")
+        hud.text(hud.Corner.Top, "top")
+        hud.text(hud.Corner.Left, "left")
+        hud.text(hud.Corner.Right, "right")
+        hud.text(hud.Corner.BottomLeft, "bottom left")
+        hud.text(hud.Corner.Bottom, "bottom", 120)
+        score = hud.counter(hud.Corner.TopRight, 0)
+        bar = hud.meter(hud.Corner.BottomRight, 10)
+        clock = hud.timer(hud.Corner.BottomRight, 0)
+        gone = hud.text(hud.Corner.Top, "to remove")
+        hud.popup("LumaKit", "hud conformance")
+        made = true
+        log fact "stacked" a.slot + 1 == b.slot
+        log fact "made" a.slot != 0 and score.slot != 0 and bar.slot != 0 and clock.slot != 0
+    }
+    if made {
+        hud.set_counter(score, frames as i64)
+        hud.set_meter(bar, (frames / 30) as i32)
+    }
+    if stages >= 2 {
+        stage_frames += 1
+        if stage_frames == 120 {
+            log fact "kept_after_stage" score.slot != 0
+        }
+    }
+    if frames == 240 {
+        hud.remove_text(gone)
+        hud.run_timer(clock, false)
+        log fact "removed" true
+    }
+}
+
+on stage "EggStarGalaxy" {
+    stages += 1
+}

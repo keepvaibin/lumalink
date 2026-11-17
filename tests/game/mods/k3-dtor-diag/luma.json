@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k3-dtor-diag",
+  "version": "1.0.0",
+  "name": "k3-dtor-diag",
+  "summary": "k5-c (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

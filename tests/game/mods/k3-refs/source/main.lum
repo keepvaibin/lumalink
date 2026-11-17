@@ -1,0 +1,22 @@
+// K3 conformance, handles (language 6.2; abi 7.3): ref(view) of the player; two handles to one object are equal;
+// get() gives the object while it lives. A stage change destroys it: get() then gives none (the before hook on
+// NameObj::~NameObj emptied its slot, and with no slot left took itself out), the handle itself stays a value, and a
+// handle to the new player is another.
+
+var held: ref<LiveActor>? = none
+var calls = 0
+
+hook after MR::zeroVelocity(target) {
+    guard let actor = target else { return }
+    calls += 1
+    if calls == 1 {
+        let h = ref(actor)
+        held = h
+        let back = h.get()
+        let made = (h == ref(actor), back != none, same(back ?? actor, actor))
+        log fact "made" made
+        return
+    }
+    let after = (held!.get() == none, held != none, ref(actor) != held!)
+    log fact "after" after
+}

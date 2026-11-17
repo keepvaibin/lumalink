@@ -1,0 +1,20 @@
+// Mario's first jump height (the game's 22.0) set to 30.0 for this mod; the game's again when it is taken out.
+on start {
+    log fact "set" set_table("Game/Player/MarioConst.cpp#gMarioConstDefault", "mJumpHeight", 0, 30.0)
+    log fact "jump" table("Game/Player/MarioConst.cpp#gMarioConstDefault", "mJumpHeight", 0) ?? -1.0
+}
+
+// The player exists once the stage is up (MarioAccess has no player before a scene).
+on stage "EggStarGalaxy" {
+    start probe()
+}
+
+// The player seen as a LiveActor, then narrowed back: a MarioActor, and no Kuribo.
+task probe() {
+    wait 60 frames
+    guard let m = MarioAccess::getPlayerActor() else { return }
+    guard let a = as_class<LiveActor>(m) else { return }
+    let back = as_class<MarioActor>(a)
+    log fact "downcast" back != none
+    log fact "not_kuribo" as_class<Kuribo>(a) == none
+}

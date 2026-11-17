@@ -1,0 +1,26 @@
+// kit.camera conformance, the second mod (two_mods, rule 7): when kit-camera says two_start (its log line through the
+// harness's cue: this mod waits for the stage and kit-camera's own timing), it takes the camera 30 frames later at an
+// eye 2000 behind the player, holds it 30 frames, and ends it.
+use kit.camera
+use svc.draw.view
+
+task run() {
+    // kit-camera's two_mods starts after its other cases; the harness cues this mod (test.json `call`) by its fact.
+    // The harness holds ONE for a frame as the cue; polled each frame (the game itself reads that button only in
+    // a few places, so a hook on the read would miss it).
+    wait until MR::testCorePadTrigger1(0)
+    wait 30 frames
+    guard let p = MarioAccess::getPlayerActor() else { return }
+    let at = MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+    let zero = vec3(0.0, 0.0, 0.0)
+    let c = camera.take(view.Camera { rig: view.Rig.Fixed, eye: at + vec3(0.0, 600.0, -2000.0), at: at,
+                                      up: vec3(0.0, 1.0, 0.0), fov_y: 45.0, actor: p, offset: zero, joint: "",
+                                      near_z: 0.0 })
+    wait 30 frames
+    camera.end(c)
+    log fact "b_done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

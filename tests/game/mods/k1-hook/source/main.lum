@@ -1,0 +1,8 @@
+on start {
+    log fact "started" true
+}
+
+hook after CameraLocalUtil::getNormalizedOr(v, fallback) -> r {
+    log fact "seen" v
+    result = r * 2.0
+}

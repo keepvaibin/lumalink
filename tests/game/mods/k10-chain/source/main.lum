@@ -1,0 +1,18 @@
+// K10 (abi draft 3 addition 2, lumakit rule 8): k10-chain calls k10mid, which calls k10inner, whose multiplication
+// overflows. The report is k10-chain's, at the line of its call (line 15), not a library's: each export passes the
+// first caller and its place through. The run of that frame ends there; `after` is never logged.
+
+use k10mid.mid
+
+var frames = 0
+
+on frame {
+    frames += 1
+    if frames == 5 {
+        let small = mid.twice(3)
+        log fact "small" small
+        log fact "before" true
+        let v = mid.twice(5000)
+        log fact "after" v
+    }
+}

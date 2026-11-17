@@ -1,0 +1,128 @@
+// kit.item conformance (lumakit-modules.md row 2; lumakit.md 2.4). The harness walks the player (test.json); each
+// case writes its facts:
+// placed            the mod's stage layer places "kit-item/key" (kit/item/key.json, Carry 1; layers/base patches
+//                   EggStarGalaxy's common objinfo) 300 units in front of scenario 1's start (its start faces -144.27
+//                   degrees about y); the harness walks into it: carried is 1
+// spawned, gives_each  an item defined in code spawned on the player for each kind of gives: the game's counters move
+//                   by exactly that; Call runs once with the player
+// bubble            a Bubble item's object stands 250 units above its place
+// crystal           a Crystal item is held while its crystal stands and taken once it is broken
+// inventory_reload  the stage loaded again: carried is still 1; use_one once, then none left
+// mod_off           the harness takes the mod out: `on stop` writes the log line the test ends on
+use kit.item
+
+var calls: u32 = 0
+var runs: u32 = 0
+
+fn called(p: MarioActor) {
+    calls += 1
+}
+
+fn here() -> vec3 {
+    return MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+}
+
+// An item of this mod giving `g`, spawned on the player and given time to be taken.
+task take(id: text, g: item.Gives) {
+    let made = item.define(item.Item { id: id, look: model "Key", gives: g, floats: false })
+    item.spawn(made, here())
+    wait 20 frames
+}
+
+task first_run() {
+    wait 60 frames
+    log fact "find_data" item.find("key") != none
+    log fact "ready" true
+    // placed: the harness walks into the key.
+    wait 150 frames
+    if let key = item.find("key") {
+        log fact "placed_carried" item.carried(key)
+    }
+
+    // spawned, gives_each
+    let coins = MR::getCoinNum()
+    wait start take("coins", item.Gives.Coins(3))
+    log fact "coins_more" MR::getCoinNum() - coins
+    let bits = MR::getStarPieceNum()
+    wait start take("bits", item.Gives.StarBits(5))
+    log fact "bits_more" MR::getStarPieceNum() - bits
+    let lives = MR::getPlayerLeft()
+    wait start take("life", item.Gives.Lives(1))
+    log fact "lives_more" MR::getPlayerLeft() - lives
+    wait start take("heart", item.Gives.Health(1))
+    wait start take("call", item.Gives.Call(called))
+    log fact "call_ran" calls
+
+    // bubble: 800 units ahead so the player does not touch it.
+    let far_at = here() + vec3(800.0, 0.0, 0.0)
+    let bubble = item.define(item.Item { id: "bubble", look: model "Key", gives: item.Gives.Coins(1), container: item.Container.Bubble })
+    if let made = item.spawn(bubble, far_at) {
+        let kept = ref(made)
+        wait 2 frames
+        if let b = kept.get() {
+            log fact "bubble_height" length(b.mPosition - far_at)
+            b.kill()
+        }
+    }
+
+    // crystal: spawned on the player; held while its crystal stands, taken once the crystal is killed.
+    let boxed = item.define(item.Item { id: "boxed", look: model "Key", gives: item.Gives.Coins(7), container: item.Container.Crystal,
+                                        floats: false })
+    let before = MR::getCoinNum()
+    var boxed_obj: ref<LiveActor>? = none
+    if let made = item.spawn(boxed, here()) {
+        boxed_obj = ref(made)
+    }
+    wait 40 frames
+    // The crystal's collision puts the player out of it: the player is put on the item again (its touch, held and
+    // then taken) before each fact.
+    var item_at = here()
+    if let r = boxed_obj {
+        if let o = r.get() {
+            item_at = o.mPosition
+        }
+    }
+    MR::setPlayerPos(item_at)
+    wait 10 frames
+    log fact "crystal_held" MR::getCoinNum() == before
+    // Its own crystal (the stage's zones have others of the same class: a search by name finds one of theirs).
+    var found = false
+    if let r = boxed_obj {
+        if let o = r.get() {
+            if let cage = item.cage_of(o) {
+                found = true
+                cage.kill()
+            }
+        }
+    }
+    log fact "crystal_found" found
+    wait 2 frames
+    MR::setPlayerPos(item_at)
+    wait 40 frames
+    log fact "crystal_taken" MR::getCoinNum() == before + 7
+    log fact "first_done" true
+}
+
+task second_run() {
+    wait 60 frames
+    if let key = item.find("key") {
+        log fact "reload_carried" item.carried(key)
+        log fact "carried_all_len" item.carried_all().len()
+        log fact "use_one" item.use_one(key)
+        log fact "use_none" item.use_one(key)
+    }
+    log fact "reload_done" true
+}
+
+on stage "EggStarGalaxy" {
+    runs += 1
+    if runs == 1 {
+        start first_run()
+    } else {
+        start second_run()
+    }
+}
+
+on stop {
+    log "kit-item: taken out"
+}

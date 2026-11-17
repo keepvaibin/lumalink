@@ -1,0 +1,25 @@
+{
+  "format": "1.0",
+  "id": "kit-net.kit",
+  "version": "1.0.0",
+  "name": "kit-net.kit",
+  "summary": "LumaKit net.kit conformance: ordered messages through a lossy relay, a peer leaving, the clock, a page served.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "permissions": [
+    {
+      "name": "net.local",
+      "why": "The test talks to itself over this machine's network."
+    }
+  ],
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

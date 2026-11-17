@@ -1,0 +1,63 @@
+// K3 conformance, json (D7.4, D4.10): json.encode's form of structs, enums with and without values, maps keyed by
+// integers, options and vectors; json.decode<T> reading each back (a struct's missing field its default, extra keys
+// skipped, a key written twice its last value; a number past the type, a fraction for an integer, a bad document,
+// bytes that are not UTF-8 all none); json.Value literals known when compiling and made when running, and its
+// methods.
+
+struct Point {
+    x: i32
+    y: i32 = 7
+}
+
+enum Move { Stand, Walk(speed: f32), Jump { height: f32, twice: bool } }
+
+struct Save {
+    name: text
+    at: vec3
+    moves: list<Move>
+    best: map<text, i32>
+    by_level: map<i32, bool>
+    note: text?
+    kids: list<Save> = []
+}
+
+on start {
+    let p = Point { x: 1, y: 2 }
+    log fact "point" json.encode(p)
+    let d = json.decode<Point>("\{\"x\": 5\}") ?? Point { x: 0, y: 0 }
+    let dxy = (d.x, d.y)
+    log fact "default" dxy
+    let e = json.decode<Point>(" \{\"x\": 1, \"z\": [1, \{\}, \"\\u00e9\"], \"x\": 3\} ") ?? Point { x: 0, y: 0 }
+    let exy = (e.x, e.y)
+    log fact "extra" exy
+    let nones = (json.decode<Point>("\{\"y\": 1\}") == none, json.decode<Point>("[1]") == none, json.decode<Point>("\{\"x\": 1.5\}") == none, json.decode<Point>("\{\"x\": 2147483648\}") == none, json.decode<Point>("\{\"x\": 1\} x") == none, json.decode<i32>(" 5 ") ?? 0)
+    log fact "none" nones
+    let moves = [Move.Stand, Move.Walk(speed: 1.5), Move.Jump { height: 2.0, twice: true }]
+    log fact "moves" moves
+    let back = json.decode<list<Move>>(json.encode(moves)) ?? []
+    let enums = (back == moves, json.decode<Move>("\"Walk\"") == none, json.decode<Move>("\{\"Walk\": \{\"speed\": 1\}, \"Stand\": \{\}\}") == none, json.decode<Move>("\"Stand\"") == Move.Stand)
+    log fact "enums" enums
+    let kid = Save { name: "kid", at: vec3(0.0, 0.5, -1.0), moves: [], best: {}, by_level: {}, note: none }
+    let s = Save { name: "mario \"m\"", at: vec3(1.0, 2.5, -3.0), moves: moves, best: {"egg": 30, "honey": 7}, by_level: {20: false, 1: true}, note: "hi", kids: [kid] }
+    let text = json.encode(s)
+    let s2 = json.decode<Save>(text)
+    let saves = ((s2 ?? kid) == s, json.encode(s.by_level), json.encode(s.best), json.encode(kid.note))
+    log fact "save" saves
+    let k = 4
+    let v: json.Value = {"n": 3, "list": [1, "two", none, true], "f": 2.5, "s": "a\"b", "c": #ff000080}
+    log fact "raw" v
+    let w: json.Value = {"k": k, "p": p, "t": "k={k}", "m": moves[1]}
+    log fact "made" w
+    let n = v.get("n")?.int() ?? -1
+    let two = v.get("list")?.at(1)?.text() ?? "?"
+    let gone = v.get("nope") == none
+    let items = v.get("list")?.list() ?? []
+    let f = v.get("f")?.float() ?? 0.0
+    let quote = v.get("s")?.text() ?? ""
+    let flag = v.get("list")?.at(3)?.bool() ?? false
+    let keys = (v.map() ?? {}).len()
+    let values = (n, two, gone, items.len(), f, quote, flag, keys, v.int() == none, v.get("f")?.int() == none)
+    log fact "value" values
+    let from_bytes = (json.decode<list<i32>>("[1, 2]".bytes()) ?? [], json.decode<list<text>>(b"[\"\xff\"]") == none, json.decode<list<text>>(b"[\"\xc3\xa9\"]") ?? [])
+    log fact "bytes" from_bytes
+}

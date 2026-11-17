@@ -1,0 +1,101 @@
+// K3 conformance, text (language 3, 6.3; abi 5 and addition 6): literals, interpolation, order and equality, len,
+// starts_with, ends_with, find, slice, hash32, a text pattern; structs, options, enums and tuples holding text; module
+// values and functions giving text; lower/upper (simple case mapping), parse_int, parse_float; the game's `const char *` both ways. Counts: a text kept past its loop round
+// keeps its bytes while every other round's block is given back and reused.
+
+struct Tag {
+    name: text
+    n: i32 = 1
+}
+
+enum Shape { Dot, Label(text: text, size: i32) }
+
+var greeting: text = "hello"
+let fixed = "fixed"
+
+fn greet(who: text) -> text {
+    return "{greeting} {who}"
+}
+
+fn pick(flag: bool) -> text? {
+    if flag { return "yes" }
+    return none
+}
+
+fn label_of(s: Shape) -> text {
+    return match s {
+        Shape.Dot => "dot"
+        Shape.Label(t, size) => "{t}:{size}"
+    }
+}
+
+fn kind(t: text) -> i32 {
+    return match t {
+        "abc" => 1
+        "" => 2
+        else => 0
+    }
+}
+
+on start {
+    let a = "abc"
+    let c = "c"
+    let b = "ab{c}"
+    let order = (a == b, a != b, a < "abd", "b" > a, a <= b, a >= "abd")
+    log fact "order" order
+    let w = "héllo wörld"
+    let lens = (w.len(), "".len(), a.len())
+    log fact "len" lens
+    let ends = (w.starts_with("hé"), w.ends_with("rld"), w.starts_with("x"), w.ends_with(""))
+    log fact "ends" ends
+    let finds = (w.find("wö") ?? -1, w.find("zz") ?? -1, w.find("") ?? -1)
+    log fact "find" finds
+    let slices = (w.slice(0, 3), w.slice(7, 10), w.slice(3, 3))
+    log fact "slice" slices
+    let hashes = (hash32(""), hash32("a"), hash32(w))
+    log fact "hash" hashes
+    log fact "greet" greet("mario")
+    greeting = "bye"
+    log fact "greet2" greet(fixed)
+    var t = Tag { name: "x" }
+    t.name = "{t.name}{t.n}"
+    let t2 = Tag { name: "x1" }
+    let tags = (t.name, t == t2, t != Tag { name: "x1", n: 2 })
+    log fact "tag" tags
+    let o = pick(true)
+    let gone = pick(false)
+    let opts = (o ?? "-", gone ?? "-", o == pick(true), gone == none)
+    log fact "opt" opts
+    let shapes = (label_of(Shape.Label(text: "big", size: 3)), label_of(Shape.Dot), Shape.Label(text: "a", size: 1) == Shape.Label(text: "a", size: 1), Shape.Label(text: "a", size: 1) == Shape.Label(text: "b", size: 1))
+    log fact "shape" shapes
+    let kinds = (kind(a), kind(""), kind(b), kind("abd"))
+    log fact "kinds" kinds
+    var kept = ""
+    var last = ""
+    for i in 0..300 {
+        let s = "round {i} of many"
+        if i == 7 { kept = s }
+        last = s
+    }
+    let rounds = (kept, last)
+    log fact "kept" rounds
+    let pair = ("left", greet("pair"))
+    log fact "pair" pair
+    let cases = ("Héllo ÀÉ ß İ".lower(), "héllo àé ß ǆ".upper(), "abc".lower(), "".upper())
+    log fact "cases" cases
+    let ints = ("42".parse_int() ?? 0, "-9223372036854775808".parse_int() ?? 0, "9223372036854775808".parse_int() == none, "4x".parse_int() == none)
+    log fact "ints" ints
+    let floats = ("0.1".parse_float() ?? 0.0, "-2.5e3".parse_float() ?? 0.0, "1e400".parse_float() == none, "x".parse_float() == none, "4.9406564584124654e-324".parse_float() ?? 0.0)
+    log fact "floats" floats
+}
+
+// The game's text: a result copied (the stage's name), arguments passed as kept copies, a field read (NameObj's).
+hook after MR::zeroVelocity(target) {
+    guard let actor = target, let me = MarioAccess::getPlayerActor(), same(actor, me) else { return }
+    let stage = MR::getCurrentStageName() ?? "none"
+    let stages = (stage, MR::isEqualStageName(stage), MR::isEqualStageName("{stage}x"), MR::isEqualString("abc", "abc"), MR::isEqualString("abc", "abd"))
+    log fact "stage" stages
+    let name = me.mName
+    let names = (name != none, MR::isEqualString(name ?? "", name ?? "-"), (name ?? "").len() > 0)
+    log fact "name" names
+}

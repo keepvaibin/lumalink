@@ -1,0 +1,24 @@
+{
+  "format": "1.0",
+  "id": "kit-actor-b",
+  "version": "1.0.0",
+  "name": "kit-actor-b",
+  "summary": "LumaKit actor conformance, the second mod of two_mods_one_name.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

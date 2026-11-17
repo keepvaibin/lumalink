@@ -1,0 +1,123 @@
+{
+  "harness": 1,
+  "name": "kit-cutscene",
+  "about": "LumaKit cutscene (lumakit.md 2.13, lumakit-modules.md row 19). kit-cutscene plays three scenes on EggStarGalaxy. each_shot / run_through: a scene made in code of a Look at the first Kuribo, a Move, an Action (the Kuribo's own 'Walk'), a Wait, a Call and a Line said as a message (A closes it): play gives true, the Call ran once, the camera moved (the main camera's place differs mid-Move from its start by more than 100 units) and is the game's again at the end (within 1 unit of where it would be: the player has not moved), the player's control is back. letterbox: mid-scene MR::isStopCinemaFrame is false while the bars move and the picture 'bars' shows them. skipped: the data scene tour.json started and PLUS held: play gives false within 5 frames, everything put back. actor_dies: a scene of a 600-frame Look at a Kuribo that the mod kills at frame 30 of it: the shot ends early (under 60 frames), the scene runs on and gives true. WAITING: kit.camera (FB: take, aim, end, now), svc.draw.view in the SDK, `sound` as a type and `as?` (K), mods.kit_read binding (K), `on mods.stopped(gone)` beside `use svc.mods` (K).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.cutscene"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-cutscene"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-cutscene.in_move",
+        "is": true
+      },
+      "picture": "bars",
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-cutscene.line_open",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 3,
+      "timeout": 1200
+    },
+    {
+      "after": {
+        "fact": "mod.kit-cutscene.tour_started",
+        "is": true
+      },
+      "hold": [
+        "PLUS"
+      ],
+      "frames": 3,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-cutscene.done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 2400
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-cutscene.run_through",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.call_ran",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-cutscene.camera_moved",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.camera_back",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.letterbox_on",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.active_during",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.active_after",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-cutscene.tour_found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.skipped",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.skip_put_back",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.actor_dies_ran_on",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-cutscene.actor_dies_shot_short",
+      "is": true
+    },
+    {
+      "picture": "bars",
+      "box": [
+        0,
+        0,
+        64,
+        8
+      ],
+      "mean_rgb": [
+        0,
+        0,
+        0
+      ],
+      "within": 12
+    }
+  ]
+}

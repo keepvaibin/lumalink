@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k5-c",
+  "version": "1.0.0",
+  "name": "k5-c",
+  "summary": "k5-c (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

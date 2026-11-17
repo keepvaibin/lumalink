@@ -1,0 +1,24 @@
+{
+  "format": "1.0",
+  "id": "kit-stage-more",
+  "version": "1.0.0",
+  "name": "kit-stage-more",
+  "summary": "LumaKit stage conformance: a galaxy listed after 20 stars, its stars counted, a comet star, music, a stage built in code, a star appearing.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

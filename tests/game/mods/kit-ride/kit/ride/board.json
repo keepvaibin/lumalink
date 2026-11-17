@@ -1,0 +1,8 @@
+{
+  "look": "Board",
+  "seat_joint": "Seat",
+  "speed": 15.0,
+  "jump": 30.0,
+  "turn_degrees": 6.0,
+  "surface": true
+}

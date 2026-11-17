@@ -1,0 +1,13 @@
+// kit-screen's watcher (lumakit-modules.md row 17, case mod_stops_open): each frame after kit-screen says its last
+// screen is open, the number of mods holding the world, as the fact "holders" (the test reads it after the take-out).
+use svc.time
+
+var last: u32 = 4294967295
+
+on frame {
+    let n = time.now()
+    if n.holders != last {
+        last = n.holders
+        log fact "holders" last
+    }
+}

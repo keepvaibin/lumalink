@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k10-chain",
+  "version": "1.0.0",
+  "name": "k10-chain",
+  "summary": "k10-chain (a conformance mod): a script error two libraries down is reported at this mod's line.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "k10mid",
+      "version": ">=1.0.0"
+    }
+  ]
+}

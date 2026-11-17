@@ -1,0 +1,86 @@
+{
+  "harness": 1,
+  "name": "kit-stage-more",
+  "about": "LumaKit stage (lumakit.md 2.16, lumakit-modules.md row 22), with J's kit-stage (data, code, hub, warp). listed_after_20: a galaxy unlocked by 20 stars has not appeared with fewer and has once the file holds 20 (the mod's own stars count through kit.progress); the game's own number to open it is 20. stars_counted: a star of it got through kit.progress is one star owned in it, and the game's hasPowerStar says so for that scenario only. comet_star: the game's comet schedule answers scenario 2 for the galaxy (called by name). music: the stage's start asked svc.audio for the mod's music (the audio log line names KitTheme). built_in_code: the builder ran once at the stage's start and one more Kuribo lives than the stage's own files hold (object count by name, read before and after by the harness). appear_star: the holder stands where the star was asked for. downloaded_stage is the import test of kit-stage (J). WAITING: `fn(var Builder)` in a function type, make, model and sound types, as?, module cycles in one library (K); the marks on MR::getPlacementArg0NoInit and MR::initCollisionParts (were F's).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.stage"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-stage-more"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-stage-more.done",
+        "is": true
+      },
+      "call": "GameSequenceFunction::getEncounterGalaxyCometPowerStarId",
+      "signature": "s32(const char *)",
+      "args": [
+        "KitMoreGalaxy"
+      ],
+      "fact": "comet_star",
+      "timeout": 1800
+    },
+    {
+      "after": {
+        "fact": "comet_star",
+        "exists": true
+      },
+      "end": true,
+      "timeout": 300
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-stage-more.built_runs",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-stage-more.listed_before",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-stage-more.stars_to_open",
+      "is": 20
+    },
+    {
+      "fact": "mod.kit-stage-more.listed_after",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage-more.owned_before",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-stage-more.owned_after",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-stage-more.has_one",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage-more.has_two",
+      "is": false
+    },
+    {
+      "fact": "comet_star",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-stage-more.holder_distance",
+      "less": 1.0
+    },
+    {
+      "log": "music.*KitTheme"
+    }
+  ]
+}

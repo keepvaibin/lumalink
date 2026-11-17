@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "kit-screen-b",
+  "version": "1.0.0",
+  "name": "kit-screen-b",
+  "summary": "LumaKit screen conformance helper: writes how many mods hold the world each frame, so the test sees the world let go when kit-screen is taken out with a screen open.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

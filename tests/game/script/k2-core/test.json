@@ -1,0 +1,145 @@
+{
+  "harness": 1,
+  "name": "k2-core",
+  "about": "A LumaScript mod of two modules built by lumalink build: recursion, var and default parameters, struct and enum values, matches on cases, tuples, options (?? and !), guard, while, ranges with break and continue, checked integer arithmetic, shifts, as, vectors, min/max/clamp/abs, a game function call, if as a value, interpolated text, and/or; each result a fact",
+  "proves": [
+    "script.build"
+  ],
+  "mods": [
+    "../../mods/k2-core"
+  ],
+  "steps": [
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k2-core.fib",
+      "is": 55
+    },
+    {
+      "fact": "mod.k2-core.calls",
+      "is": 177
+    },
+    {
+      "fact": "mod.k2-core.ops",
+      "is": [
+        5,
+        -1,
+        8
+      ]
+    },
+    {
+      "fact": "mod.k2-core.point",
+      "near": [
+        2.25,
+        0.5
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-core.split",
+      "is": [
+        4,
+        2
+      ]
+    },
+    {
+      "fact": "mod.k2-core.found",
+      "is": 7
+    },
+    {
+      "fact": "mod.k2-core.missing",
+      "is": -1
+    },
+    {
+      "fact": "mod.k2-core.unwrapped",
+      "is": 9
+    },
+    {
+      "fact": "mod.k2-core.sum",
+      "is": 245
+    },
+    {
+      "fact": "mod.k2-core.grades",
+      "is": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "fact": "mod.k2-core.while",
+      "is": 7
+    },
+    {
+      "fact": "mod.k2-core.area",
+      "near": 10.0,
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-core.shift",
+      "is": 19
+    },
+    {
+      "fact": "mod.k2-core.conv",
+      "is": 250
+    },
+    {
+      "fact": "mod.k2-core.vec",
+      "near": [
+        2,
+        5,
+        6
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-core.math",
+      "is": [
+        3,
+        9,
+        10,
+        4
+      ]
+    },
+    {
+      "fact": "mod.k2-core.game",
+      "near": [
+        0,
+        0,
+        1
+      ],
+      "within": 0.0001
+    },
+    {
+      "fact": "mod.k2-core.text",
+      "is": "fib5 1 7"
+    },
+    {
+      "fact": "mod.k2-core.and",
+      "is": true
+    },
+    {
+      "fact": "mod.k2-core.defers",
+      "is": [
+        2,
+        21,
+        0,
+        231,
+        4
+      ]
+    },
+    {
+      "fact": "mod.k2-core.opt_x",
+      "near": [
+        2.25,
+        -1.0
+      ],
+      "within": 0.0
+    }
+  ]
+}

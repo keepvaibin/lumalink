@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-camera-b",
+  "version": "1.0.0",
+  "name": "kit-camera-b",
+  "summary": "LumaKit camera conformance, the second mod: takes the camera over kit-camera for 30 frames (rule 7).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

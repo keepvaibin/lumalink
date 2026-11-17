@@ -1,0 +1,100 @@
+// kit.menu conformance (lumakit-modules.md row 18; lumakit.md 2.12). kit-menu-b is first in the Mods list, so the
+// pause menu's mod entries read: Kit B, Kit A one (first line, left and right), Kit A two, Kit A off (disabled; second
+// line). They stand as the game's buttons under Back and Quit, in one highlight with them and the Settings button.
+// `on frame` writes the fact "cue" = 1, 2, ... every 30 frames (cue 1 held until the pause menu is open), and the test
+// (agents/luma/j/tests/kit-menu) gives the input on each:
+// cue 1 PLUS: the pause menu opens with the entries; cue 2: their picture
+// cue 2 UP: nothing has the highlight, so it goes to the top (Back); cue 3 DOWN: Quit; cue 4 LEFT: Kit B
+// cue 5 A: Kit B taken, kit-menu-b's ("b_chosen" 1: two_mods_order, chosen)
+// cue 6 RIGHT: Kit A one (across, not up to Quit); cue 7 A: "a_one" 1
+// cue 8 DOWN: Kit A off is never highlighted, so the highlight goes on to Settings; cue 9 LEFT: from Settings that is
+//   Kit A two (from Kit A off it would be Settings); cue 10 A: "a_two" (disabled: "a_off" never written)
+// cue 11: this mod removes Kit A two ("removed": not alive) and relabels Kit A one ("label")
+// cue 12: the harness takes kit-menu-b out; its entry leaves (mod_stops): Kit A first takes the first place
+// cue 13 UP: Back (the highlight left with Kit A two's button); cue 14 DOWN: Quit; cue 15 LEFT: Kit A first
+// cue 16 A: "a_one" 2; its function closes the pause menu (menu.close_pause): 90 frames on, the game plays again
+//   ("pause_closed")
+use kit.menu
+use svc.time
+
+var since: u32 = 0
+var one = menu.Entry { id: 0 }
+var two = menu.Entry { id: 0 }
+var off = menu.Entry { id: 0 }
+var ones: u32 = 0
+
+task closed_later() {
+    wait 90 frames
+    log fact "pause_closed" time.now().state == time.State.Play
+}
+
+fn a_one() {
+    ones += 1
+    log fact "a_one" ones
+    if ones == 2 {
+        menu.close_pause()
+        start closed_later()
+    }
+}
+
+fn a_two() {
+    log fact "a_two" true
+}
+
+fn a_off() {
+    log fact "a_off" true
+}
+
+on start {
+    one = menu.add_pause_entry("Kit A one", a_one)
+    two = menu.add_pause_entry("Kit A two", a_two)
+    off = menu.add_pause_entry("Kit A off", a_off)
+    menu.enable(off, false)
+    log fact "added" menu.alive(one) and menu.alive(two) and menu.alive(off)
+}
+
+// Cues count only while a scene runs or the game holds it (its pause menu): never during boot or a load.
+// The test's stage is ready and the player has control (300 frames after its opening: the landing and the
+// game's key lock): before it, the harness makes its file and waits for the player to take input, which
+// a panel or a talk would hold.
+var staged = false
+
+task settle() {
+    wait 300 frames
+    staged = true
+}
+
+on stage "EggStarGalaxy" {
+    start settle()
+}
+
+fn in_scene() -> bool {
+    if not staged {
+        return false
+    }
+    let s = time.now().state
+    return s == time.State.Play or s == time.State.Menu
+}
+
+on frame {
+    if not in_scene() {
+        return
+    }
+    // Cue 1 stays until the harness's PLUS opened the pause menu: the harness may still be making its file and
+    // waiting for the player when the mod settles, and the cues after it are 30 frames apart from there.
+    if since == 30 and time.now().state != time.State.Menu {
+        return
+    }
+    since += 1
+    if since % 30 != 0 or since / 30 > 16 {
+        return
+    }
+    let n = since / 30
+    log fact "cue" n
+    if n == 11 {
+        menu.remove(two)
+        log fact "removed" not menu.alive(two)
+        menu.set_label(one, "Kit A first")
+        log fact "label" menu.alive(one)
+    }
+}

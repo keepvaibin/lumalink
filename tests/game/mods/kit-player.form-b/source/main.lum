@@ -1,0 +1,23 @@
+// kit.player.form conformance, the second mod (two_mods, rule 7): when a form of the first mod named "mine" holds,
+// this mod gives its own form over it for 60 steps; the first mod's form holds again when this one ends.
+use kit.player.form
+
+var given: bool = false
+
+task run() {
+    let over_it = form.define(form.Form { id: "over", timer_frames: 60 })
+    while not given {
+        wait 5 frames
+        if let c = form.current() {
+            if form.id_of(c) == "mine" {
+                form.set(over_it)
+                given = true
+                log fact "given" form.is_current_form(over_it)
+            }
+        }
+    }
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

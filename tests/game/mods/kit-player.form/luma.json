@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-player.form",
+  "version": "1.0.0",
+  "name": "kit-player.form",
+  "summary": "LumaKit player.form conformance: by item and by code, Luigi's look, timer and meter, damage, on_spin, scale, a game form, two mods, mod off.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.player.form": 1
+  },
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

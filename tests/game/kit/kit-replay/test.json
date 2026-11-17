@@ -1,0 +1,174 @@
+{
+  "harness": 1,
+  "name": "kit-replay",
+  "about": "LumaKit replay (lumakit.md 2.19, lumakit-modules.md row 15). On EggStarGalaxy the harness walks the player (stick up 120 frames, a jump, stick right 60) while kit-replay records the player's poses and the inputs. Cases: play_back_exact (the pose track encoded, decoded and compared step for step with the one recorded: difference 0; a puppet posed from it stands where the player stood at step 100, within 0.01), decode_other_platform (the bytes' hash is a fact, the same number on every platform's run of this test; bytes cut short and bytes with a wrong head decode to none), fifteen_puppets (15 made and alive, a 16th is an empty handle, all removed), inputs_same_end (the player put back at the start, the game's random numbers seeded as at the recording, the input track played in the camera the player read when recorded (axes, cut, turn): the end place within 1 unit of the recorded end), rewind_5s (rewind kept for 6 s, the player walks 300 steps, back(300) gives 300 and the player stands where they stood 300 steps before, within 1 unit). The puppet's look is the mod's model 'Ghost' (layers/base/assets). WAITING: dotted services (svc.input.inject), input.game binding, mat34 rows, bytes.text, model as a type, make (all K); MR::setPlayerBaseMtx mark (F); mods.stopped beside svc.mods (K). puppet_after_reload: 15 puppets left standing, the stage loaded again: the 15 are gone with their stage, a new puppet is made, stands where posed within 0.01 and is shown. pause_skipped: a recording across the game's pause menu (opened about 85 frames) is at least 40 steps shorter than the 240 frames it spanned.",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.replay"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-replay"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-replay.recording",
+        "is": true
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 120,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-replay.walk2",
+        "is": true
+      },
+      "stick": [
+        1,
+        0
+      ],
+      "frames": 60,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-replay.rewind_armed",
+        "is": true
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 300,
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "fact": "mod.kit-replay.done",
+        "is": true
+      },
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      },
+      "timeout": 6000
+    },
+    {
+      "after": {
+        "fact": "mod.kit-replay.pause_rec_ready",
+        "is": true
+      },
+      "hold": [
+        "PLUS"
+      ],
+      "frames": 4,
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "fact": "mod.kit-replay.pause_rec_mid",
+        "is": true
+      },
+      "hold": [
+        "PLUS"
+      ],
+      "frames": 4,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-replay.reload_done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 3000
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-replay.recorded_steps",
+      "at_least": 180
+    },
+    {
+      "fact": "mod.kit-replay.play_back_difference",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-replay.puppet_at_step_100",
+      "less": 0.01
+    },
+    {
+      "fact": "mod.kit-replay.bytes_hash",
+      "exists": true
+    },
+    {
+      "fact": "mod.kit-replay.cut_short_is_none",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-replay.wrong_head_is_none",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-replay.pose_round_trip",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-replay.puppets_made",
+      "is": 15
+    },
+    {
+      "fact": "mod.kit-replay.sixteenth_empty",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-replay.puppets_left",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-replay.inputs_end_distance",
+      "less": 1.0
+    },
+    {
+      "fact": "mod.kit-replay.rewind_steps",
+      "is": 300
+    },
+    {
+      "fact": "mod.kit-replay.rewind_distance",
+      "less": 1.0
+    },
+    {
+      "fact": "mod.kit-replay.puppets_before_reload",
+      "is": 15
+    },
+    {
+      "fact": "mod.kit-replay.puppet_after_reload",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-replay.puppet_after_reload_at",
+      "less": 0.01
+    },
+    {
+      "fact": "mod.kit-replay.puppet_after_reload_shown",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    },
+    {
+      "fact": "mod.kit-replay.pause_skipped",
+      "is": true
+    }
+  ]
+}

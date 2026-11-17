@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k3-containers",
+  "version": "1.0.0",
+  "name": "k3-containers",
+  "summary": "k3-containers (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

@@ -1,0 +1,17 @@
+{
+ "lines": {
+  "Probe.Row": {
+   "default": "Probe row",
+   "fr": "Ligne test",
+   "es": "Fila de prueba",
+   "de": "Testzeile",
+   "it": "Riga di prova",
+   "nl": "Testregel",
+   "pt": "Linha de teste",
+   "ja": "テスト行",
+   "ko": "테스트 줄",
+   "zh-Hans": "测试行",
+   "zh-Hant": "測試行"
+  }
+ }
+}

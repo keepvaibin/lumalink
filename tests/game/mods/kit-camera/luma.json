@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-camera",
+  "version": "1.0.0",
+  "name": "kit-camera",
+  "summary": "LumaKit camera conformance: take and end, aim, free camera, first person, side camera, mirror, a rig in a draw.view, two mods taking the camera.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

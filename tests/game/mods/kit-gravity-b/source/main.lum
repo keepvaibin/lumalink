@@ -1,0 +1,18 @@
+// kit.gravity conformance, the second mod (two_mods, rule 7): cued by the harness (ONE for a frame when kit-gravity
+// writes two_start), 20 frames later it overrides the player's gravity along +z for 30 frames, then ends it.
+use kit.gravity
+
+task run() {
+    // The harness holds ONE for a frame as the cue; polled each frame (the game itself reads that button only in
+    // a few places, so a hook on the read would miss it).
+    wait until MR::testCorePadTrigger1(0)
+    wait 20 frames
+    let o = gravity.override_player(gravity.Field.Parallel(direction: vec3(0.0, 0.0, 1.0)))
+    wait 30 frames
+    gravity.end_override(o)
+    log fact "b_done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

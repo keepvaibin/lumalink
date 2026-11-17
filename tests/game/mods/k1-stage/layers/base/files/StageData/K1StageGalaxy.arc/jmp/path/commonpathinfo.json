@@ -1,0 +1,21 @@
+{
+  "columns": {
+    "name": "string",
+    "type": "string",
+    "closed": "string",
+    "num": "int",
+    "l_id": "int",
+    "path_arg0": "int",
+    "path_arg1": "int",
+    "path_arg2": "int",
+    "path_arg3": "int",
+    "path_arg4": "int",
+    "path_arg5": "int",
+    "path_arg6": "int",
+    "path_arg7": "int",
+    "usage": "string",
+    "no": "int",
+    "Path_ID": "int"
+  },
+  "rows": []
+}

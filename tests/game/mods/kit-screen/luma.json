@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-screen",
+  "version": "1.0.0",
+  "name": "kit-screen",
+  "summary": "LumaKit screen conformance: message, choice, list and layout screens by pad and pointer, a list updated while open, pages, loading tips, a screen open when its mod stops.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

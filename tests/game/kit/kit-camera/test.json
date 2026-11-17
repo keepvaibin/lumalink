@@ -1,0 +1,147 @@
+{
+  "harness": 1,
+  "name": "kit-camera",
+  "about": "LumaKit camera (lumakit.md 2.9, lumakit-modules.md row 8). kit-camera and kit-camera-b on EggStarGalaxy. take_end: a fixed rig's eye is the main camera's; ended, the game's camera back near where it was. aim: each frame's eye is the main camera's. free: the stick ahead moves a free camera more than 600 in 30 frames. first_person: the player hidden and the near plane 5, then shown and the game's again. side: 1500 from the player. mirror: the stick's x read flipped while on. view_region: a draw.view on a follow rig made with its texture. two_mods: kit-camera-b's later take holds over kit-camera's; when it ends kit-camera's eye is back (rule 7). WAITING: K's back end for service structs with vec3/text/actor fields, == on a service enum, a const Vec3f& game result, list remove of an optional service struct, main_eye(none), list element assignment (K items 1-7). draw.view.texture's out is draw's handle (draw.Texture), another service's kind: S0134 on 9891658 (K: a service's out of another service's handle kind).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.camera",
+    "draw.view"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-camera",
+    "../../mods/kit-camera-b"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-camera.ready_free",
+        "is": true
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 30,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-camera.ready_mirror",
+        "is": true
+      },
+      "stick": [
+        1,
+        0
+      ],
+      "frames": 40,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-camera.two_start",
+        "is": true
+      },
+      "hold": [
+        "ONE"
+      ],
+      "frames": 1,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-camera.done",
+        "is": true
+      },
+      "take_out": "kit-camera",
+      "timeout": 900
+    },
+    {
+      "after": {
+        "log": "kit-camera: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-camera.take_eye",
+      "less": 5
+    },
+    {
+      "fact": "mod.kit-camera.aim_eye",
+      "less": 5
+    },
+    {
+      "fact": "mod.kit-camera.take_alive_after_end",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-camera.end_back",
+      "less": 200
+    },
+    {
+      "fact": "mod.kit-camera.free_moved",
+      "more": 600
+    },
+    {
+      "fact": "mod.kit-camera.fp_hidden",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera.fp_near",
+      "near": 5,
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-camera.fp_shown",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera.fp_near_back",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera.side_distance",
+      "near": 1500,
+      "within": 20
+    },
+    {
+      "fact": "mod.kit-camera.mirror_x",
+      "less": -0.5
+    },
+    {
+      "fact": "mod.kit-camera.mirror_off_x",
+      "more": 0.5
+    },
+    {
+      "fact": "mod.kit-camera.view_made",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera.view_texture",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera.two_b_holds",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera.two_mine_back",
+      "less": 5
+    },
+    {
+      "fact": "mod.kit-camera-b.b_done",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

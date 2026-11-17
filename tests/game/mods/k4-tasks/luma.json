@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k4-tasks",
+  "version": "1.0.0",
+  "name": "k4-tasks",
+  "summary": "k4-tasks (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

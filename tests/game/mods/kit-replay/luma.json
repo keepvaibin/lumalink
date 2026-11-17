@@ -1,0 +1,30 @@
+{
+  "format": "1.0",
+  "id": "kit-replay",
+  "version": "1.0.0",
+  "name": "kit-replay",
+  "summary": "LumaKit replay conformance: a run played back pose for pose, a track's bytes, 15 puppets, inputs replayed to the same place, rewind of 5 seconds.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "permissions": [
+    {
+      "name": "input.inject",
+      "why": "Plays a recorded run back as the player."
+    }
+  ],
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

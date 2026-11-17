@@ -1,0 +1,57 @@
+{
+  "harness": 1,
+  "name": "k9-kit",
+  "about": "A mod's own enemy kind built on LumaKit (plan 5.2; lumakit.md 2.4, 2.6; abi draft 3 addition 2): every Goomba is made as Chaser, which walks toward the player through kit.actor; the player, placed above the first one, lands on it; the Chaser is told of the trample through kit.actor.attack_of and, defeated, drops two coins through kit.actor.drop and kit.item. Every call crosses from k9-kit into lumakit through a kind 6 import",
+  "proves": [
+    "script.build",
+    "script.library.export",
+    "script.library.call",
+    "kit.actor",
+    "kit.item",
+    "kernel.classes.override"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/k9-kit"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "player": {
+    "at": "Kuribo#0"
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.k9-kit.dropped",
+        "at_least": 2
+      },
+      "timeout": 900,
+      "wait": true
+    },
+    {
+      "at": 1000,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k9-kit.trampled",
+      "at_least": 1
+    },
+    {
+      "fact": "mod.k9-kit.told",
+      "at_least": 1
+    },
+    {
+      "fact": "mod.k9-kit.dropped",
+      "at_least": 2
+    },
+    {
+      "fact": "mod.k9-kit.walked",
+      "is": true,
+      "when": "any"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k3-json",
+  "version": "1.0.0",
+  "name": "k3-json",
+  "summary": "k3-json (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "look": "Key",
+  "gives": {
+    "Carry": {
+      "n": 1
+    }
+  },
+  "floats": true
+}

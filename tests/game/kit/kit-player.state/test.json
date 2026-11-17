@@ -1,0 +1,209 @@
+{
+  "harness": 1,
+  "name": "kit-player.state",
+  "about": "gravity_before and gravity_after are the table's mGravityJumping[0] for Mario (1.8): the tuning to half is undone when the mod is taken out. LumaKit player.state (lumakit.md 2.2, lumakit-modules.md row 6): kit-player.state defines a double jump (once per air), a glide ending on ground, a dive on its own action, a ground pound that hurts as HipDrop, tunes run speed double and ends it exactly; kit-player.state-b defines its own move on another action; the first mod is taken out mid-glide and the game's gravity is back. Cases: double_jump, glide, dive, ground_pound, tune_end, two_mods, mod_off_mid_move. The dive's action is this mod's; the kit reads it (a library reads its users' actions).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.player.state"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-player.state",
+    "../../mods/kit-player.state-b"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 1
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 10,
+      "timeout": 1500
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 2
+      },
+      "call": "getMarioConstant",
+      "signature": "f32(s32, const char *, s32)",
+      "args": [
+        0,
+        "mGravityJumping",
+        0
+      ],
+      "fact": "gravity_before",
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 3
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 10,
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 4
+      },
+      "picture": "glide",
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 5
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 10,
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 6
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 10,
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 7
+      },
+      "hold": [
+        "B"
+      ],
+      "frames": 5,
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 9
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 10,
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 8
+      },
+      "take_out": "kit-player.state",
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 8
+      },
+      "call": "getMarioConstant",
+      "signature": "f32(s32, const char *, s32)",
+      "args": [
+        0,
+        "mGravityJumping",
+        0
+      ],
+      "fact": "gravity_after",
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.state.cue",
+        "is": 8
+      },
+      "end": true,
+      "timeout": 600
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-player.state.defined",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.double_jump_once",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.double_jump_back_on_ground",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.glide_entered",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.glide_ended_on_ground",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.ground_pound_entered",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.ground_pound_landed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.dive_defined",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.dive_ran",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.tune_end_doubled",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.tune_end_exact",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state-b.defined",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.two_mods_own_only",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.state.mod_off_glide",
+      "is": true
+    },
+    {
+      "fact": "gravity_after",
+      "near": 1.8,
+      "within": 0.0001
+    },
+    {
+      "fact": "gravity_before",
+      "near": 1.8,
+      "within": 0.0001
+    }
+  ]
+}

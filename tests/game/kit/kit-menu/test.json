@@ -1,0 +1,240 @@
+{
+  "harness": 1,
+  "name": "kit-menu",
+  "about": "LumaKit menu (lumakit.md 2.12, lumakit-modules.md row 18): kit-menu-b (first in the Mods list) adds Kit B, kit-menu adds Kit A one, two and off (disabled). In the pause menu they stand as the game's buttons under Back and Quit, two by two: Kit B and A one, then A two and A off, in one highlight with Back, Quit and Settings. UP DOWN LEFT reach Kit B, lit as the game's button (picture lit), and A takes it (two_mods_order, chosen); RIGHT goes across to A one, A takes it; DOWN passes A off (never highlighted) to Settings, LEFT from there is A two, A takes it (disabled: a_off never runs); kit-menu removes A two (removed), kit-menu-b is taken out and its entry leaves, UP DOWN LEFT reach Kit A first and A takes it (mod_stops). close_pause: Kit A one's second run closes the game's pause menu as its pause button does; 90 frames on the game plays again. Pictures: entries (Back and Quit made smaller and moved up, the four rows two by two under them, labels whole) with a box around the rows against its reference; lit is taken to look at.",
+  "proves": [
+    "script.build",
+    "kit.menu"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-menu-b",
+    "../../mods/kit-menu"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 1
+      },
+      "hold": [
+        "PLUS"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 2
+      },
+      "picture": "entries"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 2
+      },
+      "hold": [
+        "UP"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 3
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 4
+      },
+      "hold": [
+        "LEFT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 5
+      },
+      "picture": "lit"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 5
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 6
+      },
+      "hold": [
+        "RIGHT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 7
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 8
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 9
+      },
+      "hold": [
+        "LEFT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 10
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 12
+      },
+      "take_out": "kit-menu-b"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 13
+      },
+      "hold": [
+        "UP"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 14
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 15
+      },
+      "hold": [
+        "LEFT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.cue",
+        "is": 16
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu.pause_closed",
+        "is": true
+      },
+      "end": true,
+      "timeout": 2400
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-menu-b.added",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-menu.added",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-menu-b.b_chosen",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-menu.a_one",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-menu.removed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-menu.a_two",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-menu.label",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-menu.a_off",
+      "absent": true
+    },
+    {
+      "fact": "mod.kit-menu.pause_closed",
+      "is": true
+    },
+    {
+      "picture": "entries",
+      "like": "refs/entries-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        305,
+        430,
+        670,
+        150
+      ]
+    }
+  ]
+}

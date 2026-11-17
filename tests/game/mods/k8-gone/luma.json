@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k8-gone",
+  "version": "1.0.0",
+  "name": "k8-gone",
+  "summary": "k8-gone (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

@@ -1,0 +1,294 @@
+// kit.actor conformance (lumakit-modules.md row 1; lumakit.md 2.6; the body is K's k/mods/lumakit/source/actor.lum).
+// Each case writes its facts:
+// stands              the placed walker (on_ground, on the curved start planet) after 300 frames: within a few units
+//                     of its row's place and of where it stood, its up against its gravity, on the ground
+// lands               an on_ground kind spawned 300 units above the ground falls onto it and rests there, upright
+// floats              an on_ground false kind spawned in the air has not moved at all after 300 frames
+// skinned_shown       a kind whose look is the mod's own skinned glTF, spawned 300 units in front of the player, is in
+//                     the harness's picture and stays near where it was spawned
+// placed_from_data    the mod's stage layer places "kit-actor/walker" (layers/base patches EggStarGalaxy's common
+//                     objinfo, 800 units from scenario 1's start; kit/actor/walker.json the kind): one stands
+// spawned             the same kind spawned mid-stage: two stand; all() holds both
+// walks               a kind made in code moves toward the player each frame (on_frame + move_toward_player): its
+//                     distance to the player falls
+// sensors_each        a kind with a Body, an Attack, an Eye and a Push sensor: the object has the four by name
+// stomped, spun       kinds defeated by Trample and by Spin: the harness jumps on one and spins beside the other;
+//                     each on_attacked is called with its attack and the object is gone after its Down action
+// drops_coins         the stomped kind drops 3 coins: the player's coins rise by 3 once they are walked over (the
+//                     player is put on each coin it popped)
+// talk                a kind with on_talk: A beside it calls it once
+// hat_on_head         a model attached to the player's Head joint and to a Goomba's: both handles alive, removed dead
+// placement_twice     placement() of the placed object: the same key on two runs (the harness compares the facts)
+// spawn_game          a game class the stage did not load spawned by name: it lives
+// two_mods_one_name   kit-actor-b defines "walker" too: each mod's find gives its own kind
+use kit.actor
+use kit.item
+
+var attacked_with: text = ""
+var talks: u32 = 0
+var seen_frames: u32 = 0
+// Where the base layer's row places "kit-actor/walker" (its pos_x, pos_y, pos_z).
+let placed_at = vec3(-2579.1, -13373.1, -15397.5)
+
+fn step(a: LiveActor) {
+    seen_frames += 1
+    actor.move_toward_player(a, 2.0)
+    actor.fall(a, 1.5, 0.9)
+}
+
+fn hit(a: LiveActor, k: actor.Attack) -> bool {
+    match k {
+        actor.Attack.Trample => attacked_with = "trample"
+        actor.Attack.Spin => attacked_with = "spin"
+        actor.Attack.HipDrop => attacked_with = "hipdrop"
+        actor.Attack.StarBit => attacked_with = "starbit"
+        actor.Attack.Fire => attacked_with = "fire"
+        actor.Attack.Any => attacked_with = "any"
+    }
+    log fact "attacked_with" attacked_with
+    return false
+}
+
+fn talked(a: LiveActor) {
+    talks += 1
+    log fact "talks" talks
+}
+
+fn here() -> vec3 {
+    return MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+}
+
+// Whether the map is within 10 units under the object's feet, along its gravity.
+fn on_ground(a: LiveActor) -> bool {
+    return MR::isExistMapCollision(a.mPosition - a.mGravity * 10.0, a.mGravity * 20.0)
+}
+
+// How far an object's up is from straight against its gravity: 1 - cos of the angle between them (0.00015 is 1 degree).
+fn tilt(a: LiveActor) -> f32 {
+    var up = vec3(0.0, 1.0, 0.0)
+    MR::calcUpVec(var up, a)
+    return 1.0 - dot(normal(up), normal(a.mGravity) * -1.0)
+}
+
+task run() {
+    wait 60 frames
+    // stands, lands, floats
+    let walker = actor.find("walker")
+    var stand: ref<LiveActor>? = none
+    if let w = walker {
+        if let first = actor.all(w).first() { stand = first }
+    }
+    var up = vec3(0.0, 1.0, 0.0)
+    if let p = MR::getPlayerDemoActor() { up = normal(p.mGravity) * -1.0 }
+    var front = vec3(0.0, 0.0, 1.0)
+    MR::getPlayerFrontVec(var front)
+    let side = normal(cross(up, front))
+    let dropper = actor.define(actor.Kind { name: "dropper", look: model "Walker", sensors: [actor.Sensor.Body(60.0)] })
+    let floater = actor.define(actor.Kind { name: "floater", look: model "Walker", on_ground: false, sensors: [actor.Sensor.Body(60.0)] })
+    let drop_from = here() + side * 200.0 + up * 300.0
+    let float_at = here() - side * 200.0 + up * 200.0
+    var dropped: ref<LiveActor>? = none
+    var floating: ref<LiveActor>? = none
+    if let a = actor.spawn(dropper, drop_from) { dropped = ref(a) }
+    if let a = actor.spawn(floater, float_at) { floating = ref(a) }
+    // A kind whose look is the mod's own skinned model (a skeleton and a clip), spawned in front of the player.
+    let skinned = actor.define(actor.Kind { name: "skinned", look: model "Keeper", idle_action: "Wait", sensors: [actor.Sensor.Body(70.0)] })
+    var shown: ref<LiveActor>? = none
+    let shown_at = here() + front * 300.0 + up * 30.0
+    if let a = actor.spawn(skinned, shown_at) { shown = ref(a) }
+    log fact "skinned_spawned" shown != none
+    var stand_from = vec3(0.0, 0.0, 0.0)
+    if let r = stand { if let a = r.get() { stand_from = a.mPosition } }
+    wait 90 frames
+    log fact "skinned_ready" true
+    wait 150 frames
+    var drop_mid = vec3(0.0, 0.0, 0.0)
+    if let r = dropped { if let a = r.get() { drop_mid = a.mPosition } }
+    wait 60 frames
+    if let r = stand {
+        if let a = r.get() {
+            log fact "stand_from_place" length(a.mPosition - placed_at)
+            log fact "stand_moved" length(a.mPosition - stand_from)
+            log fact "stand_tilt" tilt(a)
+            log fact "stand_on_ground" on_ground(a)
+            log fact "stand_at" a.mPosition
+        }
+    }
+    if let r = dropped {
+        if let a = r.get() {
+            let fell = dot(drop_from - a.mPosition, up)
+            log fact "drop_fell" fell
+            log fact "drop_fell_far" fell > 200.0
+            log fact "drop_on_ground" on_ground(a)
+            log fact "drop_rest_moved" length(a.mPosition - drop_mid)
+            log fact "drop_tilt" tilt(a)
+            a.kill()
+        }
+    }
+    if let r = floating {
+        if let a = r.get() {
+            log fact "float_moved" length(a.mPosition - float_at)
+            a.kill()
+        }
+    }
+    if let r = shown {
+        if let a = r.get() {
+            log fact "skinned_moved" length(a.mPosition - shown_at)
+            log fact "skinned_alive" not MR::isDead(a)
+            a.kill()
+        }
+    }
+
+    // placed_from_data, spawned
+    log fact "find_data" walker != none
+    if let w = walker {
+        log fact "placed" actor.all(w).len()
+        actor.spawn(w, here() + vec3(600.0, 0.0, 0.0))
+        wait 2 frames
+        log fact "placed_and_spawned" actor.all(w).len()
+        if let first = actor.all(w).first() {
+            if let a = first.get() {
+                if let key = actor.placement(a) {
+                    log fact "placement_key" "{key.stage}/{key.zone}/{key.layer}/{key.index}"
+                    log fact "find_placed" actor.find_placed(key) != none
+                }
+            }
+        }
+    }
+
+    // walks, sensors_each
+    let chaser = actor.define(actor.Kind { name: "chaser", look: model "Walker", on_frame: step,
+        sensors: [actor.Sensor.Body(60.0), actor.Sensor.Attack(40.0), actor.Sensor.Eye(300.0), actor.Sensor.Push(70.0)] })
+    if let c = actor.spawn(chaser, here() + vec3(0.0, 0.0, 500.0)) {
+        let r = ref(c)
+        let far_then = length(c.mPosition - here())
+        // 20 frames: closer, and still far from the player (its attack sensor would hurt the player and knock the
+        // player back through the cases after this one).
+        wait 20 frames
+        if let now = r.get() {
+            log fact "walks_closer" length(now.mPosition - here()) < far_then
+            var four = now.getSensor("body") != none
+            four = four and now.getSensor("attack") != none
+            four = four and now.getSensor("eye") != none
+            four = four and now.getSensor("push") != none
+            log fact "sensors" four
+            now.kill()
+        }
+    }
+    log fact "on_frame_ran" seen_frames > 10
+
+    // stomped, drops_coins: the harness jumps and lands on it (it is put under the player during the jump).
+    let soft = actor.define(actor.Kind { name: "soft", look: model "Walker", defeated_by: [actor.Attack.Trample],
+        drops: item.Gives.Coins(3), on_attacked: hit, sensors: [actor.Sensor.Body(60.0)] })
+    let coins = MR::getCoinNum()
+    var soft_ref: ref<LiveActor>? = none
+    // The harness jumps; the kind is put on the ground under the player once the player is 80 units up, so the
+    // player lands on it (put under a standing player, it pushes the player off its body instead).
+    let ground = here()
+    var up_now = vec3(0.0, 1.0, 0.0)
+    if let p = MR::getPlayerDemoActor() { up_now = normal(p.mGravity) * -1.0 }
+    log fact "stomp_ready" true
+    for t in 0..60 {
+        if dot(here() - ground, up_now) > 80.0 { break }
+        wait 1 frames
+    }
+    if let a = actor.spawn(soft, ground) { soft_ref = ref(a) }
+    log fact "stomp_spawned" soft_ref != none
+    start watch_soft(soft_ref)
+    var waited = 0
+    while waited < 240 and actor.all(soft).len() > 0 {
+        wait 1 frames
+        waited += 1
+    }
+    log fact "stomped_gone" actor.all(soft).len()
+    // The coins pop up out of it and scatter (CoinHolder::appearCoinPop: up 25, a random 4 each way); the player is put
+    // on each living coin its host info names (walking over them) until they are taken. The holder's first 32 coins
+    // are made at its init, so indices 0..32 are always there.
+    var drop_at = here()
+    if let r = soft_ref {
+        if let a = r.get() {
+            drop_at = a.mPosition
+        }
+        for t in 0..180 {
+            var left = 0
+            if let a = r.get() {
+                if let holder = MR::getCoinHolder() {
+                    for i in 0..32 {
+                        guard let g = holder.getActor(i) else { continue }
+                        guard let c = as_class<Coin>(g) else { continue }
+                        guard let info = c.mHostInfo else { continue }
+                        if not MR::isDead(c) and same(info.mHostActor, a) {
+                            if left == 0 { MR::setPlayerPos(c.mPosition) }
+                            left += 1
+                        }
+                    }
+                }
+            }
+            if left == 0 { break }
+            wait 1 frames
+        }
+    }
+    log fact "coins_more" MR::getCoinNum() - coins
+    MR::setPlayerPos(drop_at)
+    wait 30 frames
+
+    // spun
+    let dizzy = actor.define(actor.Kind { name: "dizzy", look: model "Walker", defeated_by: [actor.Attack.Spin], on_attacked: hit,
+        sensors: [actor.Sensor.Body(60.0)] })
+    actor.spawn(dizzy, here() + vec3(80.0, 0.0, 0.0))
+    log fact "spin_ready" true
+    wait 240 frames
+    log fact "spun_gone" actor.all(dizzy).len()
+
+    // talk
+    let chatty = actor.define(actor.Kind { name: "chatty", look: model "Walker", on_talk: talked, sensors: [actor.Sensor.Body(60.0)] })
+    actor.spawn(chatty, here() + vec3(120.0, 0.0, 0.0))
+    // The game's prompt shows from the talk director's second request (TalkDirector::updateMessage): A once it shows,
+    // as a player presses it.
+    wait 30 frames
+    log fact "talk_ready" true
+    wait 120 frames
+
+    // hat_on_head
+    if let p = MR::getPlayerDemoActor() {
+        let hat = actor.attach(p, model "Hat", "Head")
+        log fact "hat_on_player" actor.alive(hat)
+        actor.remove(hat)
+        log fact "hat_removed" not actor.alive(hat)
+    }
+    if let o = NameObjFinder::find("クリボー") {
+        if let goomba = as_class<LiveActor>(o) {
+            let hat = actor.attach(goomba, model "Hat", "Head")
+            log fact "hat_on_goomba" actor.alive(hat)
+        }
+    }
+
+    // spawn_game: a class this stage's files do not hold.
+    log fact "spawn_game" actor.spawn_game("Karikari", here() + vec3(0.0, 300.0, 0.0)) != none
+
+    // two_mods_one_name
+    if let w = walker {
+        log fact "own_name" actor.name(w)
+    }
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+// Where the stomped kind stands against the player while the harness jumps: the offset along the player's up and
+// across it, every 4 frames for a second.
+task watch_soft(r: ref<LiveActor>?) {
+    guard let rr = r else { return }
+    for i in 0..15 {
+        if let a = rr.get() {
+            if let p = MR::getPlayerDemoActor() {
+                let off = p.mPosition - a.mPosition
+                log fact "soft_up" dot(off, a.mGravity * -1.0)
+                log fact "soft_across" length(off + a.mGravity * dot(off, a.mGravity))
+            }
+        }
+        wait 4 frames
+    }
+}

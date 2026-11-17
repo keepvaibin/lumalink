@@ -1,0 +1,268 @@
+// kit.projectile conformance (lumakit-modules.md row 3; lumakit.md 2.5). The script throws from the player (test.json
+// only waits and takes the mod out); facts:
+// leaves_hits_once a shot thrown from inside the player's sensors toward a Kuribo: one call, on the Kuribo, none on
+//                 the player
+// bounce3_burst   a falling shot dropped on the ground with 3 bounces answering Bounce each time: 4 map hits (the 4th has no
+//                 bounce left and bursts), then gone
+// on_hit_each     shots dropped on the ground answering Burst (gone after its first hit), Pass (still flying after
+//                 it), Stick (still, not moving, alive)
+// falls_on_planet a falling shot thrown level: after 20 frames its velocity runs along the planet's gravity
+// sixty_four      64 shots at once (up, no map): all 64 alive
+// thrower_off     10 long shots in flight when the harness takes the mod out: LumaKit kills them (its log line)
+use kit.projectile
+
+var bounce_hits: u32 = 0
+var burst_hits: u32 = 0
+var pass_hits: u32 = 0
+var stick_hits: u32 = 0
+
+fn bounce(h: projectile.Hit, mine: HitSensor, other: HitSensor) -> projectile.Then {
+    if h.map {
+        bounce_hits += 1
+        // What the shot met: its velocity against its gravity there (a bounce mirrors it on the ground's normal).
+        if let o = mine.mHost {
+            log "kit-projectile: bounce hit {bounce_hits} at {h.at} velocity {o.mVelocity} gravity {o.mGravity}"
+        } else {
+            log "kit-projectile: bounce hit {bounce_hits} at {h.at}"
+        }
+    }
+    return projectile.Then.Bounce
+}
+
+fn burst(h: projectile.Hit, mine: HitSensor, other: HitSensor) -> projectile.Then {
+    burst_hits += 1
+    return projectile.Then.Burst
+}
+
+fn pass(h: projectile.Hit, mine: HitSensor, other: HitSensor) -> projectile.Then {
+    pass_hits += 1
+    return projectile.Then.Pass
+}
+
+fn stick(h: projectile.Hit, mine: HitSensor, other: HitSensor) -> projectile.Then {
+    stick_hits += 1
+    return projectile.Then.Stick
+}
+
+fn here() -> vec3 {
+    return MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+}
+
+// The player's up (against its gravity).
+fn up() -> vec3 {
+    guard let g = MR::getPlayerGravity() else { return vec3(0.0, 1.0, 0.0) }
+    if length(g) < 0.0001 {
+        return vec3(0.0, 1.0, 0.0)
+    }
+    return normal(g) * -1.0
+}
+
+// The side (200 from the player) whose ground is the most level of eight around it: the map's normal under each,
+// found as the kit finds a shot's hit (MR::getFirstPolyNormalOnLineToMap), against the player's up.
+var level_side: vec3? = none
+
+fn find_level_side() -> f32 {
+    let u = up()
+    let a = normal(cross(u, vec3(0.0, 0.0, 1.0)) + vec3(0.0001, 0.0, 0.0))
+    let b = normal(cross(u, a))
+    var best = -2.0
+    for k in 0..8 {
+        let t = (k as f32) * 0.785398
+        let d = a * cos(t) + b * sin(t)
+        var n = vec3(0.0, 0.0, 0.0)
+        var at = vec3(0.0, 0.0, 0.0)
+        if MR::getFirstPolyNormalOnLineToMap(var n, here() + u * 300.0 + d * 200.0, u * -900.0, var at, none) {
+            let level = dot(normal(n), u)
+            if level > best {
+                best = level
+                level_side = d
+            }
+        }
+    }
+    return best
+}
+
+// A shot dropped from `height` above the player at `speed` a frame, 200 to the side so the player is not touched
+// (the most level side once found); `falls`: pulled back by gravity (a bounce comes down again: without it, a bounced
+// shot flies off and meets no more map). A bounce keeps the shot's speed and mirrors it on the ground's normal, so on
+// ground that is not level each hop carries it sideways: the bounce case drops low and slow on level ground.
+fn drop(answer: fn(projectile.Hit, HitSensor, HitSensor) -> projectile.Then, bounces: u32, falls: bool = false,
+        height: f32 = 300.0, speed: f32 = 20.0) -> ref<LiveActor>? {
+    let u = up()
+    let side = level_side ?? normal(cross(u, vec3(0.0, 0.0, 1.0)) + vec3(0.0001, 0.0, 0.0))
+    return projectile.throw(projectile.Shot { from: here() + u * height + side * 200.0, velocity: u * -speed,
+                                              bounces: bounces, falls: falls, life_frames: 600, on_hit: answer })
+}
+
+fn alive(h: ref<LiveActor>?) -> bool {
+    guard let r = h else { return false }
+    guard let o = r.get() else { return false }
+    return not MR::isDead(o)
+}
+
+var aimed_calls: u32 = 0
+var aimed_on_target: u32 = 0
+var aimed_on_player: u32 = 0
+var aimed_at = vec3(0.0, 0.0, 0.0)
+var target: ref<LiveActor>? = none
+
+// The aimed shot's rule: every call counted; which actor it met; it bursts.
+fn aimed(h: projectile.Hit, mine: HitSensor, other: HitSensor) -> projectile.Then {
+    aimed_calls += 1
+    aimed_at = h.at
+    if let host = other.mHost {
+        if let p = MarioAccess::getPlayerActor() {
+            if same(host, p) {
+                aimed_on_player += 1
+            }
+        }
+        if let r = target {
+            if let t = r.get() {
+                if same(host, t) {
+                    aimed_on_target += 1
+                }
+            }
+        }
+    }
+    return projectile.Then.Burst
+}
+
+task run() {
+    // `on stage` fires before the opening ends and the player takes input: settle first.
+    wait 300 frames
+
+    // leaves_hits_once: a Kuribo made 700 ahead of the player; a shot thrown from inside the player's own sensors (as
+    // a hand throws it) toward the Kuribo: it leaves the player without a call, travels, meets the Kuribo, and the
+    // rule runs once there.
+    var front = vec3(0.0, 0.0, 0.0)
+    MR::getPlayerFrontVec(var front)
+    let made = make("Kuribo", MakePlace { at: here() + front * 700.0 + up() * 100.0 }, 1)
+    if let k = made.first() {
+        target = ref(k)
+    }
+    wait 90 frames
+    var target_at = here() + front * 700.0
+    if let r = target {
+        if let k = r.get() {
+            target_at = k.mPosition
+        }
+    }
+    let from = here() + up() * 60.0 + front * 40.0
+    let way = normal(target_at + up() * 40.0 - from)
+    let aimed_shot = projectile.throw(projectile.Shot { from: from, velocity: way * 20.0, hits_map: false,
+                                                        life_frames: 120, on_hit: aimed })
+    var w: u32 = 0
+    while w < 110 and aimed_calls == 0 {
+        wait 1 frames
+        w += 1
+    }
+    // Its burst lasts 30 frames, then it is killed.
+    wait 35 frames
+    log fact "aimed_target_made" target != none
+    log fact "aimed_calls" aimed_calls
+    log fact "aimed_on_target" aimed_on_target
+    log fact "aimed_on_player" aimed_on_player
+    log fact "aimed_travelled" length(aimed_at - from)
+    log fact "aimed_gone" not alive(aimed_shot)
+    if let r = target {
+        if let k = r.get() {
+            k.kill()
+        }
+    }
+
+    // bounce3_burst
+    log fact "bounce_ground_level" find_level_side()
+    let b = drop(bounce, 3, true, 150.0, 5.0)
+    // Each bounce rises and comes down again: its time is the ground's (its shape where the shot lands), so the test
+    // waits for the hits, at most the shot's life.
+    var waited: u32 = 0
+    while waited < 590 and bounce_hits < 4 {
+        wait 1 frames
+        waited += 1
+    }
+    // The last hit bursts: its effect and sound, then the shot is killed 30 frames on (kit.projectile's burst).
+    wait 32 frames
+    log fact "bounce_frames" waited
+    log fact "bounce_hits" bounce_hits
+    log fact "bounce_gone" not alive(b)
+
+    // on_hit_each
+    let bu = drop(burst, 0)
+    wait 60 frames
+    log fact "burst_hits" burst_hits
+    log fact "burst_gone" not alive(bu)
+    let pa = drop(pass, 0)
+    wait 60 frames
+    log fact "pass_hit" pass_hits >= 1
+    log fact "pass_alive" alive(pa)
+    let st = drop(stick, 0)
+    wait 60 frames
+    log fact "stick_hits" stick_hits
+    var still = false
+    if let r = st {
+        var p0 = vec3(0.0, 0.0, 0.0)
+        if let o = r.get() {
+            p0 = o.mPosition
+        }
+        wait 10 frames
+        if let o = r.get() {
+            still = length(o.mPosition - p0) < 0.5 and not MR::isDead(o)
+        }
+    }
+    log fact "stick_still" still
+    // The pass and stick shots live 600 frames: ended here, so thrower_off's take-out finds its 10 alone.
+    for h in [pa, st] {
+        if let r = h {
+            if let o = r.get() {
+                o.kill()
+            }
+        }
+    }
+
+    // falls_on_planet
+    let u = up()
+    let level = normal(cross(u, vec3(1.0, 0.0, 0.0)) + vec3(0.0, 0.0001, 0.0))
+    let f = projectile.throw(projectile.Shot { from: here() + u * 400.0, velocity: level * 15.0, falls: true,
+                                               hits_map: false, life_frames: 120 })
+    wait 20 frames
+    var falls = false
+    if let r = f {
+        if let o = r.get() {
+            falls = dot(o.mVelocity, normal(o.mGravity)) > 5.0
+        }
+    }
+    log fact "falls_down" falls
+
+    // sixty_four
+    var many: list<ref<LiveActor>?> = []
+    for i in 0..64 {
+        let spread = vec3(cos(i as f32 * 0.1) * 3.0, 0.0, sin(i as f32 * 0.1) * 3.0)
+        many.push(projectile.throw(projectile.Shot { from: here() + u * 200.0, velocity: u * 10.0 + spread,
+                                                     hits_map: false, life_frames: 90 }))
+    }
+    wait 5 frames
+    var live: u32 = 0
+    for h in many {
+        if alive(h) {
+            live += 1
+        }
+    }
+    log fact "alive_64" live
+    wait 100 frames
+
+    // thrower_off: 10 shots of 20 seconds up in the air, then the harness takes the mod out.
+    for i in 0..10 {
+        projectile.throw(projectile.Shot { from: here() + u * 500.0, velocity: u * 1.0, hits_map: false,
+                                           life_frames: 1200 })
+    }
+    wait 5 frames
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+on stop {
+    log "kit-projectile: taken out"
+}

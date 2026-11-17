@@ -1,0 +1,65 @@
+{
+  "harness": 1,
+  "name": "c-tables-put-back",
+  "about": "c-tables sets gMarioConstDefault.mJumpHeight[0] to 30 with set_table and narrows the player with as_class; c-tables-watch reads 30, and 22 (the game's) once c-tables is taken out",
+  "proves": [
+    "kernel.tables.set",
+    "kernel.tables.taken_out",
+    "kernel.objects.as_class"
+  ],
+  "mods": [
+    "../../mods/c-tables",
+    "../../mods/c-tables-watch"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.c-tables.downcast",
+        "exists": true
+      },
+      "take_out": "c-tables",
+      "wait": true
+    },
+    {
+      "after": {
+        "fact": "mod.c-tables-watch.saw_back",
+        "exists": true
+      },
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.c-tables.set",
+      "is": true
+    },
+    {
+      "fact": "mod.c-tables.jump",
+      "near": 30.0,
+      "within": 0.0
+    },
+    {
+      "fact": "mod.c-tables.downcast",
+      "is": true
+    },
+    {
+      "fact": "mod.c-tables.not_kuribo",
+      "is": true
+    },
+    {
+      "fact": "mod.c-tables-watch.saw_set",
+      "is": true
+    },
+    {
+      "fact": "mod.c-tables-watch.saw_back",
+      "is": true
+    },
+    {
+      "log": "\\[mod c-tables\\] the bytes it wrote are the game's again, or another mod's \\(1 tables\\)"
+    }
+  ]
+}

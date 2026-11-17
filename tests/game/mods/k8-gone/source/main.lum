@@ -1,0 +1,68 @@
+// K8 (language 5.5, 11.2; classes contract "gone"): a mod's class whose objects hold text. Each Goomba (made as
+// Holder) keeps one shared text three ways: a text field, an element of a list field, and a local of its machine's
+// state that waits. Each holding is one count on that text. When the scene goes, the class's gone gives every count
+// back: the first Holder of the next scene finds the text's count where it was at the start.
+// The count is read by the mod's own C (rc.c).
+
+use c "rc.h"
+
+extern c fn k8_rc(s: text) -> i64
+
+var keep = ""
+var start_rc = 0
+var takes = 0
+var most = 0
+var told = false
+
+on start {
+    keep = "kept by {takes} holders"
+    start_rc = k8_rc(keep) as i32
+}
+
+class Holder : Kuribo replaces Kuribo {
+    var label = ""
+    var tags: list<text>
+    var weighed = false
+    override fn control() {
+        if label.len() != 0 and not weighed {
+            // The frame after it took hold: its own holdings on the count (the field, the list's element and, once
+            // its state's first wait is over, the state's local). One Goomba runs at a time in a scene here, so a
+            // second holder's reading cannot be what shows the holding.
+            weighed = true
+            let now = k8_rc(keep) as i32
+            if now - start_rc > most {
+                most = now - start_rc
+            }
+        }
+        if label.len() == 0 {
+            let seen = k8_rc(keep) as i32
+            label = keep
+            tags.push(keep)
+            takes += 1
+            // Each holder's reading (the count over the start's): a run that never tells shows where it stops.
+            let over = seen - start_rc
+            log fact "seen" over
+            if seen - start_rc > most {
+                most = seen - start_rc
+            }
+            // Only after holding was seen (most > 0): the harness starts in the title's scene, whose holders are let
+            // go when the stage is made, so a first scene of one holder says nothing.
+            if takes > 1 and seen == start_rc and most > 0 and not told {
+                told = true
+                log fact "held_most" most
+                log fact "released" true
+            }
+        }
+        base.control()
+    }
+}
+
+states Hold for Holder {
+    state Keep {
+        wait 1 frames
+        let t = keep
+        wait 100000 frames
+        log "{t}"
+    }
+    start Keep
+}

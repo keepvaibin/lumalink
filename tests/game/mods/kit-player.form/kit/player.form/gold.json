@@ -1,0 +1,10 @@
+{
+  "look": "Flower",
+  "look_luigi": "Flower",
+  "aura": "GoldShine",
+  "timer_frames": 1200,
+  "meter": true,
+  "physics": {
+    "mJumpHeight": 1.2
+  }
+}

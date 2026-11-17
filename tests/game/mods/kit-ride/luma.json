@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-ride",
+  "version": "1.0.0",
+  "name": "kit-ride",
+  "summary": "LumaKit ride conformance: mount, ride on a planet, jump, a mounted move, thrown off by damage, dismount, the mod off while riding.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.ride": 1
+  },
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

@@ -1,0 +1,209 @@
+// K3 conformance, containers (language 3, 6.4; abi 5): list, map and set values with copy on write; push, insert,
+// remove, pop, get, first, last, contains, sort, len, keys, values; `xs[i]` and `m[k]` read and written; `for` over a
+// list, a set and a map (key order); a list of text owning its blocks; containers inside a struct, a list and a map;
+// a `for` whose body grows the list it walks (it walks the list it was given).
+
+struct Bag {
+    items: list<text>
+    n: i32 = 0
+}
+
+var saved: list<i32> = []
+var saved_grid: list<list<i32>> = []
+
+// Keeps a copy of what it is given: a write the caller makes after must not reach the copy.
+fn keep(xs: list<i32>) -> i32 {
+    saved = xs
+    return 100
+}
+
+fn keep_grid(g: list<list<i32>>) -> i32 {
+    saved_grid = g
+    return 5
+}
+
+var count = 0
+var asked = 0
+
+// bytes is not json data (D7.4): its bytes as a list for the fact.
+fn as_list(b: bytes) -> list<u8> {
+    var out: list<u8> = []
+    for i in 0..b.len() {
+        out.push(b[i])
+    }
+    return out
+}
+
+fn bump() -> i32 {
+    count += 1
+    return count
+}
+
+fn total(xs: list<i32>) -> i32 {
+    var s = 0
+    for x in xs {
+        s += x
+    }
+    return s
+}
+
+var shrink: list<i32> = []
+
+fn shorten() -> bool {
+    let gone = shrink.pop()
+    return gone != none
+}
+
+on start {
+    var xs: list<i32> = [3, 1, 2]
+    xs.push(5)
+    xs.insert(0, 9)
+    let removed = xs.remove(1)
+    xs[0] = xs[0] + 1
+    let l = (xs, xs.len(), removed, total(xs))
+    log fact "list" l
+
+    let ys = xs
+    xs.push(7)
+    let copies = (ys, xs)
+    log fact "copy" copies
+
+    xs.sort()
+    let ends = (xs, xs.first() ?? -1, xs.last() ?? -1, xs.get(9) ?? -1, xs.pop() ?? -1, xs.len(), xs.contains(5), xs.contains(6))
+    log fact "ends" ends
+
+    var names: list<text> = []
+    for i in 0..50 {
+        names.push("n{i}")
+    }
+    let gone = names.remove(0)
+    let ns = (names.len(), names[2], names[48], gone)
+    log fact "names" ns
+
+    var m: map<text, i32> = {}
+    m["b"] = 2
+    m["a"] = 1
+    m["c"] = 3
+    m["a"] = 10
+    let was = m.remove("c") ?? -1
+    let ms = (m.len(), m["a"], m.get("z") ?? -1, m.contains("b"), m.contains("c"), was, m.keys(), m.values())
+    log fact "map" ms
+
+    var keys = ""
+    var sum = 0
+    for (k, v) in m {
+        keys = "{keys}{k}"
+        sum += v
+    }
+    let walked = (keys, sum)
+    log fact "walk" walked
+
+    var s: set<i32> = {}
+    let first = s.add(3)
+    s.add(1)
+    let again = s.add(3)
+    var order: list<i32> = []
+    for x in s {
+        order.push(x)
+    }
+    let ss = (s.len(), first, again, s.contains(1), order)
+    log fact "set" ss
+
+    var b = Bag { items: [] }
+    b.items.push("x")
+    b.items.push("y")
+    let bag = (b.items.len(), b.items[1])
+    log fact "bag" bag
+
+    var grid: list<list<i32>> = [[1, 2], [3]]
+    grid[1].push(4)
+    log fact "grid" grid
+
+    var lists: map<text, list<i32>> = {}
+    lists["a"] = [1]
+    lists["a"].push(2)
+    log fact "lists" lists
+
+    var grow: list<i32> = [1, 2, 3]
+    for x in grow {
+        grow.push(x * 10)
+    }
+    log fact "grow" grow
+
+    var ks: list<i32> = [1, 2]
+    ks[0] = keep(ks)
+    var kg: list<list<i32>> = [[1], [2]]
+    kg[1].push(keep_grid(kg))
+    kg[0][0] = keep_grid(kg) + 1
+    let kept = (ks, saved, kg, saved_grid)
+    log fact "kept" kept
+
+    count = 1
+    count += bump()
+    let reads = (count, bump(), count)
+    log fact "reads" reads
+
+    var ws: list<i32> = [5, 3, 8, 1, 9, 2]
+    let limit = 4
+    let big = ws.filter(fn(w: i32) -> bool { return w > limit })
+    let doubled = ws.map(fn(w: i32) -> text { return "<{w * 2}>" })
+    let any_big = ws.any(fn(w: i32) -> bool {
+        asked += 1
+        return w > 7
+    })
+    let all_pos = ws.all(fn(w: i32) -> bool { return w > 0 })
+    let squares = ws.sum(fn(w: i32) -> i32 { return w * w })
+    ws.sort_by(fn(a: i32, b: i32) -> bool { return a > b })
+    let cl = (big, doubled, any_big, asked, all_pos, squares, ws)
+    log fact "closures" cl
+
+    var words: list<text> = ["ccc", "a", "bb", "dd", "e", "fff"]
+    let unsorted = words
+    words.sort_by(fn(p: text, q: text) -> bool { return p.len() < q.len() })
+    var plain: list<text> = ["b", "c", "a"]
+    plain.sort()
+    let stable = (words, unsorted, plain)
+    log fact "stable" stable
+
+    var many: list<i32> = []
+    for i in 0..1000 {
+        many.push((i * 7919) % 1000)
+    }
+    many.sort()
+    var ordered = true
+    for i in 1..1000 {
+        if many[i - 1] > many[i] {
+            ordered = false
+        }
+    }
+    let up = (ordered, many[0], many[999], many.len())
+    many.sort_by(fn(a: i32, b: i32) -> bool { return a > b })
+    var nested: list<list<i32>> = [[3, 1, 2], [9]]
+    nested[0].sort_by(fn(a: i32, b: i32) -> bool { return a < b })
+    let sorts = (up, many[0], many[999], nested)
+    log fact "sorts" sorts
+
+    // G's K-R14: a closure that shortens its own receiver (through a function: a closure may not write the names
+    // around it, S0064): filter reads its own counted copy of the list, so the pop copies on write, never past the end.
+    shrink = [1, 2, 3]
+    let kept = shrink.filter(fn(w: i32) -> bool { return shorten() })
+    let shrunk = (kept, shrink.len())
+    log fact "shrink" shrunk
+
+    let sp = ("a,,b".split(","), "hé!".chars(), "ab".split(""), "".split(","), "x--y--".split("--"))
+    log fact "split" sp
+
+    var buf = "héllo".bytes()
+    let first = buf[0]
+    buf.push(0)
+    buf[0] = 72
+    let keep = buf
+    buf.write_u16(1, 4660, true)
+    let r16 = buf.read_u16(1, false)
+    var fl = "12345678".bytes()
+    fl.write_f32(0, 1.5, false)
+    let f = fl.read_f32(0, false)
+    let n64 = fl.read_u64(0, false)
+    let bs = (buf.len(), first, as_list(buf), as_list(keep), r16, f, n64, as_list(buf.slice(1, 3)), buf == keep, "".bytes().len())
+    log fact "bytes" bs
+}

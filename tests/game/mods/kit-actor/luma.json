@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-actor",
+  "version": "1.0.0",
+  "name": "kit-actor",
+  "summary": "LumaKit actor conformance: a kind from data placed and spawned, walking, each sensor, stomped and spun, drops, talk, a hat on two heads, placement keys, a game class spawned, two mods of one name.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.actor": 1
+  },
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "harness": 1,
+  "name": "kit-kept-a",
+  "about": "LumaKit save values across a game start, first run: the harness walks into the key the stage places (kit/item/key.json, Carry 1: the game calls the kit's pickup), the mod sets its progress number kept to 40, the game's own save runs (its windows pressed). kit-kept-b reads both on the next start.",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.item",
+    "kit.progress"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-kept"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-kept.ready",
+        "is": true
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 90,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-kept.confirm_ready",
+        "is": true
+      },
+      "hold": [
+        "RIGHT"
+      ],
+      "frames": 4,
+      "timeout": 2400
+    },
+    {
+      "after": {
+        "fact": "mod.kit-kept.focused",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4,
+      "timeout": 2400
+    },
+    {
+      "after": {
+        "fact": "mod.kit-kept.done_ready",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4,
+      "timeout": 2400
+    },
+    {
+      "after": {
+        "fact": "mod.kit-kept.first_done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 1800
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-kept.carried_at_start",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-kept.number_at_start",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-kept.first_carried",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-kept.first_number",
+      "is": 40
+    },
+    {
+      "fact": "mod.kit-kept.saved",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-kept.save_ok",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+// K2 conformance: every construct plan 4.3 writes, each giving a fact the test compares.
+use ./shapes
+
+struct Point {
+    x: f32
+    y: f32 = 0.5
+}
+
+enum Op { Add, Sub, Scale(by: i32) }
+
+let base: i32 = 40
+var calls: u32 = 0
+
+fn fib(n: i32) -> i32 {
+    calls += 1
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn apply(op: Op, a: i32, b: i32) -> i32 {
+    return match op {
+        Op.Add => a + b
+        Op.Sub => a - b
+        Op.Scale(by) => a * by
+    }
+}
+
+fn bump(var p: Point, by: f32 = 1.0) {
+    p.x = p.x + by
+}
+
+fn split(n: i32) -> (i32, i32) {
+    return (n / 10, n % 10)
+}
+
+fn find(xs_from: i32, want: i32) -> i32? {
+    var i = xs_from
+    while i < 100 {
+        if i * i == want { return i }
+        i += 1
+    }
+    return none
+}
+
+fn grade(n: i32) -> u8 {
+    guard n >= 0 else { return 0 }
+    if n > 90 { return 3 } else if n > 50 { return 2 }
+    return 1
+}
+
+var trail: i32 = 0
+
+fn deferred(n: i32) -> i32 {
+    defer trail = trail * 10 + 1
+    if n > 0 {
+        defer trail = trail * 10 + 2
+        if n > 1 { return n }
+    }
+    trail = trail * 10 + 3
+    return 0
+}
+
+fn looped() -> i32 {
+    var runs = 0
+    for i in 0..5 {
+        defer runs += 1
+        if i == 1 { continue }
+        if i == 3 { break }
+    }
+    return runs
+}
+
+on start {
+    log fact "fib" fib(10)
+    log fact "calls" calls
+    let ops = (apply(Op.Add, 2, 3), apply(Op.Sub, 2, 3), apply(Op.Scale(by: 4), 2, 0))
+    log fact "ops" ops
+    var p = Point { x: 1.0 }
+    bump(var p)
+    bump(var p, by: 0.25)
+    let some_p: Point? = p
+    let no_p: Point? = none
+    let opt_x = (some_p?.x ?? 0.0, no_p?.x ?? -1.0)
+    log fact "opt_x" opt_x
+    let pt = (p.x, p.y)
+    log fact "point" pt
+    let (tens, ones) = split(base + 2)
+    let both = (tens, ones)
+    log fact "split" both
+    log fact "found" find(1, 49) ?? 0
+    log fact "missing" find(1, 50) ?? -1
+    log fact "unwrapped" find(0, 81)!
+    var sum: i64 = 0
+    for i in 0..10 { sum += i as i64 }
+    for i in 1..=4 {
+        if i == 2 { continue }
+        if i == 4 { break }
+        sum += 100
+    }
+    log fact "sum" sum
+    let grades = (grade(-5), grade(20), grade(70), grade(95))
+    log fact "grades" grades
+    var n = 0
+    while true {
+        n += 1
+        if n >= 7 { break }
+    }
+    log fact "while" n
+    log fact "area" shapes.area(shapes.Shape.Rect { w: 2.0, h: 3.5 }) + shapes.area(shapes.Shape.Circle(1.0))
+    let shift = (1 << 4) | 3
+    log fact "shift" shift
+    let wide: i32 = 250
+    let narrow = wide as u8
+    log fact "conv" narrow
+    let v = vec3(1, 2, 3) * 2.0 + vec3(0, 1, 0)
+    log fact "vec" v
+    let math = (min(3, 9), max(3, 9), clamp(15, 0, 10), abs(-4))
+    log fact "math" math
+    log fact "game" CameraLocalUtil::getNormalizedOr(vec3(0, 0, 4), vec3(1, 1, 1))
+    let label = if fib(5) == 5 { 1 } else { 0 }
+    log fact "text" "fib5 {label} {n}"
+    log fact "and" n > 3 and calls > 0 and not (n == 0)
+    let d2 = deferred(2)
+    let t2 = trail
+    trail = 0
+    let d1 = deferred(1)
+    let t1 = trail
+    let defers = (d2, t2, d1, t1, looped())
+    log fact "defers" defers
+}

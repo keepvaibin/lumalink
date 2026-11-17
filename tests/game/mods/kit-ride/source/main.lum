@@ -1,0 +1,136 @@
+// kit.ride conformance (lumakit-modules.md row 11; lumakit.md 2.21). The script makes mounts on the player and the
+// harness drives (test.json); facts:
+// mount          the data mount "board" (kit/ride/board.json) found and made on the player: the player rides it; a
+//                code mount's on_mount runs once with the mount
+// ride_planet    the harness holds the stick ahead 90 frames: the mount went more than 600 units, on the ground
+// jump           A held 2 frames: the mount rose along its up more than 50 units within 12 frames
+// mounted_move   a move of this mod (kit.player.state, Start.Code) given in the mount's moves: entered while mounted,
+//                refused when not
+// thrown_off     the rider hurt (an enemy attack from the mount's sensor): not riding, on_dismount ran once
+// dismount       mounted again, ride.dismount(): not riding, on_dismount ran again
+// mod_off        the harness takes the mod out while riding: `on stop` writes the log line the test ends on
+use kit.ride
+use kit.player.state as pstate
+
+var mounts: u32 = 0
+var dismounts: u32 = 0
+var board_at = vec3(0.0, 0.0, 0.0)
+
+fn mounted(m: LiveActor) {
+    mounts += 1
+}
+
+fn dismounted(m: LiveActor) {
+    dismounts += 1
+}
+
+fn here() -> vec3 {
+    return MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+}
+
+// The mount ridden now, or none.
+fn ridden() -> LiveActor? {
+    guard let r = ride.riding() else { return none }
+    return r.get()
+}
+
+fn up_of(a: LiveActor) -> vec3 {
+    if length(a.mGravity) < 0.0001 {
+        return vec3(0.0, 1.0, 0.0)
+    }
+    return normal(a.mGravity) * -1.0
+}
+
+task run() {
+    // `on stage` fires before the opening ends and the player takes input: settle first.
+    wait 300 frames
+    let hop = pstate.define(pstate.State { id: "hop", starts: pstate.Start.Code, from: [pstate.From.Any], action: "Jump",
+                                           ends: [pstate.End.Frames(20)] })
+    let car = ride.define(ride.Mount { name: "car", look: model "Board", seat_joint: "Seat", moves: [hop],
+                                       on_mount: mounted, on_dismount: dismounted })
+
+    // mount: the data board, made on the player.
+    guard let board = ride.find("board") else {
+        log fact "board_found" false
+        return
+    }
+    log fact "board_found" true
+    var board_made: ref<LiveActor>? = none
+    if let b = ride.spawn(board, here()) {
+        board_made = ref(b)
+    }
+    wait 30 frames
+    log fact "board_mounted" ridden() != none
+    ride.dismount()
+    wait 10 frames
+    log fact "board_left" ridden() == none
+    // The board taken away: the rider jumped straight up and would land on it again (a mount is ridden by landing on it).
+    if let b = board_made?.get() {
+        b.kill()
+    }
+    wait 20 frames
+
+    // The code car: on_mount, then the drive.
+    ride.spawn(car, here())
+    wait 30 frames
+    log fact "car_mounted" ridden() != none
+    log fact "on_mount_calls" mounts
+    if let m = ridden() {
+        board_at = m.mPosition
+    }
+    log fact "ready_drive" true
+    wait 100 frames
+    if let m = ridden() {
+        log fact "drive_moved" length(m.mPosition - board_at)
+        log fact "drive_on_ground" MR::isOnGround(m)
+        board_at = m.mPosition
+    }
+    log fact "ready_jump" true
+    wait 12 frames
+    if let m = ridden() {
+        log fact "jump_rose" dot(m.mPosition - board_at, up_of(m))
+    }
+    wait 60 frames
+
+    // mounted_move: the car's move enters while mounted.
+    log fact "move_mounted" pstate.enter_state(hop)
+    wait 30 frames
+
+    // thrown_off: the rider hurt by the mount's own sensor.
+    if let m = ridden() {
+        if let p = MarioAccess::getPlayerActor() {
+            if let to = MR::getSensor(p, 0) {
+                if let from = MR::getSensor(m, 0) {
+                    MR::sendMsgEnemyAttack(to, from)
+                }
+            }
+        }
+    }
+    wait 30 frames
+    log fact "thrown_off" ridden() == none
+    log fact "on_dismount_hurt" dismounts
+    log fact "move_unmounted" pstate.enter_state(hop)
+    wait 120 frames
+
+    // dismount
+    ride.spawn(car, here())
+    wait 30 frames
+    log fact "remounted" ridden() != none
+    ride.dismount()
+    wait 10 frames
+    log fact "dismounted" ridden() == none
+    log fact "on_dismount_calls" dismounts
+
+    // mod_off: riding when the harness takes the mod out.
+    ride.spawn(car, here())
+    wait 30 frames
+    log fact "done" ridden() != none
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+on stop {
+    log "kit-ride: taken out"
+}

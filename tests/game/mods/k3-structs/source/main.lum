@@ -1,0 +1,30 @@
+// K3 (C42-1): a plain game struct read from the game is the script's own copy. A field written into the copy leaves
+// the game's object as it was; a second copy is the script's own too (copy on write); a copy reached through `?.`,
+// kept in a list and written there; a bit-field read through a copy keeps the value it had when copied.
+
+hook after MR::zeroVelocity(target) {
+    guard let actor = target, let me = MarioAccess::getPlayerActor(), same(actor, me) else { return }
+    var f = actor.mFlag
+    let dead = f.mIsDead
+    f.mIsDead = not dead
+    let flag = (dead, f.mIsDead, actor.mFlag.mIsDead)
+    log fact "flag" flag
+    var g = f
+    g.mIsHiddenModel = not f.mIsHiddenModel
+    let cow = g.mIsHiddenModel != f.mIsHiddenModel
+    log fact "cow" cow
+    guard let o = MarioAccess::getPlayerActor()?.mFlag else { return }
+    let opt = o.mIsDead
+    log fact "opt" opt
+    var kept = [actor.mFlag, f]
+    kept[0].mIsDead = true
+    let in_list = (kept[0].mIsDead, kept[1].mIsDead, actor.mFlag.mIsDead)
+    log fact "list" in_list
+    guard let mario = me.mMario else { return }
+    let ms = mario.mMovementStates
+    let jump = ms.digitalJump
+    mario.mMovementStates.digitalJump = 1 - jump
+    let kept_bits = ms.digitalJump == jump and mario.mMovementStates.digitalJump != jump
+    mario.mMovementStates.digitalJump = jump
+    log fact "bits" kept_bits
+}

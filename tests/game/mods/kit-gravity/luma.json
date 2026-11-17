@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-gravity",
+  "version": "1.0.0",
+  "name": "kit-gravity",
+  "summary": "LumaKit gravity conformance: a parallel override flipped and ended, an override ending by its frames, a new shape placed beside the game's (priority), two mods' overrides.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

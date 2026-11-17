@@ -1,0 +1,69 @@
+{
+  "harness": 1,
+  "name": "k2-hooks",
+  "about": "A LumaScript mod built by lumalink build hooks with every kind: a before on MR::diffRadian skips with 7 when a is 1000; a wrap on it sets b to a, proceeds and adds 100 when a is 2000; a replace on TripodBoss::getPartIDFromBoneID gives id times 3",
+  "proves": [
+    "script.build",
+    "kernel.hook.before",
+    "kernel.hook.wrap",
+    "kernel.hook.replace"
+  ],
+  "mods": [
+    "../../mods/k2-hooks"
+  ],
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::diffRadian",
+      "signature": "f32(f32, f32)",
+      "args": [
+        1000,
+        0
+      ],
+      "fact": "skipped"
+    },
+    {
+      "at": 31,
+      "call": "MR::diffRadian",
+      "signature": "f32(f32, f32)",
+      "args": [
+        2000,
+        0
+      ],
+      "fact": "wrapped"
+    },
+    {
+      "at": 32,
+      "call": "TripodBoss::getPartIDFromBoneID",
+      "signature": "s32(s32)",
+      "args": [
+        5
+      ],
+      "fact": "replaced"
+    },
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "skipped",
+      "near": 7.0,
+      "within": 0.0
+    },
+    {
+      "fact": "wrapped",
+      "near": 100.0,
+      "within": 0.0
+    },
+    {
+      "fact": "replaced",
+      "is": 15
+    },
+    {
+      "fact": "mod.k2-hooks.wrapped",
+      "at_least": 2
+    }
+  ]
+}

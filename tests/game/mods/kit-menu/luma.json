@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-menu",
+  "version": "1.0.0",
+  "name": "kit-menu",
+  "summary": "LumaKit menu conformance: three pause menu entries (one disabled), chosen with the pad, one removed, after kit-menu-b's in the Mods list's order.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

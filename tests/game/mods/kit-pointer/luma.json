@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-pointer",
+  "version": "1.0.0",
+  "name": "kit-pointer",
+  "summary": "LumaKit pointer conformance: B throwing coins at a cost, out of coins, a grab, gyro aim refused on a pad without motion, a world point under the pointer.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

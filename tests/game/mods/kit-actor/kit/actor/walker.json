@@ -1,0 +1,23 @@
+{
+  "look": "Walker",
+  "idle_action": "Walk",
+  "sensors": [
+    {
+      "kind": "Body",
+      "radius": 60
+    },
+    {
+      "kind": "Attack",
+      "radius": 40
+    }
+  ],
+  "defeated_by": [
+    "Trample",
+    "Spin"
+  ],
+  "drops": {
+    "Coins": {
+      "n": 1
+    }
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "harness": 1,
+  "name": "kit-progress",
+  "about": "LumaKit progress (lumakit.md 2.17, lumakit-modules.md row 13). past_120: three stars of the mod's galaxy given (one of them twice): progress.stars() and the game's GameDataFunction::calcCurrentPowerStarNum both rise by 3. on_star_instead: scenario 9 answers Instead(Coins 9): 9 coins, no star. comet_added: after add_comet the game's comet schedule lands a comet on EggStarGalaxy with star 2 (called by name). flags_copy_erase: the flag and the number are on file 1; the harness copies file 1 to 2 and loads 2 (both still read), then erases 2 and makes a new file there: the flag is false, the number 0, and the new-file rule ran once (its own flag 'fresh' is true). WAITING: `on mods.stopped(gone)` beside svc.mods, kit.stage in the library (J), the harness's save-file steps copy_file / erase_file / new_file / load_file (H: services-save harness addition). foreign_refused: a Flag and a Number naming another mod's key are not written (flag_set and number_set set only the caller's own).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.progress"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-progress"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-progress.comet_set",
+        "is": true
+      },
+      "call": "GameSequenceFunction::getEncounterGalaxyCometPowerStarId",
+      "signature": "s32(const char *)",
+      "args": [
+        "EggStarGalaxy"
+      ],
+      "fact": "comet_star",
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-progress.done",
+        "is": true
+      },
+      "copy_file": [
+        1,
+        2
+      ],
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "file.copied",
+        "exists": true
+      },
+      "load_file": 2,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "file.loaded",
+        "is": 2
+      },
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      },
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-progress.number_after_add",
+        "is": 80
+      },
+      "erase_file": 2,
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "fact": "file.erased",
+        "exists": true
+      },
+      "new_file": 2,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-progress.new_file_rule",
+        "is": 1
+      },
+      "end": true,
+      "timeout": 1800
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-progress.stars_more",
+      "is": 3,
+      "when": "first"
+    },
+    {
+      "fact": "mod.kit-progress.game_total_more",
+      "is": 3,
+      "when": "first"
+    },
+    {
+      "fact": "mod.kit-progress.has_star",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-progress.has_not",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-progress.instead_coins",
+      "is": 9,
+      "when": "first"
+    },
+    {
+      "fact": "mod.kit-progress.instead_no_star",
+      "is": true
+    },
+    {
+      "fact": "comet_star",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-progress.number_after_add",
+      "is": 40,
+      "when": "first"
+    },
+    {
+      "fact": "mod.kit-progress.number_after_add",
+      "is": 80,
+      "when": "last"
+    },
+    {
+      "fact": "mod.kit-progress.flag_now",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-progress.new_file_rule",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-progress.foreign_flag_set",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-progress.foreign_number",
+      "is": 0
+    },
+    {
+      "log": "a flag that is not its own"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+ "version": 1,
+ "nodes": {
+  "start": {
+   "line": "Hello from the tree.",
+   "next": "ask"
+  },
+  "ask": {
+   "line": "Once more?",
+   "choices": [
+    {
+     "line": "Yes",
+     "next": "start",
+     "flag": "kit_talk_looped"
+    },
+    {
+     "line": "No"
+    }
+   ]
+  }
+ }
+}

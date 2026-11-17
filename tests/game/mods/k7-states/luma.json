@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k7-states",
+  "version": "1.0.0",
+  "name": "k7-states",
+  "summary": "k7-states (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

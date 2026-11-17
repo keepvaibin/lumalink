@@ -1,0 +1,123 @@
+{
+  "harness": 1,
+  "name": "kit-ride",
+  "about": "LumaKit ride (lumakit.md 2.21, lumakit-modules.md row 11). kit-ride on EggStarGalaxy. mount: the data mount board (kit/ride/board.json) made on the player is ridden; a code mount's on_mount runs once. ride_planet: the stick held ahead 90 frames moves the mount more than 600 units, on the ground. jump: A held 2 frames raises it more than 50 along its up. mounted_move: the mount's move (kit.player.state, Start.Code) enters while mounted and is refused when not. thrown_off: an enemy attack on the rider ends the ride, on_dismount once. dismount: ride.dismount() ends a ride, on_dismount again. mod_off: the mod taken out while riding (the rider let off, its mounts killed). WAITING: classes.alias, MR::getPlacementArg0NoInit's mark, LUMA_ marks on MR::setBaseTRMtx's MtxPtr and the MtxPtr result of MR::getJointMtx as mat34, the factory facts of SimpleMapObj (F); std make/MakePlace, model/model_named, mat34(r0, r1, r2), mods.kit_read/kit_names/needing (K); player.state allow (the moves gate); the mod's Board model with a Seat joint (assets).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.ride"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-ride"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-ride.ready_drive",
+        "is": true
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 90,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ride.ready_jump",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 2,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ride.done",
+        "is": true
+      },
+      "take_out": "kit-ride",
+      "timeout": 2400
+    },
+    {
+      "after": {
+        "log": "kit-ride: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-ride.board_found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.board_mounted",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.car_mounted",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.on_mount_calls",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-ride.drive_moved",
+      "more": 600
+    },
+    {
+      "fact": "mod.kit-ride.drive_on_ground",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.jump_rose",
+      "more": 50
+    },
+    {
+      "fact": "mod.kit-ride.move_mounted",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.thrown_off",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.on_dismount_hurt",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-ride.move_unmounted",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-ride.remounted",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.dismounted",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ride.on_dismount_calls",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-ride.done",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

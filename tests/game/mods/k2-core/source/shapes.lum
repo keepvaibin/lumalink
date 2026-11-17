@@ -1,0 +1,13 @@
+// A second module: its items by path from main.
+pub enum Shape { Circle(r: f32), Rect { w: f32, h: f32 }, Dot }
+
+let pi: f32 = 3.0
+
+pub fn area(s: Shape) -> f32 {
+    return match s {
+        Shape.Circle(r) => pi * r * r
+        Shape.Rect { w, h } => w * h
+        Shape.Dot => 0.0
+    }
+}
+

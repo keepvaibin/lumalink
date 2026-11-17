@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-hud",
+  "version": "1.0.0",
+  "name": "kit-hud",
+  "summary": "LumaKit hud conformance: each element kind, stacking, removal, a timer, a popup.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

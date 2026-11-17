@@ -1,0 +1,103 @@
+// kit.shop conformance (lumakit-modules.md row 21; lumakit.md 2.15). The harness presses the pad (test.json); each
+// case writes its facts:
+// buy            the shop of kit/shop/corner.json opened with 50 coins, row 0 taken: 30 coins gone, a life more,
+//                the ware returned, its stock 0
+// out_of_stock   opened again, row 0 taken: refused (the game's buzzer), nothing paid, the shop still open; B leaves
+// too_poor       a shop made in code whose ware costs 500: refused, nothing paid; B leaves: none
+// stock_reload   the stage loaded again: the Life is still sold out on this file
+// The shop's list opens a few frames after open() is called, so "opened" is written 20 frames later: the harness
+// presses after it. After a refusal the list opens again, so "refused_*" is written 20 frames after the buzzer too.
+use kit.shop
+use kit.item
+
+var opened: u32 = 0
+var buzzers: u32 = 0
+var coins_at_open: i32 = 0
+var runs: u32 = 0
+
+// The refusal's fact once the list is open again (the harness presses B on it).
+task refused_later(which: u32) {
+    wait 20 frames
+    if which == 1 {
+        log fact "refused_sold_out" true
+    } else {
+        log fact "refused_too_poor" true
+    }
+}
+
+// The game's refusal sound, counted: the shop plays it for a ware it does not sell.
+hook after `MR::startSystemSE(const char *, s32, s32)`(id, a, b) {
+    if id == "SE_SY_BUZZER" {
+        buzzers += 1
+        let paid = coins_at_open - MR::getCoinNum()
+        if buzzers == 1 {
+            log fact "sold_out_paid" paid
+            start refused_later(1)
+        }
+        if buzzers == 2 {
+            log fact "too_poor_paid" paid
+            start refused_later(2)
+        }
+    }
+}
+
+task announce() {
+    wait 20 frames
+    opened += 1
+    log fact "opened" opened
+}
+
+task first_run() {
+    // After the landing and the game's key lock: the harness waits for the player to take input before its steps.
+    wait 300 frames
+    let found = shop.find("corner")
+    log fact "found" found != none
+    guard let corner = found else {
+        return
+    }
+    // 50 coins to spend, whatever the file holds.
+    MR::incCoin(50 - MR::getCoinNum())
+    shop.restock(corner, 0)
+
+    // buy
+    let lives_before = MR::getPlayerLeft()
+    coins_at_open = MR::getCoinNum()
+    start announce()
+    let bought = wait shop.open(corner)
+    if let w = bought {
+        log fact "buy_ware" w.name
+    } else {
+        log fact "buy_ware" "none"
+    }
+    log fact "buy_paid" coins_at_open - MR::getCoinNum()
+    log fact "buy_life_more" MR::getPlayerLeft() == lives_before + 1
+    log fact "stock_after_buy" shop.stock_left(corner, 0) ?? 999
+
+    // out_of_stock: the same shop, the same row
+    wait 30 frames
+    coins_at_open = MR::getCoinNum()
+    start announce()
+    let again = wait shop.open(corner)
+    log fact "sold_out_left_none" again == none
+
+    // too_poor: a shop made in code
+    wait 30 frames
+    let dear = shop.Shop { title: "Dear", wares: [shop.Ware { name: "Bits", price: 500, gives: item.Gives.StarBits(10) }],
+                           currency: shop.Currency.Coins }
+    coins_at_open = MR::getCoinNum()
+    start announce()
+    let nothing = wait shop.open(dear)
+    log fact "left_none" nothing == none
+}
+
+on stage "EggStarGalaxy" {
+    runs += 1
+    if runs == 1 {
+        start first_run()
+        return
+    }
+    // stock_reload: the stage loaded again; the file still holds the Life as sold.
+    if let corner = shop.find("corner") {
+        log fact "stock_reload" shop.stock_left(corner, 0) ?? 999
+    }
+}

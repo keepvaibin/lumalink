@@ -1,0 +1,299 @@
+{
+  "harness": 1,
+  "name": "kit-ui.kit",
+  "about": "LumaKit ui.kit (lumakit.md 2.20, lumakit-modules.md row 16): J's kit-ui.kit opens a pausing panel of a button, a slider 0..10 at 5, a toggle, a colour, a list of three and a text field, and writes a cue every 20 frames; this test gives one input a cue. each_widget (pad): A presses the button once; RIGHT moves the slider a twentieth (5.5); A flips the toggle on; RIGHT steps the colour to the palette's second (#FF4040); the list's row 1 is taken; text_field_keyboard: A opens the platform keyboard, 'Luma' is typed and confirmed (the harness's text step), on_done gets it. wheel_item: the second panel's wheel turned once and taken: entry 1. mod_off: the mod taken out with a pausing panel open: kit-screen-b reads 0 holders of the world (the panel closed and let go). Pointer and touch on each widget are by person until the panel's row places are facts (the mouse on a stop focuses it: kit.lum's stop_under). WAITING: input.text_request as pending<text?> and its handle (K), draw.view for ModelView (FB, written), input's press of a mod action for touch_layout (was F's).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.ui.kit"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-ui.kit",
+    "../../mods/kit-screen-b"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 1
+      },
+      "timeout": 2400,
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 2
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 3
+      },
+      "timeout": 2400,
+      "hold": [
+        "RIGHT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 4
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 5
+      },
+      "timeout": 2400,
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 6
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 7
+      },
+      "timeout": 2400,
+      "hold": [
+        "RIGHT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 8
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 9
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 10
+      },
+      "timeout": 2400,
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 11
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 12
+      },
+      "timeout": 2400,
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 13
+      },
+      "timeout": 2400,
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 14
+      },
+      "timeout": 2400,
+      "text": "Luma"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 15
+      },
+      "timeout": 2400,
+      "key": "enter"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 16
+      },
+      "timeout": 2400,
+      "picture": "panel"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 25
+      },
+      "timeout": 2400,
+      "hold": [
+        "RIGHT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 26
+      },
+      "timeout": 2400,
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui.kit.cue",
+        "is": 27
+      },
+      "timeout": 2400,
+      "take_out": "kit-ui.kit"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen-b.holders",
+        "is": 0
+      },
+      "end": true,
+      "timeout": 1200
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-ui.kit.first_open",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ui.kit.button",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-ui.kit.slider",
+      "near": 5.5,
+      "within": 0.001
+    },
+    {
+      "fact": "mod.kit-ui.kit.toggle",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ui.kit.colour_red",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ui.kit.list",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-ui.kit.name",
+      "is": "Luma"
+    },
+    {
+      "fact": "mod.kit-ui.kit.first_closed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ui.kit.second_open",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-ui.kit.wheel",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-screen-b.holders",
+      "is": 0
+    },
+    {
+      "picture": "panel",
+      "like": "refs/panel-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        560,
+        120,
+        170,
+        45
+      ]
+    },
+    {
+      "picture": "panel",
+      "like": "refs/panel-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        362,
+        175,
+        556,
+        48
+      ]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "harness": 1,
+  "name": "k4-tasks",
+  "about": "LumaScript tasks and wait in a mod built by lumalink build: a waiting on start is a task whose first step runs at start; tasks run after on frame in start order from the frame after their start (one started by on frame on its third frame first runs on the fourth); wait 1 frames, wait 0 frames (the next frame), wait 10 frames, wait 1 seconds (60 world steps), wait until a condition, wait on a task until it ends; t.stop() runs the task's defer at once and it runs no more; stop ends a task through its defer; an index error (S0902) ends only that task, its defer run; a task's text parameter lives with its frame",
+  "proves": [
+    "script.build"
+  ],
+  "mods": [
+    "../../mods/k4-tasks"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 400,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k4-tasks.flags",
+      "is": [
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k4-tasks.seen",
+      "is": [
+        "ababab.a.",
+        "3-4",
+        4,
+        1,
+        10,
+        60,
+        200
+      ]
+    }
+  ]
+}

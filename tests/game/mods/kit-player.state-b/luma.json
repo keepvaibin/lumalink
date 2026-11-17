@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-player.state-b",
+  "version": "1.0.0",
+  "name": "kit-player.state-b",
+  "summary": "LumaKit player.state conformance, the second mod: its own move on its own action.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "options": [
+    {
+      "key": "spin2",
+      "kind": "key",
+      "name": "Spin again",
+      "default": "z"
+    }
+  ],
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

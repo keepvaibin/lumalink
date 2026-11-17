@@ -1,0 +1,47 @@
+{
+  "harness": 1,
+  "name": "kit-kept-b",
+  "about": "LumaKit save values across a game start, next run: the file kit-kept-a saved, loaded in a new game: the key carried once (written at the game-called pickup) and the number 40, both read through the exports.",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.item",
+    "kit.progress"
+  ],
+  "continue_from": "kit-kept-a",
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-kept"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-kept.next_done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 1500
+    }
+  ],
+  "expect": [
+    {
+      "fact": "setup.file",
+      "is": "loaded"
+    },
+    {
+      "fact": "mod.kit-kept.carried_at_start",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-kept.number_at_start",
+      "is": 40
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

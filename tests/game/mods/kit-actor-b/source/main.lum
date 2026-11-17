@@ -1,0 +1,9 @@
+// kit.actor conformance, the second mod (two_mods_one_name, rule 7): it defines a kind of the same short name
+// "walker" as kit-actor's data kind; each mod's find gives its own (kinds are "<mod id>/<name>" to the game).
+use kit.actor
+
+on start {
+    let mine = actor.define(actor.Kind { name: "walker", look: model "Other" })
+    log fact "defined" actor.name(mine)
+    log fact "found_own" actor.find("walker") != none
+}

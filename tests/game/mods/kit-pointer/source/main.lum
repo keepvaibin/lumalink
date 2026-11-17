@@ -1,0 +1,144 @@
+// kit.pointer conformance (lumakit-modules.md row 12; lumakit.md 2.22). The harness points below the player (0.5, 0.8) and
+// presses B and A (test.json); facts:
+// world_point       the map point under the pointer found, its normal unit length; screen() inside the screen
+// throw_coins_cost  a throw set with Cost.Coins(1): B throws the mod's shot (its function called once, a projectile
+//                   made) and takes one coin; star bits are not touched
+// out_of_coins      with no coins B throws nothing and the game plays its own "no star bits" sound
+// grab              a Kuribo made on the map under the pointer: A while pointing at it calls the grab function with it
+// gyro_and_refusal  pointer.source on the harness's pad: Infrared taken, Gyro refused (the pad has no motion device;
+//                   the refusal names it in the log)
+// mod_off           the harness takes the mod out: its throw and grab end; `on stop` writes the line the test ends on
+use kit.pointer
+use kit.projectile
+use svc.input
+
+var shots: u32 = 0
+var grabbed: u32 = 0
+var grabbed_kuribo: bool = false
+var kuribo: ref<LiveActor>? = none
+var no_piece_sound: bool = false
+// What the grab case saw in the shooter's step (why a grab did not come, when it does not): a target under the
+// pointer, and A pressed there.
+var watch_grab = false
+var target_seen = false
+var a_seen = false
+var grab_point = vec3(0.0, 0.0, 0.0)  // the map point under the pointer the Kuribo was made on
+var watched: u32 = 0
+
+hook before StarPieceShooter::tryShoot() {
+    // The second player's shooter steps too (its pointer is off): the first player's only.
+    if not watch_grab or self.mPort != 0 {
+        return
+    }
+    if self.mLockOnSensor != none or self.mSearchSensor != none {
+        target_seen = true
+    }
+    if MR::isPressedJump(self.mPort) {
+        a_seen = true
+    }
+    // Each step of the case: tryShoot's conditions, the targets, A, and the search eye (the pointer's depth point,
+    // last placed by the shooter) against the Kuribo.
+    watched += 1
+    var eye_to_kuribo = -1.0
+    if let k = kuribo?.get() {
+        eye_to_kuribo = length(self.mPosition - k.mPosition)
+    }
+    log "grab step {watched}: screen {MR::isStarPointerInScreen(self.mPort)} valid {MR::isStarPointerValid(self.mPort)} enable {MR::isEnableStarPointerShootStarPiece(self.mPort)} bits {MR::getStarPieceNum()} search {self.mSearchSensor != none} lock {self.mLockOnSensor != none} a {MR::isPressedJump(self.mPort)} eye_to_kuribo {eye_to_kuribo}"
+}
+
+fn coin_shot(from: vec3, toward: vec3) -> projectile.Shot {
+    shots += 1
+    var dir = toward - from
+    if length(dir) < 0.001 {
+        dir = vec3(0.0, 0.0, 1.0)
+    }
+    return projectile.Shot { from: from, velocity: normal(dir) * 40.0, life_frames: 60 }
+}
+
+fn grab(a: LiveActor) -> bool {
+    grabbed += 1
+    if let k = kuribo {
+        if let live = k.get() {
+            grabbed_kuribo = same(live, a)
+        }
+    }
+    return true
+}
+
+// The game's own refusal sound when B has nothing to throw.
+hook after MR::startCSSound(name, se, port) {
+    if name == "CS_NO_SPIECE" {
+        no_piece_sound = true
+    }
+}
+
+task run() {
+    // `on stage` fires before the opening ends and the player takes input: settle first.
+    wait 300 frames
+    log fact "ready_point" true
+    wait 10 frames
+    log fact "screen_in" pointer.screen() != none
+    if let hit = pointer.world() {
+        log fact "world_found" true
+        log fact "world_normal" length(hit.1)
+    } else {
+        log fact "world_found" false
+    }
+
+    // throw_coins_cost
+    let throw = pointer.set_throw(pointer.Throw { shot: coin_shot, cost: pointer.Cost.Coins(1) })
+    MR::incCoin(5)
+    wait 2 frames
+    let coins = MR::getCoinNum()
+    let bits = MR::getStarPieceNum()
+    log fact "ready_throw" true
+    wait 30 frames
+    log fact "shots" shots
+    log fact "coins_taken" coins - MR::getCoinNum()
+    log fact "bits_same" MR::getStarPieceNum() == bits
+
+    // out_of_coins
+    MR::payCoin(MR::getCoinNum())
+    no_piece_sound = false
+    log fact "ready_empty" true
+    wait 30 frames
+    log fact "shots_empty" shots
+    log fact "no_piece_sound" no_piece_sound
+
+    // grab: a Kuribo on the map point under the pointer (world()). The shooter's search is a sensor of radius 5 at
+    // the pointer's depth point (StarPieceShooter::calcShootGoalUsingPointingDepth: the drawn depth, so the player
+    // when the pointer is on the player; the test points below the player), so the target is what the pointer shows, and it searches only while the player has star bits (tryShoot), so the player gets some first
+    // (the cases above ran with none).
+    MR::addStarPiece(10)
+    let g = pointer.on_grab(grab)
+    if let hit = pointer.world() {
+        grab_point = hit.0
+        let made = make("Kuribo", MakePlace { at: hit.0 }, 1)
+        if let k = made.first() {
+            kuribo = ref(k)
+        }
+    }
+    log fact "grab_made" kuribo != none
+    watch_grab = true
+    wait 20 frames
+    log fact "ready_grab" true
+    wait 20 frames
+    watch_grab = false
+    log fact "grab_target_seen" target_seen
+    log fact "grab_a_seen" a_seen
+    log fact "grabbed" grabbed
+    log fact "grabbed_kuribo" grabbed_kuribo
+
+    // gyro_and_refusal
+    pointer.source(input.Pad.Main, pointer.Source.Infrared)
+    pointer.source(input.Pad.Main, pointer.Source.Gyro(1.0))
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+on stop {
+    log "kit-pointer: taken out"
+}

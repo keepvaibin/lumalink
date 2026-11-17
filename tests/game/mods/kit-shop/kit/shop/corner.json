@@ -1,0 +1,25 @@
+{
+  "title": "Corner",
+  "currency": "Coins",
+  "wares": [
+    {
+      "name": "Life",
+      "price": 30,
+      "gives": {
+        "Lives": {
+          "n": 1
+        }
+      },
+      "stock": 1
+    },
+    {
+      "name": "Bits",
+      "price": 500,
+      "gives": {
+        "StarBits": {
+          "n": 10
+        }
+      }
+    }
+  ]
+}

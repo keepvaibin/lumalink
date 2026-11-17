@@ -1,0 +1,107 @@
+{
+  "harness": 1,
+  "name": "kit-projectile",
+  "about": "LumaKit projectile (lumakit.md 2.5, lumakit-modules.md row 3). kit-projectile on EggStarGalaxy; the script throws from the player. leaves_hits_once: a Kuribo made 700 ahead; a shot thrown from inside the player's sensors toward it: one call, on the Kuribo, none on the player, more than 200 travelled, gone after its burst. bounce3_burst: a shot dropped on the ground with 3 bounces answering Bounce: 4 map hits, then gone. on_hit_each: Burst gone after one hit; Pass still flying after its hit; Stick still and alive. falls_on_planet: a falling shot thrown level runs along gravity after 20 frames. sixty_four: 64 shots alive at once (the frame budget is the perf lane's measure). thrower_off: 10 shots in flight when the mod is taken out: LumaKit kills them and says so. WAITING: std make/MakePlace, model/effect/sound types, a view field in Hit handed to the callback (K); SimpleMapObj factory facts, MR::getPlacementArg0NoInit's mark, LUMA_OUT on MR::getFirstPolyNormalOnLineToMap (F).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.projectile"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-projectile"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-projectile.done",
+        "is": true
+      },
+      "take_out": "kit-projectile",
+      "timeout": 2400
+    },
+    {
+      "after": {
+        "log": "kit-projectile: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-projectile.aimed_target_made",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.aimed_calls",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-projectile.aimed_on_target",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-projectile.aimed_on_player",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-projectile.aimed_travelled",
+      "more": 200
+    },
+    {
+      "fact": "mod.kit-projectile.aimed_gone",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.bounce_hits",
+      "is": 4
+    },
+    {
+      "fact": "mod.kit-projectile.bounce_gone",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.burst_hits",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-projectile.burst_gone",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.pass_hit",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.pass_alive",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.stick_hits",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-projectile.stick_still",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.falls_down",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-projectile.alive_64",
+      "is": 64
+    },
+    {
+      "log": "kit.projectile: 10 shots of a stopped mod killed"
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "harness": 1,
+  "name": "k8-gone",
+  "about": "A LumaScript class whose objects hold text (language 5.5, classes contract gone): each Goomba made as Holder keeps one shared text in a text field, a list field and a waiting state's local; when the scene is made again the class's gone has given every count back, so the next scene's first Holder finds the text's count as it was at the start",
+  "proves": [
+    "script.build",
+    "kernel.classes.define",
+    "kernel.classes.data",
+    "kernel.classes.override",
+    "kernel.classes.gone"
+  ],
+  "mods": [
+    "../../mods/k8-gone"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 120,
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      }
+    },
+    {
+      "at": 700,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k8-gone.held_most",
+      "at_least": 2
+    },
+    {
+      "fact": "mod.k8-gone.released",
+      "is": true
+    }
+  ]
+}

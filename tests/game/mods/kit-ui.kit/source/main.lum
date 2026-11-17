@@ -1,0 +1,118 @@
+// kit.ui.kit conformance (lumakit-modules.md, ui.kit; lumakit.md 2.20). Once EggStarGalaxy is ready, the mod opens a pausing
+// panel "Kit Panel" (button, slider 0..10 at 5, toggle off, colour white, list r0 r1 r2, text field "Name") and writes
+// the fact "cue" = 1, 2, ... every 20 frames; the test (agents/luma/j/tests/kit-ui.kit) gives one input a cue. Each
+// callback writes its fact: "button" (presses), "slider", "toggle", "colour_red", "list", "name", "wheel".
+// At cue 24 the mod closes the panel and opens a second, pausing one (a wheel of three, a picture, a label); at cue 27
+// the harness takes the mod out with it open, and kit-screen-b's "holders" goes to 0 (mod_off).
+use kit.ui.kit as uk
+use svc.draw
+use svc.time
+
+var since: u32 = 0
+var presses: u32 = 0
+var first = uk.Open { id: 0 }
+var second = uk.Open { id: 0 }
+
+// The test's stage is ready and the player has control (300 frames after its opening: the landing and the
+// game's key lock): before it, the harness makes its file and waits for the player to take input, which
+// a panel or a talk would hold.
+var staged = false
+
+task settle() {
+    wait 300 frames
+    staged = true
+}
+
+on stage "EggStarGalaxy" {
+    start settle()
+}
+
+fn in_scene() -> bool {
+    if not staged {
+        return false
+    }
+    let s = time.now().state
+    return s == time.State.Play or s == time.State.Menu
+}
+
+fn pressed() {
+    presses += 1
+    log fact "button" presses
+}
+
+fn slid(v: f32) {
+    log fact "slider" v
+}
+
+fn toggled(b: bool) {
+    log fact "toggle" b
+}
+
+fn coloured(c: color) {
+    log fact "colour_red" c == #FF4040
+}
+
+fn chosen(i: int) {
+    log fact "list" i
+}
+
+fn named(s: text) {
+    log fact "name" s
+}
+
+fn wheeled(i: int) {
+    log fact "wheel" i
+}
+
+fn swatch(c: u32) -> draw.Texture? {
+    let px = b"\x00\x00\x00\xFF"
+    var b = px
+    b[0] = c as u8
+    // 1x1 RGBA; flags: nearest (draw's LUMA_DRAW_TEXTURE_NEAREST), a flat swatch.
+    return draw.texture_from_pixels(1, 1, b, 1)
+}
+
+fn open_first() {
+    first = uk.open(uk.Panel { title: "Kit Panel", pauses: true, widgets: [
+        uk.Widget.Button("Press", pressed),
+        uk.Widget.Slider("Slide", 0.0, 10.0, 5.0, slid),
+        uk.Widget.Toggle("Flip", false, toggled),
+        uk.Widget.Colour("Tint", #FFFFFF, coloured),
+        uk.Widget.List(["r0", "r1", "r2"], chosen),
+        uk.Widget.TextField("Name", 16, named)] })
+    log fact "first_open" uk.alive(first)
+}
+
+fn open_second() {
+    uk.close(first)
+    log fact "first_closed" not uk.alive(first)
+    var entries: list<(draw.Texture, text)> = []
+    for (k, name) in [(255, "Red"), (128, "Dim"), (32, "Dark")] {
+        if let t = swatch(k as u32) {
+            entries.push((t, name))
+        }
+    }
+    second = uk.open(uk.Panel { title: "Kit Wheel", pauses: true, widgets: [
+        uk.Widget.Wheel(entries, wheeled),
+        uk.Widget.Label("A wheel of three")] })
+    log fact "second_alive" uk.alive(second)
+    log fact "second_swatches" entries.len()
+    log fact "second_open" uk.alive(second) and entries.len() == 3
+}
+
+on frame {
+    if not in_scene() {
+        return
+    }
+    if since == 0 {
+        open_first()
+    }
+    since += 1
+    if since % 20 == 0 and since / 20 <= 27 {
+        let n = since / 20
+        log fact "cue" n
+        if n == 24 {
+            open_second()
+        }
+    }
+}

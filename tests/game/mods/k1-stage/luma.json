@@ -1,0 +1,24 @@
+{
+  "format": "1.0",
+  "id": "k1-stage",
+  "version": "1.0.0",
+  "name": "k1 stage",
+  "summary": "A stage made only of table sources and a planet a player stands on.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": "*"
+    }
+  ],
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

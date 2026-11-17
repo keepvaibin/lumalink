@@ -1,0 +1,55 @@
+{
+  "harness": 1,
+  "name": "k3-dtor-diag",
+  "about": "Diagnosis behind lumart handles (not conformance): before hooks on NameObj::~NameObj and ArenaOwned::~ArenaOwned counted on and off the game thread across a stage change. Found 11-11 on hs2: [1, 0, 728, 0]: a stage's NameObjs die with their arena, no destructor run, so handles watch lumacore::released",
+  "proves": [
+    "script.build",
+    "kernel.hook.after"
+  ],
+  "mods": [
+    "../../mods/k3-dtor-diag"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::zeroVelocity",
+      "signature": "void(LiveActor *)",
+      "args": [
+        "player"
+      ]
+    },
+    {
+      "at": 40,
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      }
+    },
+    {
+      "at": 3000,
+      "call": "MR::zeroVelocity",
+      "signature": "void(LiveActor *)",
+      "args": [
+        "player"
+      ]
+    },
+    {
+      "at": 3010,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k3-dtor-diag.hooked",
+      "is": 4
+    },
+    {
+      "fact": "mod.k3-dtor-diag.counts",
+      "exists": true
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k10inner",
+  "version": "1.0.0",
+  "name": "k10inner",
+  "summary": "k10inner (a conformance mod): a library whose function overflows.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

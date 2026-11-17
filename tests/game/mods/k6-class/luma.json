@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k6-class",
+  "version": "1.0.0",
+  "name": "k6-class",
+  "summary": "k6-class (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

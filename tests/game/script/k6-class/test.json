@@ -1,0 +1,43 @@
+{
+  "harness": 1,
+  "name": "k6-class",
+  "about": "A LumaScript mod's class (language 5.5): Walker derives from Kuribo and replaces it, so the stage's Goombas are made as Walkers; each one's ticks field lives in the kernel's class data with its first values from made; the control override counts 30 frames, reads its fields and self's game field, and runs Kuribo's own control through base.control()",
+  "proves": [
+    "script.build",
+    "kernel.classes.define",
+    "kernel.classes.made",
+    "kernel.classes.data",
+    "kernel.classes.override"
+  ],
+  "mods": [
+    "../../mods/k6-class"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 120,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k6-class.started",
+      "is": true
+    },
+    {
+      "fact": "mod.k6-class.ticks",
+      "is": 30
+    },
+    {
+      "fact": "mod.k6-class.step",
+      "is": 2
+    },
+    {
+      "fact": "mod.k6-class.dead",
+      "is": false
+    }
+  ]
+}

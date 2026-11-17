@@ -1,0 +1,25 @@
+// K2 conformance, `on frame` (services-time 9, D10.2): one body a mod, run every frame from the frame after start; a
+// script error in it ends that frame's run only, the next frame runs it again.
+
+var frames = 0
+var order = ""
+var second = 0
+
+on frame {
+    frames += 1
+    if frames <= 3 {
+        order = "{order}a"
+    }
+    if frames == 5 {
+        let xs: list<i32> = []
+        log "{xs[1]}"
+    }
+    second += 1
+    if second <= 3 {
+        order = "{order}b"
+    }
+    if second == 60 {
+        let seen = (frames, second, order)
+        log fact "frames" seen
+    }
+}

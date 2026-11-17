@@ -1,0 +1,151 @@
+{
+  "harness": 1,
+  "name": "k3-json",
+  "about": "LumaScript json in a mod built by lumalink build (D7.4, D4.10): json.encode of a struct, an enum with and without values, maps keyed by text and by integers, an option; json.decode reading them back equal, a missing field its default, extra keys skipped, a key written twice its last value; none for a missing field, an array for a struct, a fraction or a number past i32 for an integer, text after the value, a case with values written as a name, two keys for one case, bytes that are not UTF-8; json.Value literals known when compiling (a colour in one) and made when running, and get, at, text, int, float, bool, list, map",
+  "proves": [
+    "script.build"
+  ],
+  "mods": [
+    "../../mods/k3-json"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k3-json.point",
+      "is": "{\"x\": 1, \"y\": 2}"
+    },
+    {
+      "fact": "mod.k3-json.default",
+      "is": [
+        5,
+        7
+      ]
+    },
+    {
+      "fact": "mod.k3-json.extra",
+      "is": [
+        3,
+        7
+      ]
+    },
+    {
+      "fact": "mod.k3-json.none",
+      "is": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        5
+      ]
+    },
+    {
+      "fact": "mod.k3-json.moves",
+      "is": [
+        "Stand",
+        {
+          "Walk": {
+            "speed": 1.5
+          }
+        },
+        {
+          "Jump": {
+            "height": 2.0,
+            "twice": true
+          }
+        }
+      ]
+    },
+    {
+      "fact": "mod.k3-json.enums",
+      "is": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-json.save",
+      "is": [
+        true,
+        "{\"1\": true, \"20\": false}",
+        "{\"egg\": 30, \"honey\": 7}",
+        "null"
+      ]
+    },
+    {
+      "fact": "mod.k3-json.raw",
+      "is": {
+        "n": 3,
+        "list": [
+          1,
+          "two",
+          null,
+          true
+        ],
+        "f": 2.5,
+        "s": "a\"b",
+        "c": [
+          1.0,
+          0.0,
+          0.0,
+          0.5019608
+        ]
+      }
+    },
+    {
+      "fact": "mod.k3-json.made",
+      "is": {
+        "k": 4,
+        "p": {
+          "x": 1,
+          "y": 2
+        },
+        "t": "k=4",
+        "m": {
+          "Walk": {
+            "speed": 1.5
+          }
+        }
+      }
+    },
+    {
+      "fact": "mod.k3-json.value",
+      "is": [
+        3,
+        "two",
+        true,
+        4,
+        2.5,
+        "a\"b",
+        true,
+        5,
+        true,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-json.bytes",
+      "is": [
+        [
+          1,
+          2
+        ],
+        true,
+        [
+          "é"
+        ]
+      ]
+    }
+  ]
+}

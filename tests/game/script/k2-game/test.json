@@ -1,0 +1,140 @@
+{
+  "harness": 1,
+  "name": "k2-game",
+  "about": "A LumaScript mod built by lumalink build reaches the game's places through import rows only: a field of the player read, written and a component written (the harness reads it back), a bit-field written and restored, a global written and restored, a const global, a folded constant; and a struct's functions (var self, self, no self)",
+  "proves": [
+    "script.build",
+    "kernel.hook.after"
+  ],
+  "mods": [
+    "../../mods/k2-game"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::zeroVelocity",
+      "signature": "void(LiveActor *)",
+      "args": [
+        "player"
+      ]
+    },
+    {
+      "at": 30,
+      "read": "LiveActor.mVelocity",
+      "of": "player",
+      "type": "Vec3f",
+      "fact": "velocity.read"
+    },
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k2-game.counter",
+      "is": [
+        12,
+        14,
+        28
+      ]
+    },
+    {
+      "fact": "mod.k2-game.zero",
+      "near": [
+        0,
+        0,
+        0
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-game.octave",
+      "is": 12
+    },
+    {
+      "fact": "mod.k2-game.role",
+      "is": [
+        77,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k2-game.low",
+      "is": 44
+    },
+    {
+      "fact": "mod.k2-game.zeroed",
+      "near": [
+        0,
+        0,
+        0
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-game.velocity",
+      "near": [
+        1.5,
+        2,
+        3
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "velocity.read",
+      "near": [
+        1.5,
+        2,
+        3
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-game.through",
+      "near": [
+        1.5,
+        2,
+        3
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-game.has_mario",
+      "is": true
+    },
+    {
+      "fact": "mod.k2-game.pos_same",
+      "is": true
+    },
+    {
+      "fact": "mod.k2-game.bits",
+      "is": [
+        1,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k2-game.opt_calls",
+      "is": [
+        true,
+        true,
+        8,
+        6,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k2-game.view_calls",
+      "is": [
+        true,
+        true,
+        true
+      ]
+    }
+  ]
+}

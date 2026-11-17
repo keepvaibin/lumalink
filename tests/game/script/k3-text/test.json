@@ -1,0 +1,187 @@
+{
+  "harness": 1,
+  "name": "k3-text",
+  "about": "LumaScript text in a mod built by lumalink build: literals (static blocks), interpolation, == and byte order, len, starts_with, ends_with, find, slice and hash32 on UTF-8, a text pattern, structs, options, enums and tuples holding text compared part by part, a module value and functions giving text; the game's const char * read as a copy (a result, NameObj's field) and passed as a kept copy; a text kept past its loop round keeps its bytes while 299 other rounds' blocks are given back and reused",
+  "proves": [
+    "script.build",
+    "kernel.hook.after"
+  ],
+  "mods": [
+    "../../mods/k3-text"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::zeroVelocity",
+      "signature": "void(LiveActor *)",
+      "args": [
+        "player"
+      ]
+    },
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k3-text.order",
+      "is": [
+        true,
+        false,
+        true,
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k3-text.len",
+      "is": [
+        13,
+        0,
+        3
+      ]
+    },
+    {
+      "fact": "mod.k3-text.ends",
+      "is": [
+        true,
+        true,
+        false,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-text.find",
+      "is": [
+        7,
+        -1,
+        0
+      ]
+    },
+    {
+      "fact": "mod.k3-text.slice",
+      "is": [
+        "hé",
+        "wö",
+        ""
+      ]
+    },
+    {
+      "fact": "mod.k3-text.hash",
+      "is": [
+        2166136261,
+        3826002220,
+        3558752674
+      ]
+    },
+    {
+      "fact": "mod.k3-text.greet",
+      "is": "hello mario"
+    },
+    {
+      "fact": "mod.k3-text.greet2",
+      "is": "bye fixed"
+    },
+    {
+      "fact": "mod.k3-text.tag",
+      "is": [
+        "x1",
+        true,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-text.opt",
+      "is": [
+        "yes",
+        "-",
+        true,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-text.shape",
+      "is": [
+        "big:3",
+        "dot",
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k3-text.kinds",
+      "is": [
+        1,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "fact": "mod.k3-text.kept",
+      "is": [
+        "round 7 of many",
+        "round 299 of many"
+      ]
+    },
+    {
+      "fact": "mod.k3-text.pair",
+      "is": [
+        "left",
+        "bye pair"
+      ]
+    },
+    {
+      "fact": "mod.k3-text.stage",
+      "is": [
+        "EggStarGalaxy",
+        true,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k3-text.name",
+      "is": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-text.cases",
+      "is": [
+        "héllo àé ß i",
+        "HÉLLO ÀÉ ß Ǆ",
+        "abc",
+        ""
+      ]
+    },
+    {
+      "fact": "mod.k3-text.ints",
+      "is": [
+        42,
+        -9223372036854775808,
+        true,
+        true
+      ]
+    },
+    {
+      "fact": "mod.k3-text.floats",
+      "is": [
+        0.1,
+        -2500.0,
+        true,
+        true,
+        5e-324
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "format": "1.0",
+  "id": "kit-menu-key",
+  "version": "1.0.0",
+  "name": "kit-menu-key",
+  "summary": "LumaKit menu conformance: a pause menu row made in on start with a text key shows its line at the first pause.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

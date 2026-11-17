@@ -1,0 +1,22 @@
+{
+  "format": "1.0",
+  "id": "kit-player.character",
+  "version": "1.0.0",
+  "name": "kit-player.character",
+  "summary": "LumaKit player.character conformance: from data, switch and back, as_luigi, a downloaded model, a second player, off while playing.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.player.character": 1
+  }
+}

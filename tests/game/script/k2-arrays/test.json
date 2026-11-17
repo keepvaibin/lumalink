@@ -1,0 +1,97 @@
+{
+  "harness": 1,
+  "name": "k2-arrays",
+  "about": "A LumaScript mod built by lumalink build indexes the game's arrays through import rows only: cIIRCutoff (const s16[129][4]) by literals and by a variable, ModelSys::mDrawBuffer (ItemBuffer *[2], null outside the scenario select), MarioConst.mTable (MarioConstTable *[2]) and its tables' f32 arrays, and the player's mBlurPoses (ModelPose[2][8], stepped by ModelPose's size row); and reads, compares and shows a matrix field (Mtx)",
+  "proves": [
+    "script.build",
+    "kernel.hook.after"
+  ],
+  "mods": [
+    "../../mods/k2-arrays"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::zeroVelocity",
+      "signature": "void(LiveActor *)",
+      "args": [
+        "player"
+      ]
+    },
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k2-arrays.iir",
+      "is": [
+        18020,
+        7791,
+        17200
+      ]
+    },
+    {
+      "fact": "mod.k2-arrays.iir_var",
+      "is": 32767
+    },
+    {
+      "fact": "mod.k2-arrays.buffers",
+      "is": [
+        false,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k2-arrays.consts",
+      "near": [
+        36.0,
+        34.71,
+        2.0,
+        0.4
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "mod.k2-arrays.poses",
+      "is": [
+        16,
+        16,
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k2-arrays.views_equal",
+      "is": true
+    },
+    {
+      "fact": "mod.k2-arrays.view",
+      "is": [
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  ]
+}

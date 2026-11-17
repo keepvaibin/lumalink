@@ -1,0 +1,121 @@
+{
+  "harness": 1,
+  "name": "kit-player.character",
+  "about": "jump_after is to equal jump_before (the harness compares a fact with a number only: the number goes in at the first run). LumaKit player.character (lumakit.md 2.3, lumakit-modules.md row 7): kit-player.character defines bee (own clips, voice, jump height x1.5) and green (as_luigi), plays bee mid-level and gives Mario back, answers the game's Luigi check while green plays, plays a downloaded model, asks for a second player, and is taken out while bee plays: the game's Mario and jump height again. Cases: from_data, switch_back, as_luigi, downloaded_model, second_player, mod_off. WAITING: `use kit.player.state` (reserved word, to K), clips and voice (a text into a const char * argument, K), from_data (R-6), the look (C.skin, assets), second_player (missing general part, director)",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.player.character"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-player.character"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 30,
+      "call": "getMarioConstant",
+      "signature": "f32(s32, const char *, s32)",
+      "args": [
+        0,
+        "mJumpHeight",
+        0
+      ],
+      "fact": "jump_before"
+    },
+    {
+      "at": 100,
+      "hold": [
+        "A"
+      ],
+      "frames": 10
+    },
+    {
+      "at": 110,
+      "picture": "bee"
+    },
+    {
+      "at": 320,
+      "take_out": "kit-player.character"
+    },
+    {
+      "at": 330,
+      "call": "getMarioConstant",
+      "signature": "f32(s32, const char *, s32)",
+      "args": [
+        0,
+        "mJumpHeight",
+        0
+      ],
+      "fact": "jump_after"
+    },
+    {
+      "at": 331,
+      "call": "MR::isPlayerLuigi",
+      "signature": "bool()",
+      "fact": "luigi_after"
+    },
+    {
+      "at": 340,
+      "picture": "mario_again"
+    },
+    {
+      "at": 360,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-player.character.from_data_found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.from_data_none_yet",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.switch_back_playing",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.switch_back_tuned",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.switch_back_mario",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.switch_back_untuned",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.as_luigi",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.downloaded_model_playing",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.second_player_alive",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.character.mod_off_playing",
+      "is": true
+    },
+    {
+      "fact": "jump_after",
+      "exists": true
+    },
+    {
+      "fact": "luigi_after",
+      "is": false
+    }
+  ]
+}

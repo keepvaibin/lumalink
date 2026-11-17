@@ -1,0 +1,135 @@
+// kit.area conformance (lumakit-modules.md row 10; lumakit.md 2.7). The mod's layer places its kinds' areas in
+// EggStarGalaxy (areaobjinfo patch, scale 2, as the game's forms take it: a cube from its base, 2000 across and 2000
+// up; a sphere round its place, radius 1000; a cylinder from its base, radius 1000, 500 up a scale_y): orderCube,
+// orderSphere, orderCylinder at the start + 4000, 8000, 12000 along x (the cube and cylinder 1000 below the start's
+// height, the sphere at it); slowCube over +16000 to +18000 and windCube over +16800 to +18800 (they overlap from
+// +16800 to +18000); sideCube at +24000. The script puts the player in each and back at the start; facts:
+// three_shapes_order  each shape: enter, inside, leave, in that order, once each (callbacks of a kind from code)
+// slow                the walking resist the kit gives the game inside slow (data player_speed 0.5): 0.5
+// wind                the push the kit gives the player inside wind (data player_force z 8) over 20 frames: z 160
+// side_camera         inside side (data camera Side x 1500): the main camera 1500 from the player; left: not
+// overlap             in slow and wind at once: both inside, the resist still 0.5 and the push still there
+// mod_off             the harness takes the mod out: `on stop` writes the log line the test ends on
+use kit.area
+use kit.camera
+
+let home = vec3(-1264.6, -13081.3, -15332.0)
+
+var events: list<text> = []
+var last_resist: f32 = 0.0
+var pushed = vec3(0.0, 0.0, 0.0)
+
+fn entered(p: MarioActor) {
+    events.push("enter")
+}
+
+fn inside(p: MarioActor) {
+    if events.len() == 0 or events[events.len() - 1] != "inside" {
+        events.push("inside")
+    }
+}
+
+fn left(p: MarioActor) {
+    events.push("leave")
+}
+
+fn at_x(dx: f32) -> vec3 {
+    return home + vec3(dx, 0.0, 0.0)
+}
+
+// The side rig's eye is the player's place and the rig's offset, looking at that place: the offset's length, as the
+// camera has it whether or not the player moves between the camera's frame and this read.
+fn camera_reach() -> f32 {
+    let e = camera.now()
+    return length(e.eye - e.at)
+}
+
+fn camera_distance() -> f32 {
+    guard let p = MR::getPlayerPos() else { return 0.0 }
+    return length(camera.now().eye - p)
+}
+
+// What the kit hands the game: the resist it sets and the pushes it adds (only while the test reads them).
+hook after MR::setPlayerWalkingResist(resist) {
+    last_resist = resist
+}
+
+hook after Mario::addTrans(shift) {
+    pushed = pushed + shift
+}
+
+on start {
+    area.define(area.Kind { name: "order", on_enter: entered, on_inside: inside, on_leave: left })
+    area.find("slow")
+    area.find("wind")
+    area.find("side")
+}
+
+task run() {
+    // `on stage` fires before the opening ends and the player takes input: settle first.
+    wait 300 frames
+    log fact "ready" true
+    let order = area.find("order")!
+    let slow = area.find("slow")!
+    let wind = area.find("wind")!
+    let side = area.find("side")!
+
+    // three_shapes_order: in each shape for 10 frames, then back home for 10.
+    var shapes_ok = true
+    for s in 0..3 {
+        events = []
+        MR::setPlayerPos(at_x(4000.0 * (s + 1) as f32))
+        wait 10 frames
+        let was_in = area.player_inside(order)
+        MR::setPlayerPos(home)
+        wait 10 frames
+        shapes_ok = shapes_ok and was_in and events.len() == 3 and events[0] == "enter" and events[1] == "inside" and
+                    events[2] == "leave"
+    }
+    log fact "shapes_order" shapes_ok
+    log fact "contains_cube" area.contains(order, at_x(4000.0))
+    log fact "contains_start" area.contains(order, home)
+
+    // slow
+    last_resist = 0.0
+    MR::setPlayerPos(at_x(16400.0))
+    wait 5 frames
+    log fact "slow_inside" area.player_inside(slow)
+    log fact "slow_resist" last_resist
+
+    // wind: 20 frames of pushes inside wind only (past slow's end).
+    MR::setPlayerPos(at_x(18400.0))
+    wait 1 frames
+    pushed = vec3(0.0, 0.0, 0.0)
+    wait 20 frames
+    log fact "wind_inside" area.player_inside(wind)
+    log fact "wind_push_z" pushed.z
+
+    // overlap
+    last_resist = 0.0
+    MR::setPlayerPos(at_x(17400.0))
+    wait 1 frames
+    pushed = vec3(0.0, 0.0, 0.0)
+    wait 5 frames
+    log fact "overlap_both" area.player_inside(slow) and area.player_inside(wind)
+    log fact "overlap_resist" last_resist
+    log fact "overlap_pushed" pushed.z > 0.0
+
+    // side_camera
+    MR::setPlayerPos(at_x(24000.0))
+    wait 5 frames
+    log fact "side_distance" camera_reach()
+    MR::setPlayerPos(home)
+    wait 5 frames
+    log fact "side_left" not area.player_inside(side)
+    log fact "side_back" abs(camera_distance() - 1500.0) > 50.0
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+on stop {
+    log "kit-area: taken out"
+}

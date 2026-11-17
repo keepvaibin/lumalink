@@ -1,0 +1,177 @@
+{
+  "harness": 1,
+  "name": "kit-shop",
+  "about": "LumaKit shop (lumakit.md 2.15, lumakit-modules.md row 21): kit-shop opens the shop of its kit/shop/corner.json (Life 30 coins, one in stock; Bits 500 coins) with 50 coins. Cases: buy (row 0 taken: 30 coins gone, a life more, the ware returned, stock 0), out_of_stock (opened again, row 0 refused with the game's buzzer, nothing paid, the shop still open until B), too_poor (a shop made in code, 500 coins: refused, nothing paid, B leaves: none), stock_reload (the stage loaded again: the Life is still sold out on this file). The list is kit.screen's: A takes the row, B backs out. WAITING: mods.kit_read (lumakit R-6, F), `on mods.stopped(gone)` beside `use svc.mods` (K).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.shop"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-shop"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-shop.opened",
+        "is": 1
+      },
+      "picture": "shop"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.opened",
+        "is": 1
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 3,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.opened",
+        "is": 2
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 3,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.refused_sold_out",
+        "is": true
+      },
+      "hold": [
+        "B"
+      ],
+      "frames": 3,
+      "timeout": 300
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.opened",
+        "is": 3
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 3,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.refused_too_poor",
+        "is": true
+      },
+      "hold": [
+        "B"
+      ],
+      "frames": 3,
+      "timeout": 300
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.left_none",
+        "is": true
+      },
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      },
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop.stock_reload",
+        "exists": true
+      },
+      "end": true,
+      "timeout": 2400
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-shop.found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop.buy_ware",
+      "is": "Life"
+    },
+    {
+      "fact": "mod.kit-shop.buy_paid",
+      "is": 30
+    },
+    {
+      "fact": "mod.kit-shop.buy_life_more",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop.stock_after_buy",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-shop.refused_sold_out",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop.sold_out_paid",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-shop.sold_out_left_none",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop.refused_too_poor",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop.too_poor_paid",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-shop.left_none",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop.stock_reload",
+      "is": 0
+    },
+    {
+      "picture": "shop",
+      "like": "refs/shop-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        490,
+        95,
+        300,
+        50
+      ]
+    },
+    {
+      "picture": "shop",
+      "like": "refs/shop-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        105,
+        175,
+        320,
+        85
+      ]
+    }
+  ]
+}

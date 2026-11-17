@@ -1,0 +1,151 @@
+// kit.player.form conformance (lumakit-modules.md row 5; lumakit.md 2.1). The harness presses the pad and takes the
+// mod out (test.json); each case writes its facts:
+// by_code, timer_meter   a form defined in code with a 120-step timer and the meter: given, current, its time counts
+//                        down, it ends by Timer and on_end says so; the player is Normal again
+// by_item                kit/player.form/gold.json given by an item (item.Gives.Form): current after the pickup
+// luigi_look             the look attached for Luigi is look_luigi (by person until a Luigi file is in the harness)
+// damage_ends            a form with ends_on_damage ends when the player is hurt (the harness puts the player on a Kuribo)
+// on_spin_once           on_spin is called once for one spin
+// scale_half_double      scale 0.5 then 2: the player's sensor radius constant follows (read by name)
+// game_form              the game's Bee given from code: the game says the player is a bee
+// two_mods               kit-player.form-b gives its form over this mod's: this one holds again when b's ends
+// mod_off                the harness takes this mod out while its form holds: Normal again
+use kit.player.form
+use kit.item
+
+var spins: u32 = 0
+var ended_by: text = ""
+var started: u32 = 0
+
+fn spun(p: MarioActor) {
+    spins += 1
+}
+
+fn began(p: MarioActor) {
+    started += 1
+}
+
+fn over(p: MarioActor, why: form.Ended) {
+    match why {
+        form.Ended.Timer => ended_by = "timer"
+        form.Ended.Damage => ended_by = "damage"
+        form.Ended.Replaced => ended_by = "replaced"
+        form.Ended.Ended => ended_by = "ended"
+        form.Ended.ModStopped => ended_by = "stopped"
+    }
+}
+
+task run() {
+    // `on stage` fires before the opening ends and the player takes input: settle first.
+    wait 300 frames
+    // by_code, timer_meter
+    let quick = form.define(form.Form { id: "quick", timer_frames: 120, meter: true, on_start: began, on_end: over, on_spin: spun })
+    form.set(quick)
+    log fact "by_code_current" form.is_current_form(quick)
+    log fact "started" started
+    wait 0.5 seconds
+    log fact "frames_left" form.frames_left() ?? 0
+    wait 2 seconds
+    log fact "timer_ended_by" ended_by
+    log fact "normal_after_timer" form.current() == none and MR::isPlayerElementModeNormal()
+
+    // on_spin_once: the harness shakes once while the form holds.
+    form.set(quick)
+    log fact "spin_now" true
+    wait 1 seconds
+    log fact "spins" spins
+    form.end()
+    log fact "ended_by_end" ended_by
+
+    // by_item: the data form, given by an item spawned on the player.
+    let gold = form.find("gold")
+    log fact "find_data" gold != none
+    if let g = gold {
+        let giver = item.define(item.Item { id: "gold_flower", look: model "Flower", gives: item.Gives.Form(g), floats: false })
+        item.spawn(giver, MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0))
+        wait 30 frames
+        log fact "by_item_current" form.is_current_form(g)
+        form.end()
+    }
+
+    // scale_half_double
+    let base = getMarioConstant(0, "mSensorRadius", 0)
+    let small = form.define(form.Form { id: "small", scale: 0.5 })
+    form.set(small)
+    log fact "scale_half" getMarioConstant(0, "mSensorRadius", 0) / base
+    form.end()
+    let big = form.define(form.Form { id: "big", scale: 2.0, hurts_on_touch: true })
+    form.set(big)
+    log fact "scale_double" getMarioConstant(0, "mSensorRadius", 0) / base
+    form.end()
+    log fact "scale_back" getMarioConstant(0, "mSensorRadius", 0) / base
+
+    // game_form
+    form.set(form.game(form.GameForm.Bee))
+    wait 10 frames
+    log fact "game_bee" MR::isPlayerElementModeBee()
+    form.end()
+    wait 10 frames
+    log fact "game_normal" MR::isPlayerElementModeNormal()
+
+    // game_form_again: the game ends a game form the kit gave (as its own timer and damage do, through setPlayerMode):
+    // the kit follows, and the same form given again is on the player again.
+    form.set(form.game(form.GameForm.Bee))
+    wait 10 frames
+    if let p = MarioAccess::getPlayerActor() {
+        p.setPlayerMode(0, true)
+    }
+    wait 2 frames
+    log fact "game_end_followed" form.current() == none
+    form.set(form.game(form.GameForm.Bee))
+    wait 10 frames
+    log fact "game_bee_again" MR::isPlayerElementModeBee()
+    form.end()
+    wait 10 frames
+
+    // game_pickup_kept: the game gives its Fire (a Fire Flower taken) while a mod's form holds: the mod's form ends
+    // (Replaced) and the player is Fire.
+    let plain = form.define(form.Form { id: "plain", on_end: over })
+    form.set(plain)
+    wait 5 frames
+    if let p = MarioAccess::getPlayerActor() {
+        p.setPlayerMode(2, true)
+    }
+    wait 5 frames
+    log fact "pickup_ended_by" ended_by
+    log fact "pickup_fire" MR::isPlayerElementMode(2)
+    log fact "pickup_current_none" form.current() == none
+    if let p = MarioAccess::getPlayerActor() {
+        p.setPlayerMode(0, true)
+    }
+    wait 10 frames
+
+    // two_mods: this mod's form holds; b gives its own over it for one second.
+    let mine = form.define(form.Form { id: "mine", on_end: over })
+    form.set(mine)
+    log fact "two_mods_ready" true
+    wait until not form.is_current_form(mine)
+    log fact "b_holds" true
+    wait 2 seconds
+    log fact "mine_again" form.is_current_form(mine)
+    form.end()
+
+    // damage_ends: the harness puts the player on a Kuribo while this form holds.
+    let frail = form.define(form.Form { id: "frail", on_end: over })
+    form.set(frail)
+    log fact "damage_ready" true
+    wait until not form.is_current_form(frail)
+    log fact "damage_ended_by" ended_by
+
+    // mod_off: this form holds when the harness takes the mod out.
+    form.set(mine)
+    log fact "mod_off_ready" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+on stop {
+    log "kit-player.form: taken out"
+}

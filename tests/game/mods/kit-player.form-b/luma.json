@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-player.form-b",
+  "version": "1.0.0",
+  "name": "kit-player.form-b",
+  "summary": "LumaKit player.form conformance, the second mod of two_mods.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

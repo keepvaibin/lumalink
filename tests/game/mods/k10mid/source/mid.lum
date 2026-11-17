@@ -1,0 +1,7 @@
+// K10, the middle library: calls the inner one.
+use k10inner.boom
+
+pub fn twice(x: i32) -> i32 {
+    let v = boom.times_million(x)
+    return v * 2
+}

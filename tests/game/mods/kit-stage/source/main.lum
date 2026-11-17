@@ -1,0 +1,50 @@
+// kit.stage conformance (lumakit-modules.md row 22; lumakit.md 2.16), the cases written so far:
+// data_defined   kit/stage/galaxies.json's JkDataGalaxy and JkDome found by name ("data_galaxy", "data_dome")
+// code_defined   JkCodeGalaxy defined in code, found, its name read back ("code_galaxy")
+// warp           go_to EggStarGalaxy scenario 2: after the load the stage and scenario read back ("warp_stage",
+//                "warp_scenario")
+// hub            hub("EggStarGalaxy") makes the game's hub question answer it, hub("") gives the game's back
+//                ("hub_set", "hub_back")
+// Waiting on their layers (J's row 5.2-5.4 stage): listed_after_20, stars_counted, comet_star (dome listing, C.stage
+// placement holder), music (the `sound` type), built_in_code (build), downloaded_stage (svc.mods offer).
+use kit.stage
+use svc.time
+
+fn in_scene() -> bool {
+    let s = time.now().state
+    return s == time.State.Play or s == time.State.Menu
+}
+
+// The flow starts once the test's stage is ready and the player has control (300 frames after its opening): before
+// it the harness makes its file and loads its stage, which a warp would race.
+task flow() {
+    wait 300 frames
+    log fact "data_galaxy" stage.find("JkDataGalaxy") != none
+    log fact "data_dome" stage.find_dome("JkDome") != none
+
+    let id = stage.define_galaxy(stage.Galaxy { name: "JkCodeGalaxy", title: "Kit Code Galaxy", dome: stage.Dome.Garden, unlock: stage.Unlock.Always,
+        stars: [stage.Star { scenario: 1, title: "Code Star" }] })
+    log fact "code_galaxy" stage.find("JkCodeGalaxy") != none and stage.name(id) == "JkCodeGalaxy"
+
+    stage.hub("EggStarGalaxy")
+    log fact "hub_set" NebulaMods::hubStage() == "EggStarGalaxy"
+    stage.hub("")
+    log fact "hub_back" NebulaMods::hubStage() != "EggStarGalaxy"
+
+    wait 30 frames
+    stage.go_to("EggStarGalaxy", 2)
+    wait until not in_scene()
+    wait until in_scene()
+    wait 30 frames
+    log fact "warp_stage" MR::getCurrentStageName() ?? ""
+    log fact "warp_scenario" MR::getCurrentScenarioNo()
+}
+
+var runs: u32 = 0
+
+on stage "EggStarGalaxy" {
+    runs += 1
+    if runs == 1 {
+        start flow()
+    }
+}

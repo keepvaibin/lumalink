@@ -1,0 +1,22 @@
+{
+  "format": "1.0",
+  "id": "kit-shop",
+  "version": "1.0.0",
+  "name": "kit-shop",
+  "summary": "LumaKit shop conformance: buy, too poor, out of stock, stock kept across a reload.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.shop": 1
+  }
+}

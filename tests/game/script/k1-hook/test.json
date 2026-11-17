@@ -1,0 +1,60 @@
+{
+  "harness": 1,
+  "name": "k1-hook",
+  "about": "A LumaScript mod built by lumalink build: its after hook on CameraLocalUtil::getNormalizedOr sees the argument as a fact and doubles the result; its on start says a fact",
+  "proves": [
+    "script.build",
+    "kernel.hook.after"
+  ],
+  "mods": [
+    "../../mods/k1-hook"
+  ],
+  "steps": [
+    {
+      "at": 30,
+      "call": "CameraLocalUtil::getNormalizedOr",
+      "signature": "Vec3f(const Vec3f &, const Vec3f &)",
+      "args": [
+        [
+          3,
+          0,
+          0
+        ],
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      "fact": "out"
+    },
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k1-hook.started",
+      "is": true
+    },
+    {
+      "fact": "mod.k1-hook.seen",
+      "near": [
+        3,
+        0,
+        0
+      ],
+      "within": 0.0
+    },
+    {
+      "fact": "out",
+      "near": [
+        2,
+        0,
+        0
+      ],
+      "within": 0.0001
+    }
+  ]
+}

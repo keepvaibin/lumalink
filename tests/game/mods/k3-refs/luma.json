@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k3-refs",
+  "version": "1.0.0",
+  "name": "k3-refs",
+  "summary": "k3-refs (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

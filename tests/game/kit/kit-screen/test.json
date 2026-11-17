@@ -1,0 +1,233 @@
+{
+  "harness": 1,
+  "name": "kit-screen",
+  "about": "LumaKit screen (lumakit.md 2.11, lumakit-modules.md row 17): kit-screen opens a message (A closes it), a choice taken with DOWN and A (row 1), one backed out of with B (none), one taken with the pointer on Row2 and A (row 2), twelve rows paged with RIGHT and taken (row 10), a list updated to three rows while open, DOWN DOWN A runs its on_choose(2) and it stays open until the mod closes it, CoinCounter as a pausing layout screen (the world held), loading tips; then a message left open while the harness takes kit-screen out: kit-screen-b sees the world let go (holders 0). Cases: each_kind_answered_backed, list_updated, mod_stops_open. Written, not run (owner 08:40).",
+  "proves": [
+    "script.build",
+    "kit.screen"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-screen",
+    "../../mods/kit-screen-b"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 11
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 21
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 22
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 31
+      },
+      "hold": [
+        "B"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 41
+      },
+      "pointer": [
+        0.5,
+        0.4
+      ],
+      "frames": 40
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 42
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 51
+      },
+      "picture": "page2-before"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 51
+      },
+      "hold": [
+        "RIGHT"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 52
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 62
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 63
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 64
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-screen.cue",
+        "is": 91
+      },
+      "take_out": "kit-screen"
+    },
+    {
+      "at": 2400,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-screen.message_closed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.choose_pad",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-screen.choose_back_none",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.choose_pointer",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-screen.choose_page",
+      "is": 10
+    },
+    {
+      "fact": "mod.kit-screen.list_updated",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.list_chosen",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-screen.list_open_after",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.list_closed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.layout_opened",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.layout_held",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.layout_closed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen.loading_set",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-screen-b.holders",
+      "is": 0
+    },
+    {
+      "picture": "page2-before",
+      "like": "refs/page2-before-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        500,
+        95,
+        290,
+        50
+      ]
+    },
+    {
+      "picture": "page2-before",
+      "like": "refs/page2-before-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        100,
+        175,
+        180,
+        460
+      ]
+    }
+  ]
+}

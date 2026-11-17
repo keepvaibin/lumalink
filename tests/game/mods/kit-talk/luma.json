@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-talk",
+  "version": "1.0.0",
+  "name": "kit-talk",
+  "summary": "LumaKit talk conformance: a Goomba says a line, asks with two and four choices, runs a tree that loops and sets a flag, says a voiced line, and is killed mid-line.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "layers": [
+    {
+      "name": "base"
+    }
+  ],
+  "kit": {
+    "lumakit.talk": 1
+  }
+}

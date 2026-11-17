@@ -1,0 +1,106 @@
+// kit.cutscene conformance (lumakit-modules.md row 19; lumakit.md 2.13). Three scenes on EggStarGalaxy; the harness
+// presses the pad (test.json). Each case writes its facts:
+// each_shot, run_through  a scene made in code: Look at the first Kuribo, Move, Action, Wait, Call, Line (said as a
+//                         message: A closes it); play gives true; the Call ran once; the camera moved and came back
+// letterbox               the game's bars while the scene plays (the picture "bars"; its top-left strip is black)
+// skipped                 the data scene tour.json, PLUS held: play gives false, everything put back
+// actor_dies              a 600-frame Look at a Kuribo killed 30 frames in: the shot ends early, the scene runs on
+use kit.cutscene
+use kit.camera
+use svc.draw.view
+use svc.time
+
+var calls: u32 = 0
+var move_started: u64 = 0
+
+fn called() {
+    calls += 1
+}
+
+fn far(a: vec3, b: vec3) -> f32 {
+    let d = a - b
+    return sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+}
+
+// The first live Kuribo of the stage.
+fn kuribo() -> ref<LiveActor>? {
+    if let o = NameObjFinder::find("クリボー") {
+        if let a = as_class<LiveActor>(o) {
+            return ref(a)
+        }
+    }
+    return none
+}
+
+// Facts written from outside the scene while it plays: the Move is under way, the message is open.
+task watch_first() {
+    wait until cutscene.active()
+    let first = camera.now()
+    wait 100 frames
+    log fact "active_during" cutscene.active()
+    log fact "camera_moved" far(camera.now().eye, first.eye) > 100.0
+    log fact "letterbox_on" MR::isStopCinemaFrame()
+    log fact "in_move" true
+    wait until calls == 1
+    wait 20 frames
+    log fact "line_open" true
+}
+
+task kill_later(k: ref<LiveActor>) {
+    wait 30 frames
+    if let a = k.get() {
+        a.kill()
+    }
+}
+
+task run() {
+    wait 120 frames
+    guard let k = kuribo() else {
+        log fact "run_through" false
+        return
+    }
+    let before = camera.now()
+    let a = view.Eye { eye: before.eye, at: before.at, up: before.up, fov_y: before.fov_y }
+    let b = view.Eye { eye: before.eye + vec3(0.0, 400.0, 0.0), at: before.at, up: before.up, fov_y: 35.0 }
+
+    // each_shot, run_through, letterbox
+    start watch_first()
+    let whole = cutscene.Scene { shots: [cutscene.Shot.Look(k, vec3(0.0, 300.0, 600.0), 60), cutscene.Shot.Move(a, b, 90),
+                                         cutscene.Shot.Action(k, "Walk"), cutscene.Shot.Wait(20), cutscene.Shot.Call(called),
+                                         cutscene.Shot.Line(none, "Done.")] }
+    let ran = wait cutscene.play(whole)
+    log fact "run_through" ran
+    log fact "call_ran" calls
+    wait 90 frames
+    log fact "camera_back" far(camera.now().eye, before.eye) < 1.0
+    log fact "active_after" cutscene.active()
+
+    // skipped: the data scene
+    let tour = cutscene.find("tour")
+    log fact "tour_found" tour != none
+    if let t = tour {
+        let p = cutscene.play(t)
+        wait 20 frames
+        log fact "tour_started" true
+        let ended = wait p
+        log fact "skipped" not ended
+        wait 90 frames
+        log fact "skip_put_back" far(camera.now().eye, before.eye) < 1.0 and not cutscene.active()
+    }
+
+    // actor_dies
+    if let victim = kuribo() {
+        start kill_later(victim)
+        let t0 = time.now().frame
+        let dying = cutscene.Scene { shots: [cutscene.Shot.Look(victim, vec3(0.0, 300.0, 600.0), 600), cutscene.Shot.Wait(10)],
+                                     skippable: false }
+        let went_on = wait cutscene.play(dying)
+        log fact "actor_dies_ran_on" went_on
+        log fact "actor_dies_shot_short" time.now().frame - t0 < 120
+    }
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

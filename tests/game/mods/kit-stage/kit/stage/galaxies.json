@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "galaxies": [
+  {
+   "name": "JkDataGalaxy",
+   "title": "Kit Data Galaxy",
+   "dome": "Terrace",
+   "unlock": {
+    "Stars": {
+     "count": 20
+    }
+   },
+   "stars": [
+    {
+     "scenario": 1,
+     "title": "The First"
+    },
+    {
+     "scenario": 2,
+     "title": "The Comet",
+     "comet": "Speedy"
+    }
+   ]
+  }
+ ],
+ "domes": [
+  {
+   "name": "JkDome",
+   "title": "Kit Dome"
+  }
+ ]
+}

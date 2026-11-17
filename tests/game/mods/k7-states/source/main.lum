@@ -1,0 +1,43 @@
+// K7 (language 11.2, D11.3): a state machine per object of a mod's class, run from the class's control. Each Goomba
+// (made as Stepper) counts frames in Count's update and `go`es to Wait at 20 (Count's exit sees 20); Wait's enter
+// notes the count, its task waits 10 frames while its update goes on counting, then it goes to Done, whose enter
+// reads is_state and stops the machine. The first Goomba to get there says the facts.
+
+var told = false
+
+class Stepper : Kuribo replaces Kuribo {
+    var frames = 0
+    var waited_from = 0
+    var left_count = 0
+}
+
+states Walk for Stepper {
+    state Count {
+        enter { frames = 0 }
+        update {
+            frames += 1
+            if frames == 20 { go Wait }
+        }
+        exit { left_count = frames }
+    }
+    state Wait {
+        enter { waited_from = frames }
+        update { frames += 1 }
+        wait 10 frames
+        go Done
+    }
+    state Done {
+        enter {
+            if not told {
+                told = true
+                log fact "left_count" left_count
+                log fact "counted_while_waiting" frames > waited_from
+                log fact "in_done" is_state(Done)
+                log fact "not_in_wait" not is_state(Wait)
+            }
+            stop
+        }
+        update { frames += 1000 }
+    }
+    start Count
+}

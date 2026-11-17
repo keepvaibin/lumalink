@@ -1,0 +1,120 @@
+{
+  "harness": 1,
+  "name": "kit-item",
+  "about": "LumaKit item (lumakit.md 2.4, lumakit-modules.md row 2). kit-item on EggStarGalaxy. placed: the stage layer of the mod places \"key\" (kit/item/key.json, Carry 1) 300 units in front of the start; the harness walks into it: carried is 1. spawned: an item defined in code is spawned on the player for each kind of gives in turn (Coins 3, StarBits 5, Lives 1, Health 1, Call): the game's counters move by exactly that and the Call ran once with the player. bubble: a Bubble item's object stands 250 units above its place. crystal: a Crystal item cannot be taken while its crystal stands (the player placed on it: nothing given) and is taken after the crystal is killed. inventory_reload: the stage loaded again: carried is still 1; use_one gives true then carried is 0, use_one false. mod_off: the mod taken out: its objects are gone (the count of live KitItem objects is 0). WAITING: make, model/effect/sound types, as?, *_named for the caller, kit_read binding (K); the run-time alias row and the placement-argument mark (F); kit.player.form (F) for Gives.Form.",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.item"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-item"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-item.ready",
+        "is": true
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 90,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-item.first_done",
+        "is": true
+      },
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      },
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "fact": "mod.kit-item.reload_done",
+        "is": true
+      },
+      "take_out": "kit-item",
+      "timeout": 1800
+    },
+    {
+      "after": {
+        "log": "kit-item: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-item.placed_carried",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-item.coins_more",
+      "is": 3
+    },
+    {
+      "fact": "mod.kit-item.bits_more",
+      "is": 5
+    },
+    {
+      "fact": "mod.kit-item.lives_more",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-item.call_ran",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-item.bubble_height",
+      "near": 250,
+      "within": 20
+    },
+    {
+      "fact": "mod.kit-item.crystal_held",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-item.crystal_found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-item.crystal_taken",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-item.find_data",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-item.reload_carried",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-item.use_one",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-item.use_none",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-item.carried_all_len",
+      "is": 1
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

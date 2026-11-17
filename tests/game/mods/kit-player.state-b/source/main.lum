@@ -1,0 +1,11 @@
+// kit.player.state conformance, two_mods: a second mod's move on its own action, beside kit-player.state's.
+use kit.player.state as pst
+use svc.input
+
+on start {
+    if let a = input.action("spin2") {
+        let s = pst.define(pst.State { id: "spin2", starts: pst.Start.Action(a), from: [pst.From.Any],
+            action: "SpinJump", ends: [pst.End.Frames(30)] })
+        log fact "defined" s.n != 0 and pst.find("spin2") != none and pst.find("glide") == none
+    }
+}

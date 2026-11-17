@@ -1,0 +1,127 @@
+// kit.screen conformance (lumakit-modules.md row 17; lumakit.md 2.11). One flow opens each kind of screen in turn;
+// while a phase waits for the player, `on frame` writes the fact "cue" = phase * 10 + n every 20 frames (n from 1),
+// and the test (agents/luma/j/tests/kit-screen) gives the input on each cue:
+// 1 message         cue 11 A: closed ("message_closed")
+// 2 choose_pad      cue 21 DOWN, 22 A: row 1 ("choose_pad")
+// 3 choose_back     cue 31 B: backed out, none ("choose_back_none")
+// 4 choose_pointer  cue 41 the pointer on Row2 (held), 42 A: row 2 ("choose_pointer")
+// 5 choose_page     twelve rows; cue 51 RIGHT (page 2 of 2), 52 A: row 10 ("choose_page")
+// 6 list            two rows; cue 61 the mod sets three ("list_updated": alive with three), 62 DOWN, 63 DOWN,
+//                   64 A: on_choose(2) ("list_chosen"), the list stays open ("list_open_after"); the mod closes it
+//                   ("list_closed")
+// 7 layout          CoinCounter as a pausing screen ("layout_opened"), the world held ("layout_held": holders > 0),
+//                   closed by the mod through the kit ("layout_closed": no one holds the world)
+// 8 loading         tips and no picture given ("loading_set")
+// 9 mod_stops_open  a message left open (cue 91: the harness takes kit-screen out); kit-screen-b's "holders" goes to 0
+use kit.screen
+use svc.ui
+use svc.time
+
+var phase: u32 = 0
+var since: u32 = 0
+var cues: u32 = 0
+var shown = screen.ListScreen { id: 0 }
+
+fn begin(p: u32, n: u32) {
+    phase = p
+    since = 0
+    cues = n
+}
+
+fn picked(i: int) {
+    log fact "list_chosen" i
+    log fact "list_open_after" screen.alive(shown)
+}
+
+// Cues count only while a scene runs or the game holds it (its pause menu): never during boot or a load.
+// The test's stage is ready and the player has control (300 frames after its opening: the landing and the
+// game's key lock): before it, the harness makes its file and waits for the player to take input, which
+// a panel or a talk would hold.
+var staged = false
+
+task settle() {
+    wait 300 frames
+    staged = true
+}
+
+on stage "EggStarGalaxy" {
+    start settle()
+}
+
+fn in_scene() -> bool {
+    if not staged {
+        return false
+    }
+    let s = time.now().state
+    return s == time.State.Play or s == time.State.Menu
+}
+
+on frame {
+    if phase == 0 or not in_scene() {
+        return
+    }
+    since += 1
+    if since % 20 == 0 and since / 20 <= cues {
+        let n = since / 20
+        log fact "cue" phase * 10 + n
+        if phase == 6 and n == 1 {
+            screen.set_rows(shown, ["Apple", "Pear", "Plum"])
+            log fact "list_updated" screen.alive(shown)
+        }
+    }
+}
+
+task flow() {
+    wait until in_scene()
+    begin(1, 1)
+    wait screen.message("Kit message")
+    log fact "message_closed" true
+
+    begin(2, 2)
+    let pad = wait screen.choose("Pick", ["One", "Two", "Three"])
+    log fact "choose_pad" pad ?? -1
+
+    begin(3, 1)
+    let back = wait screen.choose("Back", ["Stay", "Go"])
+    log fact "choose_back_none" back == none
+
+    begin(4, 2)
+    let pointed = wait screen.choose("Point", ["Zero", "One", "Two"])
+    log fact "choose_pointer" pointed ?? -1
+
+    var twelve: list<text> = []
+    for i in 0..12 {
+        twelve.push("Row {i}")
+    }
+    begin(5, 2)
+    let paged = wait screen.choose("Pages", twelve)
+    log fact "choose_page" paged ?? -1
+
+    shown = screen.list(screen.List { title: "List", rows: ["Apple", "Pear"], on_choose: picked })
+    begin(6, 4)
+    wait until since >= 100
+    screen.close(shown)
+    log fact "list_closed" not screen.alive(shown)
+
+    begin(7, 0)
+    let opened = screen.layout("CoinCounter")
+    log fact "layout_opened" opened != none
+    wait 2 frames
+    log fact "layout_held" time.now().holders > 0
+    if let s = opened {
+        screen.close_layout(s)
+    }
+    wait 2 frames
+    log fact "layout_closed" time.now().holders == 0
+
+    begin(8, 0)
+    screen.loading(["Tip one", "Tip two"])
+    log fact "loading_set" true
+
+    begin(9, 1)
+    wait screen.message("Left open")
+}
+
+on start {
+    start flow()
+}

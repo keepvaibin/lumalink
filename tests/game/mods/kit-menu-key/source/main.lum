@@ -1,0 +1,46 @@
+// kit.menu conformance: a row made in `on start` with a text key (read before the game's messages exist) shows its
+// line, not its key, at the first pause (its screen made while the game is paused). Cues: 1 open,
+// 2 picture "first".
+use kit.menu
+use svc.time
+
+var entry = menu.Entry { id: 0 }
+var staged = false
+var cue: u32 = 0
+var at: u32 = 0
+var n: u32 = 0
+
+fn row() {
+    log fact "taken" true
+}
+
+on start {
+    entry = menu.add_pause_entry(text "Probe.Row", row)
+}
+
+task settle() {
+    wait 300 frames
+    staged = true
+}
+
+on stage "EggStarGalaxy" {
+    start settle()
+}
+
+on frame {
+    if not staged {
+        return
+    }
+    n += 1
+    let s = time.now().state
+    if cue == 0 {
+        cue = 1
+        log fact "cue" 1
+    } else if cue == 1 and s == time.State.Menu {
+        cue = 2
+        at = n
+    } else if cue == 2 and n >= at + 60 {
+        cue = 3
+        log fact "cue" 2
+    }
+}

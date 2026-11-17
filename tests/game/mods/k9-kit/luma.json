@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k9-kit",
+  "version": "1.0.0",
+  "name": "k9-kit",
+  "summary": "k9-kit (a conformance mod): an enemy built on LumaKit's actor and item.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

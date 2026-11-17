@@ -1,0 +1,246 @@
+// kit.net.kit conformance (lumakit.md 2.18). Everything runs inside this one mod on this machine's loopback:
+// ordered_20pct_drop  a host link and a player link talk through a relay socket of this mod that drops one datagram in
+//                     five each way (a fixed sequence, so every run drops the same ones); 200 messages each way arrive
+//                     whole and in order
+// peer_leaves         a second player joins the host directly, then closes: the host and the first player are told
+// clock_one_frame     the second player's clock against the host (one machine, one clock) is within one frame
+// page_served         serve_page gives index.html to a plain GET, 404 for another path, and a WebSocket's message to
+//                     on_page_message; page_send's answer reaches the WebSocket; url names the page's port
+use kit.net.kit as nk
+use svc.net.local
+
+let COUNT: u32 = 200
+
+var frames: u32 = 0
+var host = nk.Link { slot: 0 }
+var player = nk.Link { slot: 0 }
+var second = nk.Link { slot: 0 }
+var host_port: u16 = 0
+
+// The relay: the player's port (learned from its first datagram), a fixed pseudo-random sequence, and its counts.
+var relay: local.Request? = none
+var relay_player_port: u16 = 0
+var seed: u64 = 20261112
+var dropped: u32 = 0
+var passed: u32 = 0
+
+// Messages: the next index each side expects, those out of place, and how many each side has sent.
+var host_next: u32 = 0
+var host_wrong: u32 = 0
+var player_next: u32 = 0
+var player_wrong: u32 = 0
+var player_sent: u32 = 0
+var host_sent: u32 = 0
+var player_id_at_host: u8 = 255
+
+// Peers.
+var host_left: list<u8> = []
+var player_left: list<u8> = []
+var second_joined_at_host = false
+var second_id: u8 = 255
+
+// The page.
+var page = nk.Page { slot: 0 }
+var page_port: u16 = 0
+var page_got: bytes = b""
+var get_answer: bytes = b""
+var miss_answer: bytes = b""
+var ws_got: bytes = b""
+
+fn index(data: bytes) -> u32 {
+    if data.len() != 4 {
+        return u32.max
+    }
+    return data.read_u32(0, big: false)
+}
+
+fn numbered(n: u32) -> bytes {
+    var b: bytes = b""
+    for k in 0..4 {
+        b.push(0)
+    }
+    b.write_u32(0, n, big: false)
+    return b
+}
+
+fn drop_this() -> bool {
+    seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+    return (seed >> 16) % 5 == 0
+}
+
+fn relay_one(data: bytes, port: u16) {
+    guard let r = relay else {
+        return
+    }
+    if drop_this() {
+        dropped += 1
+        return
+    }
+    passed += 1
+    if port == host_port {
+        if relay_player_port != 0 {
+            local.send_to(r, "127.0.0.1", relay_player_port, data)
+        }
+    } else {
+        relay_player_port = port
+        local.send_to(r, "127.0.0.1", host_port, data)
+    }
+}
+
+fn join(a: bytes, more: bytes) -> bytes {
+    var b = a
+    for i in 0..more.len() {
+        b.push(more[i])
+    }
+    return b
+}
+
+fn starts(b: bytes, with: text) -> bool {
+    let w = with.bytes()
+    return b.len() >= w.len() and b.slice(0, w.len()) == w
+}
+
+fn ends(b: bytes, with: text) -> bool {
+    let w = with.bytes()
+    return b.len() >= w.len() and b.slice(b.len() - w.len(), b.len()) == w
+}
+
+// A plain GET of `path` on the page's port; the whole answer (the server closes after it) goes to `got`.
+fn fetch(path: text, which: u32) {
+    local.tcp_connect("127.0.0.1", page_port, fn(e: local.Event) {
+        match e {
+            local.Event.Connected(s, nothing) => {
+                local.send(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".bytes())
+            }
+            local.Event.Data(s, data) => {
+                if which == 0 {
+                    get_answer = join(get_answer, data)
+                } else {
+                    miss_answer = join(miss_answer, data)
+                }
+            }
+            else => return
+        }
+    })
+}
+
+on start {
+    host = nk.reliable(0, false)
+    host_port = nk.port(host)
+    nk.on_received(host, fn(l: nk.Link, from: u8, data: bytes) {
+        if index(data) == host_next {
+            host_next += 1
+        } else {
+            host_wrong += 1
+        }
+    })
+    nk.on_peer(host, fn(l: nk.Link, id: u8, joined: bool) {
+        if joined and player_id_at_host == 255 {
+            player_id_at_host = id
+        } else if joined {
+            second_joined_at_host = true
+            second_id = id
+        } else {
+            host_left.push(id)
+        }
+    })
+    relay = local.udp_open(0, 0, fn(e: local.Event) {
+        match e {
+            local.Event.Datagram(s, data, from) => relay_one(data, from.port)
+            else => return
+        }
+    })
+    var relay_port: u16 = 0
+    if let r = relay {
+        relay_port = local.port(r)
+    }
+    player = nk.reliable(0, false)
+    nk.on_received(player, fn(l: nk.Link, from: u8, data: bytes) {
+        if from == 0 and index(data) == player_next {
+            player_next += 1
+        } else {
+            player_wrong += 1
+        }
+    })
+    nk.on_peer(player, fn(l: nk.Link, id: u8, joined: bool) {
+        if not joined {
+            player_left.push(id)
+        }
+    })
+    log fact "made" nk.alive(host) and nk.alive(player) and relay != none and host_port != 0 and relay_port != 0
+    log fact "connect" nk.connect(player, "127.0.0.1", relay_port)
+
+    page = nk.serve_page(0, [nk.PageFile { path: "index.html", body: "<html>pad</html>".bytes() }])
+    page_port = nk.page_port(page)
+    nk.on_page_message(page, fn(p: nk.Page, data: bytes) {
+        page_got = data
+        nk.page_send(p, "yo".bytes())
+    })
+    log fact "page_made" nk.page_alive(page) and page_port != 0
+    log fact "url_form" nk.url(page).starts_with("http://") and nk.url(page).ends_with(":{page_port}/")
+}
+
+on frame {
+    frames += 1
+    // ordered_20pct_drop: ten messages a frame each way once the player has its id.
+    if nk.id(player) != 255 and player_id_at_host != 255 {
+        for k in 0..10 {
+            if player_sent < COUNT {
+                if nk.send(player, 0, numbered(player_sent)) {
+                    player_sent += 1
+                }
+            }
+            if host_sent < COUNT {
+                if nk.send(host, player_id_at_host, numbered(host_sent)) {
+                    host_sent += 1
+                }
+            }
+        }
+    }
+    // peer_leaves and clock_one_frame: the second player joins at 60, its clock is asked once it has an id, it
+    // leaves at 600.
+    if frames == 60 {
+        second = nk.reliable(0, false)
+        nk.connect(second, "127.0.0.1", host_port)
+        start clock_case()
+    }
+    if frames == 600 {
+        log fact "second_joined" second_joined_at_host
+        nk.close(second)
+    }
+    // page_served
+    if frames == 120 {
+        fetch("/", 0)
+        fetch("/missing.js", 1)
+        local.ws_connect("ws://127.0.0.1:{page_port}/", none, fn(e: local.Event) {
+            match e {
+                local.Event.Connected(s, protocol) => local.ws_send(s, "hi".bytes(), 0)
+                local.Event.Message(s, data, flags) => ws_got = data
+                else => return
+            }
+        })
+    }
+    if frames == 1100 {
+        log fact "host_in_order" host_next == COUNT and host_wrong == 0
+        log fact "player_in_order" player_next == COUNT and player_wrong == 0
+        log fact "drops_near_a_fifth" dropped * 100 >= (dropped + passed) * 10 and dropped * 100 <= (dropped + passed) * 30
+        log fact "host_saw_leave" host_left.contains(second_id)
+        log fact "player_saw_leave" player_left.contains(second_id)
+        log fact "peers_after_leave" not nk.peers(host).contains(second_id) and nk.peers(host).len() == 1
+        log fact "page_get" starts(get_answer, "HTTP/1.1 200 OK") and ends(get_answer, "<html>pad</html>")
+        log fact "page_missing" starts(miss_answer, "HTTP/1.1 404")
+        log fact "page_message" page_got == "hi".bytes()
+        log fact "page_answer" ws_got == "yo".bytes()
+        nk.close(host)
+        nk.close(player)
+        nk.close_page(page)
+        log fact "closed" not nk.alive(host) and not nk.page_alive(page)
+    }
+}
+
+task clock_case() {
+    wait until nk.id(second) != 255
+    let offset = wait nk.clock(second)
+    log fact "clock_offset" offset
+    log fact "clock_within_frame" offset < 1.0 / 60.0 and offset > -1.0 / 60.0
+}

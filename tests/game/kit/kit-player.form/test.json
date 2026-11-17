@@ -1,0 +1,173 @@
+{
+  "harness": 1,
+  "name": "kit-player.form",
+  "about": "LumaKit player.form (lumakit.md 2.1, lumakit-modules.md row 5). by_code and timer_meter: a 120-step form given in code is current, on_start ran once, 30 steps later 90 are left, it ends by its timer and the player is Normal. on_spin_once: one shake, one call. by_item: the data form gold.json given by a kit item spawned on the player. scale_half_double: the player's sensor radius constant is 0.5 and 2 of its own and exactly back. game_form: the game's Bee from code, then Normal. two_mods: kit-player.form-b's form over this mod's for 60 steps, then this mod's holds again. damage_ends: the harness puts the player on the first Kuribo, the form ends by Damage. mod_off: the mod taken out while its form holds: the game says Normal. luigi_look is by person until a Luigi file is in the harness NAND. WAITING: the module cycle item <-> player/form (lumakit.md 2.4 allows it; K), content.model's handle, model/effect/sound types, *_named, kit_read binding, make (K). game_form_again: the game sets Bee over a kit form: the kit form ends (followed), Bee again holds. game_pickup_kept: a kit form, then the game gives Fire (setPlayerMode): the kit form ends as replaced, the player is Fire, no kit form is current.",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.player.form"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-player.form",
+    "../../mods/kit-player.form-b"
+  ],
+  "save": {
+    "spin": true
+  },
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-player.form.spin_now",
+        "is": true
+      },
+      "shake": 10,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.form.damage_ready",
+        "is": true
+      },
+      "call": "MR::setPlayerPos",
+      "signature": "void(const Vec3f &)",
+      "args": [
+        "object:クリボー#0"
+      ],
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "fact": "mod.kit-player.form.mod_off_ready",
+        "is": true
+      },
+      "take_out": "kit-player.form",
+      "timeout": 3000
+    },
+    {
+      "after": {
+        "log": "kit-player.form: taken out"
+      },
+      "call": "MR::isPlayerElementModeNormal",
+      "signature": "bool()",
+      "args": [],
+      "fact": "normal_after_off",
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "normal_after_off",
+        "exists": true
+      },
+      "end": true,
+      "timeout": 600
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-player.form.by_code_current",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.started",
+      "is": 1,
+      "when": "first"
+    },
+    {
+      "fact": "mod.kit-player.form.frames_left",
+      "near": 90,
+      "within": 3
+    },
+    {
+      "fact": "mod.kit-player.form.timer_ended_by",
+      "is": "timer"
+    },
+    {
+      "fact": "mod.kit-player.form.normal_after_timer",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.spins",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-player.form.ended_by_end",
+      "is": "ended"
+    },
+    {
+      "fact": "mod.kit-player.form.find_data",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.by_item_current",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.scale_half",
+      "near": 0.5,
+      "within": 0.001
+    },
+    {
+      "fact": "mod.kit-player.form.scale_double",
+      "near": 2.0,
+      "within": 0.001
+    },
+    {
+      "fact": "mod.kit-player.form.scale_back",
+      "near": 1.0,
+      "within": 0.0001
+    },
+    {
+      "fact": "mod.kit-player.form.game_bee",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.game_normal",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.game_end_followed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.game_bee_again",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.pickup_ended_by",
+      "is": "replaced"
+    },
+    {
+      "fact": "mod.kit-player.form.pickup_fire",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.pickup_current_none",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form-b.given",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.b_holds",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.mine_again",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-player.form.damage_ended_by",
+      "is": "damage"
+    },
+    {
+      "fact": "normal_after_off",
+      "is": true
+    }
+  ]
+}

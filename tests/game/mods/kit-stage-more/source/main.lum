@@ -1,0 +1,76 @@
+// kit.stage conformance, the cases J's kit-stage does not hold (lumakit-modules.md row 22; lumakit.md 2.16):
+// listed_after_20   a galaxy unlocked by 20 stars: the game says it has not appeared with fewer and has with 20
+//                   (kit.progress counts the mod's own stars into the total)
+// stars_counted     its stars got through kit.progress: the game's count of stars owned in it follows
+// comet_star        a star with a comet: the game's comet schedule lands that comet on the galaxy for its scenario
+// music             music given for EggStarGalaxy: it is the music the stage's start asks for (the log line of
+//                   svc.audio's music)
+// built_in_code     a builder for EggStarGalaxy places a Kuribo 500 units above the start: one more live Kuribo
+// appear_star       a star asked to appear at a place: its holder stands there
+use kit.stage
+use kit.progress
+use kit.gravity
+
+var built: u32 = 0
+
+fn builder(b: stage.Builder) {
+    built += 1
+    stage.place(b, "Kuribo", vec3(0.0, 500.0, 0.0))
+    stage.field(b, gravity.Field.Parallel { direction: vec3(0.0, -1.0, 0.0) })
+}
+
+on start {
+    let g = stage.define_galaxy(stage.Galaxy { name: "KitMoreGalaxy", title: "Kit More", dome: stage.Dome.Terrace,
+        unlock: stage.Unlock.Stars(20),
+        stars: [stage.Star { scenario: 1, title: "One" }, stage.Star { scenario: 2, title: "Two", comet: stage.Comet.Speedy }] })
+    stage.comets_of(g)
+    stage.music("EggStarGalaxy", none, sound "KitTheme")
+    stage.build("EggStarGalaxy", builder)
+}
+
+task run() {
+    // `on stage` fires before the opening ends and the player takes input: settle first.
+    wait 300 frames
+    log fact "built_runs" built
+
+    // listed_after_20: the helper galaxy below gives this file 20 stars of the mod's own.
+    log fact "listed_before" GameDataFunction::isAppearGalaxy("KitMoreGalaxy")
+    log fact "stars_to_open" GameDataConst::getPowerStarNumToOpenGalaxy("KitMoreGalaxy")
+    let have = progress.stars()
+    var need: u32 = 0
+    if have < 20 {
+        need = 20 - have
+    }
+    var stars: list<stage.Star> = []
+    for k in 0..(need as int) {
+        stars.push(stage.Star { scenario: (k + 1) as u32, title: "Filler" })
+    }
+    stage.define_galaxy(stage.Galaxy { name: "KitFillerGalaxy", title: "Filler", dome: stage.Dome.Terrace, stars: stars })
+    for k in 0..(need as int) {
+        progress.give_star("KitFillerGalaxy", (k + 1) as u32)
+    }
+    log fact "listed_after" GameDataFunction::isAppearGalaxy("KitMoreGalaxy")
+
+    // stars_counted
+    log fact "owned_before" GameDataFunction::getPowerStarNumOwned("KitMoreGalaxy")
+    progress.give_star("KitMoreGalaxy", 1)
+    log fact "owned_after" GameDataFunction::getPowerStarNumOwned("KitMoreGalaxy")
+    log fact "has_one" GameDataFunction::hasPowerStar("KitMoreGalaxy", 1)
+    log fact "has_two" GameDataFunction::hasPowerStar("KitMoreGalaxy", 2)
+
+    // appear_star: the holder stands where the star was asked for.
+    let at = (MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)) + vec3(0.0, 300.0, 0.0)
+    stage.appear_star(at, 1)
+    wait 5 frames
+    // Made during play, the holder is in no name list (NameObjFinder sees what the scene placed): the kit gives it.
+    let holder = stage.star_holder(1)
+    log fact "holder_found" holder != none
+    if let h = holder {
+        log fact "holder_distance" length(h.mPosition - at)
+    }
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

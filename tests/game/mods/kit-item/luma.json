@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-item",
+  "version": "1.0.0",
+  "name": "kit-item",
+  "summary": "LumaKit item conformance: placed and spawned, each kind of gives, bubble and crystal, the inventory across a reload, a mod turned off.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.item": 1
+  },
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

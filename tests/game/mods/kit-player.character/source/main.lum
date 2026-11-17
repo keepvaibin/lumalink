@@ -1,0 +1,64 @@
+// kit.player.character conformance (lumakit-modules.md row 7; lumakit.md 2.3). The harness holds the player on
+// EggStarGalaxy's first planet (test.json); each case writes its facts:
+// from_data        "bee" from data/kit/player.character/bee.json (WAITING on R-6); here also defined by code
+// switch_back      bee played mid-level: its look drawn on the player's skeleton (Mario's body not drawn), its run
+//                  clip and jump voice used, then mario() gives the game's own back (picture "bee" and "mario_again")
+// as_luigi         a character with as_luigi: the game's Luigi check answers true while it plays, false after
+// downloaded_model a character whose look is a model made at run time (assets; WAITING on C.skin and assets.provide)
+// second_player    a second player on pad 1 (the game's second controller; svc.player 1.0)
+// mod_off          the harness turns this mod off while bee plays: the game's Mario, its own constants
+use kit.player.character as pc
+use kit.player.state as pst
+use svc.draw
+
+var frames: u32 = 0
+var bee = pc.CharacterId { n: 0 }
+var green = pc.CharacterId { n: 0 }
+var fetched = pc.CharacterId { n: 0 }
+var jump_before: f32 = 0.0
+
+on start {
+    jump_before = getMarioConstant(0, "mJumpHeight", 0)
+    bee = pc.define(pc.Character { id: "bee", name: "Bee", icon: draw.texture("BeeIcon"), look: model "BeeMario",
+        actions: { "Run": "BeeRun", "Jump": "BeeJump" }, voice: { "MarioJump": "BeeVoiceJump" },
+        tuning: pst.Tuning { values: { "mJumpHeight": 1.5 } } })
+    green = pc.define(pc.Character { id: "green", name: "Green", as_luigi: true })
+    log fact "from_data_found" pc.find("bee") != none and pc.find("green") != none and pc.find("none") == none
+    log fact "from_data_none_yet" pc.current() == none
+}
+
+on frame {
+    frames += 1
+    if frames == 60 {
+        bee.play()
+        log fact "switch_back_playing" bee.is_current() and pc.current() != none
+        log fact "switch_back_tuned" getMarioConstant(0, "mJumpHeight", 0) == jump_before * 1.5
+    }
+    if frames == 180 {
+        pc.mario().play()
+        log fact "switch_back_mario" pc.current() == none and pc.mario().is_current()
+        log fact "switch_back_untuned" getMarioConstant(0, "mJumpHeight", 0) == jump_before
+    }
+    if frames == 200 {
+        let before = MR::isPlayerLuigi()
+        green.play()
+        let during = MR::isPlayerLuigi()
+        pc.mario().play()
+        log fact "as_luigi" not before and during and not MR::isPlayerLuigi()
+    }
+    if frames == 220 {
+        fetched = pc.define(pc.Character { id: "fetched", name: "Fetched", look: model "BeeMario" })
+        fetched.play()
+        log fact "downloaded_model_playing" fetched.is_current()
+        pc.mario().play()
+    }
+    if frames == 240 {
+        let two = pc.second_player(pc.Second { pad: 1 })
+        log fact "second_player_alive" two.alive()
+    }
+    // mod_off: bee again; the harness turns this mod off at 320 and reads the constant and the Luigi check.
+    if frames == 260 {
+        bee.play()
+        log fact "mod_off_playing" bee.is_current()
+    }
+}

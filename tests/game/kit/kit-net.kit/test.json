@@ -1,0 +1,95 @@
+{
+  "harness": 1,
+  "name": "kit-net.kit",
+  "about": "LumaKit net.kit (lumakit.md 2.18), all on loopback inside one mod. ordered_20pct_drop: a host link and a player link through the mod's relay socket that drops one datagram in five each way (fixed sequence); 200 messages each way arrive whole and in order. peer_leaves: a second player joins the host and closes; host and first player are told, peers() drops it. clock_one_frame: the second player's clock within 1/60 s. page_served: GET / gives index.html, another path 404, a WebSocket message reaches on_page_message and page_send's answer comes back; url ends with the page's port. WAITING: K's reader for language D12.9 (service streams, director 11-12) and net.local.address in the SDK (h/net-address).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.net.kit",
+    "services.net"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-net.kit"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 1150,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-net.kit.made",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.connect",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.page_made",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.url_form",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.second_joined",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.clock_within_frame",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.host_in_order",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.player_in_order",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.drops_near_a_fifth",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.host_saw_leave",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.player_saw_leave",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.peers_after_leave",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.page_get",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.page_missing",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.page_message",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.page_answer",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-net.kit.closed",
+      "is": true
+    }
+  ]
+}

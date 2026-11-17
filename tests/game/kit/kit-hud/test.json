@@ -1,0 +1,145 @@
+{
+  "harness": 1,
+  "name": "kit-hud",
+  "about": "LumaKit hud (lumakit.md 2.10, lumakit-modules.md row 4): kit-hud makes an element in each corner, two stacked in the top left, a counter and a meter set each frame, a timer, a popup and a text that removes itself after 120 frames, all through lumakit's kind 6 exports; lumakit draws them with svc.ui (kind 5 import) on its own layout LumaKitHud. The ui facts show the screen opened by lumakit and its panes' text. kept_after_stage: the stage loaded again with the elements up: lumakit opens its layout again with the new scene, its counter still set, and no mod-log line while no scene runs (ui.open is not asked between scenes).",
+  "proves": [
+    "script.build",
+    "script.service.call",
+    "script.library.call",
+    "kit.hud"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-hud"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-hud.removed",
+        "is": true
+      },
+      "timeout": 900,
+      "wait": true
+    },
+    {
+      "at": 600,
+      "picture": "hud"
+    },
+    {
+      "at": 700,
+      "stage": {
+        "name": "EggStarGalaxy",
+        "scenario": 1
+      }
+    },
+    {
+      "after": {
+        "fact": "mod.kit-hud.kept_after_stage",
+        "is": true
+      },
+      "end": true,
+      "timeout": 1800
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-hud.made",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-hud.stacked",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-hud.removed",
+      "is": true
+    },
+    {
+      "fact": "ui.open.1",
+      "has": {
+        "mod": "lumakit",
+        "layout": "LumaKitHud",
+        "layer": "hud"
+      }
+    },
+    {
+      "fact": "mod.kit-hud.kept_after_stage",
+      "is": true
+    },
+    {
+      "no_log": "while no scene was running"
+    },
+    {
+      "no_log": "script error"
+    },
+    {
+      "picture": "hud",
+      "like": "refs/hud-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        35,
+        40,
+        140,
+        30
+      ]
+    },
+    {
+      "picture": "hud",
+      "like": "refs/hud-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        600,
+        40,
+        80,
+        30
+      ]
+    },
+    {
+      "picture": "hud",
+      "like": "refs/hud-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        35,
+        228,
+        80,
+        30
+      ]
+    },
+    {
+      "picture": "hud",
+      "like": "refs/hud-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        1160,
+        228,
+        85,
+        30
+      ]
+    },
+    {
+      "picture": "hud",
+      "like": "refs/hud-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        35,
+        652,
+        180,
+        30
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "c-tables-watch",
+  "version": "1.0.0",
+  "name": "c-tables-watch",
+  "summary": "c-tables-watch (a conformance mod): reads the table c-tables writes.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k2-arrays",
+  "version": "1.0.0",
+  "name": "k2-arrays",
+  "summary": "k2-arrays (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

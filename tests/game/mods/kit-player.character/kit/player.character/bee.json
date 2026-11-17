@@ -1,0 +1,17 @@
+{
+  "id": "bee",
+  "name": "Bee",
+  "look": "BeeMario",
+  "actions": {
+    "Run": "BeeRun",
+    "Jump": "BeeJump"
+  },
+  "voice": {
+    "MarioJump": "BeeVoiceJump"
+  },
+  "tuning": {
+    "mJumpHeight": 1.5
+  },
+  "as_luigi": false,
+  "icon": "BeeIcon"
+}

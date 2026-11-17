@@ -1,0 +1,15 @@
+// kit-menu's second mod (lumakit-modules.md row 18): one pause menu entry; it is first in the Mods list, so its entry
+// stands above kit-menu's. "b_chosen" counts the times it was taken.
+use kit.menu
+
+var taken: u32 = 0
+
+fn chosen() {
+    taken += 1
+    log fact "b_chosen" taken
+}
+
+on start {
+    let e = menu.add_pause_entry("Kit B", chosen)
+    log fact "added" menu.alive(e)
+}

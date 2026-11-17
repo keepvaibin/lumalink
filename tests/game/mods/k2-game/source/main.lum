@@ -1,0 +1,78 @@
+// K2 conformance, the game's places: fields through their import rows (read, written, a component written), a
+// bit-field read and written, globals read and written, a const global, a folded constant; and a struct's functions.
+
+struct Counter {
+    n: i32
+    step: i32 = 2
+    fn next(var self) -> i32 {
+        self.n += self.step
+        return self.n
+    }
+    fn twice(self) -> i32 { return self.n * 2 }
+    fn make(first: i32) -> Counter { return Counter { n: first } }
+}
+
+on start {
+    var c = Counter.make(10)
+    let a = c.next()
+    let b = c.next()
+    let both = (a, b, c.twice())
+    log fact "counter" both
+
+    let zero = gZeroVec
+    log fact "zero" zero
+    log fact "octave" ChordInfo::OCTAVE
+    let was = ModelSys::mViewRole
+    ModelSys::mViewRole = 77
+    let now = ModelSys::mViewRole
+    ModelSys::mViewRole = was
+    let back = ModelSys::mViewRole == was
+    let role = (now, back)
+    log fact "role" role
+    let low = low_bits<u8>(300)
+    log fact "low" low
+}
+
+// The harness calls MR::zeroVelocity on the player: its velocity is zero here; the hook writes it and reads it back.
+// Only the player's: the game zeroes other actors' velocities too.
+hook after MR::zeroVelocity(target) {
+    guard let actor = target, let me = MarioAccess::getPlayerActor(), same(actor, me) else { return }
+    log fact "zeroed" actor.mVelocity
+    actor.mVelocity = vec3(1, 2, 3)
+    actor.mVelocity.x += 0.5
+    log fact "velocity" actor.mVelocity
+    let through = MarioAccess::getPlayerActor()?.mVelocity ?? vec3(9, 9, 9)
+    log fact "through" through
+    let has_mario = MarioAccess::getPlayerActor()?.mMario != none
+    log fact "has_mario" has_mario
+    let pos = MR::getPlayerPos()
+    let pos_same = pos != none and pos! == me.mPosition
+    log fact "pos_same" pos_same
+    guard let mario = me.mMario else { return }
+    let before = mario.mMovementStates.digitalJump
+    mario.mMovementStates.digitalJump = 1
+    let set = mario.mMovementStates.digitalJump
+    mario.mMovementStates.digitalJump = before
+    let bits = (set, mario.mMovementStates.digitalJump == before)
+    log fact "bits" bits
+    // Calls through `?.` (review K-R1): on a value the function runs and its result is an option; on none nothing is
+    // called and the result is none; a struct's function gets the option's value, `var self` its place.
+    mario.mMovementStates.digitalJump = 1
+    let through_call = me.mMario?.isDigitalJump()
+    mario.mMovementStates.digitalJump = before
+    let nobody: Mario? = none
+    let none_call = nobody?.isDigitalJump()
+    var counter: Counter? = Counter.make(4)
+    let twice = counter?.twice()
+    counter?.next()
+    let gone: Counter? = none
+    let gone_twice = gone?.twice()
+    let opt_calls = (through_call ?? false, none_call == none, twice ?? 0, counter!.n, gone_twice == none)
+    log fact "opt_calls" opt_calls
+    // A call through `?.` that gives a view (review K-R7): the pointer itself, the same object a direct call gives.
+    let through_view = me.mMario?.getGroundPolygon()
+    let direct_view = mario.getGroundPolygon()
+    let none_view = nobody?.getGroundPolygon()
+    let view_calls = (same(through_view, direct_view), none_view == none, (through_view == none) == (direct_view == none))
+    log fact "view_calls" view_calls
+}

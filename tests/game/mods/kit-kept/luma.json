@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-kept",
+  "version": "1.0.0",
+  "name": "kit-kept",
+  "summary": "LumaKit save values across a game start: an item carried at a pickup and a progress number, saved by the game, read back on the next start.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.item": 1
+  },
+  "layers": [
+    {
+      "name": "base"
+    }
+  ]
+}

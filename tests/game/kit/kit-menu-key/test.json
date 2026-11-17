@@ -1,0 +1,65 @@
+{
+  "harness": 1,
+  "name": "kit-menu-key",
+  "about": "LumaKit menu (lumakit.md 2.12): kit-menu-key adds a pause row in on start with text \"Probe.Row\", before the game's messages exist. At the first pause (the row's screen made while the game is paused) the row is on screen with its line \"Probe row\": picture first, box around the row (the first place under Quit) against its reference. No log line of a text read before the messages, no script error.",
+  "proves": [
+    "script.build",
+    "kit.menu"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-menu-key"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-menu-key.cue",
+        "is": 1
+      },
+      "hold": [
+        "PLUS"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu-key.cue",
+        "is": 2
+      },
+      "picture": "first"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-menu-key.cue",
+        "is": 2
+      },
+      "end": true,
+      "timeout": 2400
+    }
+  ],
+  "expect": [
+    {
+      "no_log": "read before the game"
+    },
+    {
+      "no_log": "script error"
+    },
+    {
+      "picture": "first",
+      "like": "refs/first-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        305,
+        430,
+        340,
+        80
+      ]
+    }
+  ]
+}

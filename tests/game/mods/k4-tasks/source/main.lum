@@ -1,0 +1,87 @@
+// K4 conformance, tasks and `wait` (language 11.1, D9.3, D10.3; plan 4.5): a task is a frame and a step function run
+// by lumart from the mod's frame handler, after `on frame`, in start order; nothing in the game schedules it.
+// `on start` waits, so it is a task too (its first step runs at start). Proven here: each wait parks and resumes on
+// the right frame (0 frames: the next; 10 frames; 1 second: 60 world steps; until a condition; until a task ends);
+// tasks run in start order and one started during a pass runs from the next; `t.stop()` runs the task's way out at
+// once (its defer, its counts); `stop` ends a task through its defer; a script error ends only that task (its defer
+// runs); a task's text parameter lives with it.
+
+var frames = 0
+var order = ""
+var spins = 0
+var stopped = false
+var bad_done = false
+var after_error = false
+var stopper_done = false
+var never = false
+var late = ""
+
+task tick(name: text, n: i32) {
+    defer order = "{order}{name}."
+    for i in 0..n {
+        order = "{order}{name}"
+        wait 1 frames
+    }
+}
+
+task forever() {
+    defer stopped = true
+    while true {
+        spins += 1
+        wait 0 frames
+    }
+}
+
+task bad() {
+    defer bad_done = true
+    wait 1 frames
+    let xs: list<i32> = []
+    let x = xs[1]
+    after_error = x == 0
+}
+
+task stopper() {
+    defer stopper_done = true
+    wait 2 frames
+    stop
+    never = true
+}
+
+task from_frame(at: i32) {
+    late = "{late}{at}-{frames}"
+}
+
+on frame {
+    frames += 1
+    if frames == 3 {
+        start from_frame(frames)
+    }
+}
+
+on start {
+    let a = start tick("a", 3)
+    start tick("b", 2)
+    let f = start forever()
+    start bad()
+    start stopper()
+    wait a
+    let after_a = order
+    let spun = spins
+    f.stop()
+    let spun_stop = spins
+    let f0 = frames
+    wait 0 frames
+    let d0 = frames - f0
+    let f1 = frames
+    wait 10 frames
+    let d10 = frames - f1
+    let f2 = frames
+    wait 1 seconds
+    let d60 = frames - f2
+    wait until frames >= 200
+    let at200 = frames
+    let flags = (stopped, spun == spun_stop, spins == spun, bad_done, after_error, stopper_done, never)
+    log fact "flags" flags
+    let seen = (after_a, late, spun, d0, d10, d60, at200)
+    log fact "seen" seen
+}

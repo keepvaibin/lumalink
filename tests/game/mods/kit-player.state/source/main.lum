@@ -1,0 +1,174 @@
+// kit.player.state conformance (lumakit-modules.md row 6; lumakit.md 2.2). The harness holds the player on
+// EggStarGalaxy's first planet and presses the pad (test.json); each case writes its facts:
+// double_jump  a second jump in the air, once per air (entered by code at each jump's top until R-4 lets an action start it)
+// glide        slow fall with a quarter of gravity, ending on the ground
+// dive         started by this mod's action "dive" in the air (Start.Action: the kit reads this mod's action)
+// ground_pound a fast fall that hurts as HipDrop while it lasts (attack)
+// tune_end     run speed doubled by tune, then end() gives the exact value back
+// two_mods     kit-player.state-b defines its own move on another action; both are found, each by its own mod
+// mod_off_mid_move  the harness turns this mod off while the glide runs: the move ends, the constants are the game's
+use kit.player.state as pst
+use kit.actor
+use svc.input
+
+var frames: i32 = 0
+var playing = false  // the stage began: frames count from its settling, and the harness follows the "cue" facts
+var jump2 = pst.StateId { n: 0 }
+var glide = pst.StateId { n: 0 }
+var dive = pst.StateId { n: 0 }
+var pound = pst.StateId { n: 0 }
+var tuned = pst.Tuned { n: 0 }
+var run_before: f32 = 0.0
+var jumps_in_air: u32 = 0
+var glide_frames: u32 = 0
+var pounded = false
+var dived = false
+var glide_watch = false  // the first glide entered: its end is checked when it comes
+var jump_watch = false   // the double jump entered: its landing is checked when it comes
+
+fn up(p: MarioActor, m: pst.Motion) -> pst.Motion {
+    var n = m
+    let g = MR::getPlayerGravity() ?? vec3(0.0, -1.0, 0.0)
+    n.velocity = g * -30.0
+    return n
+}
+
+fn slow_fall(p: MarioActor, m: pst.Motion) -> pst.Motion {
+    var n = m
+    n.gravity_scale = 0.25
+    glide_frames += 1
+    return n
+}
+
+fn forward(p: MarioActor, m: pst.Motion) -> pst.Motion {
+    var n = m
+    n.velocity = m.velocity * 1.5
+    dived = true
+    return n
+}
+
+fn down(p: MarioActor, m: pst.Motion) -> pst.Motion {
+    var n = m
+    let g = MR::getPlayerGravity() ?? vec3(0.0, -1.0, 0.0)
+    n.velocity = g * 60.0
+    return n
+}
+
+fn landed(p: MarioActor) {
+    pounded = true
+}
+
+on start {
+    jump2 = pst.define(pst.State { id: "jump2", starts: pst.Start.Code, once_per_air: true, action: "Jump",
+        motion: up, ends: [pst.End.Frames(20)] })
+    glide = pst.define(pst.State { id: "glide", starts: pst.Start.Code, action: "Fall", motion: slow_fall })
+    if let a = input.action("dive") {
+        dive = pst.define(pst.State { id: "dive", starts: pst.Start.Action(a), action: "Dive", motion: forward,
+            ends: [pst.End.Ground, pst.End.Wall, pst.End.Water] })
+    }
+    pound = pst.define(pst.State { id: "pound", starts: pst.Start.Code, action: "HipDropFall", motion: down,
+        attack: actor.Attack.HipDrop, on_end: landed })
+    let found = pst.find("glide")
+    log fact "defined" jump2.n != 0 and glide.n != 0 and pound.n != 0 and found != none
+}
+
+on stage "EggStarGalaxy" {
+    // The harness follows this mod's cues; the first comes once the stage has settled (`on stage` fires before the
+    // opening ends and the player takes input).
+    frames = -300
+    playing = true
+}
+
+on frame {
+    if not playing {
+        return
+    }
+    frames += 1
+    if frames == 120 {
+        log fact "cue" 1
+    }
+    if frames == 130 {
+        log fact "cue" 2
+    }
+    if frames == 260 {
+        log fact "cue" 3
+    }
+    if frames == 300 {
+        log fact "cue" 4
+    }
+    if frames == 420 {
+        log fact "cue" 5
+    }
+    if frames == 540 {
+        log fact "cue" 6
+    }
+    if frames == 555 {
+        log fact "cue" 7
+    }
+    if frames == 640 {
+        log fact "cue" 9
+    }
+    if frames == 700 {
+        log fact "cue" 8
+    }
+    let ground = MR::isOnGroundPlayer()
+    // double_jump: the harness jumps at 120; at the top the move is entered, a second entry in the same air refused.
+    if frames == 140 {
+        let first = jump2.enter()
+        let second = jump2.enter()
+        log fact "double_jump_once" first and not second
+        jump_watch = first
+    }
+    // The second jump rises 20 frames at 30 a frame, so the fall back takes until about 215: checked when it lands,
+    // before the glide's jump at 260.
+    if jump_watch and frames > 140 and ground and pst.current() == none {
+        jump_watch = false
+        log fact "double_jump_back_on_ground" true
+        log fact "double_jump_landed_at" frames
+    }
+    if jump_watch and frames == 255 {
+        jump_watch = false
+        log fact "double_jump_back_on_ground" false
+    }
+    if frames == 200 {
+        // tune_end
+        run_before = getMarioConstant(0, "mWalkSpeed", 0)
+        tuned = pst.tune(pst.Tuning { values: { "mWalkSpeed": 2.0 } })
+        log fact "tune_end_doubled" run_before > 0.0 and getMarioConstant(0, "mWalkSpeed", 0) == run_before * 2.0 and tuned.alive()
+    }
+    if frames == 230 {
+        tuned.end()
+        log fact "tune_end_exact" getMarioConstant(0, "mWalkSpeed", 0) == run_before and not tuned.alive()
+    }
+    // glide: the harness jumps at 260; the glide runs until the ground ends it.
+    if frames == 280 {
+        glide_watch = glide.enter()
+        log fact "glide_entered" glide_watch
+    }
+    if glide_watch and not glide.is_current() {
+        glide_watch = false
+        log fact "glide_ended_on_ground" ground and glide_frames > 20
+        log fact "glide_frames" glide_frames
+    }
+    // ground_pound: the harness jumps at 420 beside the Goomba placed at the test's spot.
+    if frames == 440 {
+        log fact "ground_pound_entered" pound.enter()
+    }
+    if frames == 520 {
+        log fact "ground_pound_landed" pounded
+    }
+    // dive: the harness jumps at 540 and presses B (this mod's "dive") at 555.
+    if frames == 600 {
+        log fact "dive_defined" dive.n != 0
+        log fact "dive_ran" dived
+    }
+    // two_mods: kit-player.state-b defined "spin2"; this mod's find sees only its own.
+    if frames == 620 {
+        log fact "two_mods_own_only" pst.find("spin2") == none and pst.find("glide") != none
+    }
+    // mod_off_mid_move: the glide again after the harness jumps at 640; the harness turns this mod off at 700 while it runs.
+    if frames == 660 {
+        tuned = pst.tune(pst.Tuning { values: { "mGravityJumping": 0.5 } })
+        log fact "mod_off_glide" glide.enter()
+    }
+}

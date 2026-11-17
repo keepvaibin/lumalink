@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "k10mid",
+  "version": "1.0.0",
+  "name": "k10mid",
+  "summary": "k10mid (a conformance mod): a library calling another library.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "k10inner",
+      "version": ">=1.0.0"
+    }
+  ]
+}

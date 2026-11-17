@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k2-frame",
+  "version": "1.0.0",
+  "name": "k2-frame",
+  "summary": "k2-frame (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

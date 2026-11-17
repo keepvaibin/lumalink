@@ -1,0 +1,25 @@
+{
+  "harness": 1,
+  "tests": [
+    "1168-stage-of-sources",
+    "c-tables-put-back",
+    "k1-hook",
+    "k10-chain",
+    "k2-arrays",
+    "k2-core",
+    "k2-frame",
+    "k2-game",
+    "k2-hooks",
+    "k3-containers",
+    "k3-dtor-diag",
+    "k3-json",
+    "k3-refs",
+    "k3-structs",
+    "k3-text",
+    "k4-tasks",
+    "k5-c",
+    "k6-class",
+    "k7-states",
+    "k8-gone"
+  ]
+}

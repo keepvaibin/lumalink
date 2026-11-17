@@ -1,0 +1,119 @@
+// kit.camera conformance (lumakit-modules.md row 8; lumakit.md 2.9). The script takes the main camera in turn; the
+// harness holds the stick where a case asks (test.json); facts:
+// take_end      a fixed rig 1000 behind and 400 above the player: the main camera's eye there; ended: the game's own
+//               camera back near where it was before
+// aim           the same control aimed at another eye each frame: the main camera there
+// free          a free camera, the stick held ahead 30 frames: its eye moved more than 600
+// first_person  the player's head joint: the player hidden, the near plane 5; ended: shown, the game's near plane
+// side          a side rig 1500 along x: the main camera 1500 from the player
+// mirror        on: the stick's x as the game reads it is flipped (the harness holds it right); off: not
+// view_region   a draw.view following the player through a rig: the view made, its texture there
+// two_mods      kit-camera-b takes the camera 30 frames after this mod: its eye holds; when it ends, this mod's again
+use kit.camera
+use svc.draw.view
+
+fn player_pos() -> vec3 {
+    return MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+}
+
+fn fixed(eye: vec3, at: vec3) -> view.Camera {
+    let p = MarioAccess::getPlayerActor()!
+    let zero = vec3(0.0, 0.0, 0.0)
+    return view.Camera { rig: view.Rig.Fixed, eye: eye, at: at, up: vec3(0.0, 1.0, 0.0), fov_y: 45.0, actor: p,
+                         offset: zero, joint: "", near_z: 0.0 }
+}
+
+fn eye_now() -> vec3 {
+    return camera.now().eye
+}
+
+task run() {
+    wait 60 frames
+    let p0 = player_pos()
+
+    // take_end
+    let before = eye_now()
+    let e1 = p0 + vec3(0.0, 400.0, -1000.0)
+    let c = camera.take(fixed(e1, p0))
+    wait 5 frames
+    log fact "take_eye" length(eye_now() - e1)
+    // aim: another eye each frame for 10 frames.
+    var e2 = e1
+    for i in 0..10 {
+        e2 = p0 + vec3(100.0 * i as f32, 400.0, -1000.0)
+        camera.aim(c, view.Eye { eye: e2, at: p0, up: vec3(0.0, 1.0, 0.0), fov_y: 45.0 })
+        wait 1 frames
+    }
+    log fact "aim_eye" length(eye_now() - e2)
+    camera.end(c)
+    log fact "take_alive_after_end" camera.alive(c)
+    wait 30 frames
+    log fact "end_back" length(eye_now() - before)
+
+    // free
+    let f = camera.free(40.0)
+    wait 2 frames
+    let free_from = eye_now()
+    log fact "ready_free" true
+    wait 32 frames
+    log fact "free_moved" length(eye_now() - free_from)
+    camera.end(f)
+    wait 30 frames
+
+    // first_person
+    let near_game = MR::getNearZ()
+    let fp = camera.take(camera.eye(MarioAccess::getPlayerActor()!, "Head", 5.0))
+    wait 5 frames
+    log fact "fp_hidden" MarioAccess::getPlayerActor()!.mHidden
+    log fact "fp_near" MR::getNearZ()
+    camera.end(fp)
+    wait 5 frames
+    log fact "fp_shown" not MarioAccess::getPlayerActor()!.mHidden
+    log fact "fp_near_back" MR::getNearZ() == near_game
+
+    // side
+    let s = camera.take(camera.side(vec3(1.0, 0.0, 0.0), 1500.0))
+    wait 10 frames
+    log fact "side_distance" length(eye_now() - player_pos())
+    camera.end(s)
+    wait 30 frames
+
+    // mirror: the harness holds the stick right from ready_mirror for 40 frames.
+    log fact "ready_mirror" true
+    wait 5 frames
+    camera.mirror(true)
+    wait 5 frames
+    log fact "mirror_x" MR::getPlayerStickX()
+    camera.mirror(false)
+    wait 5 frames
+    log fact "mirror_off_x" MR::getPlayerStickX()
+    wait 30 frames
+
+    // view_region
+    let v = view.create(320, 240, #000000FF)
+    view.rig(v, camera.follow(MarioAccess::getPlayerActor()!, 800.0, 300.0))
+    wait 5 frames
+    log fact "view_made" true
+    // A view always has its texture (draw.Texture is never none): reading it without a script error is the proof.
+    let tex = view.texture(v)
+    log fact "view_texture" true
+    view.release(v)
+
+    // two_mods: this mod's camera at e1; kit-camera-b takes its own 30 frames later and ends it 30 after that.
+    let mine = camera.take(fixed(e1, p0))
+    log fact "two_start" true
+    wait 45 frames
+    log fact "two_b_holds" length(eye_now() - e1) > 100.0
+    wait 40 frames
+    log fact "two_mine_back" length(eye_now() - e1)
+    camera.end(mine)
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}
+
+on stop {
+    log "kit-camera: taken out"
+}

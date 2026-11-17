@@ -1,0 +1,39 @@
+{
+  "harness": 1,
+  "name": "k5-c",
+  "about": "C and C++ in a LumaScript mod built by lumalink build (language 13, abi 9): the script calls its C through use c and extern c fn (f32, i64, bool results; a text and a bytes passed as pointer and length) and a C++20 function (a template and a constexpr struct, no exceptions, RTTI or standard library); the mod's C calls the script's export c fns (one taking a text) through lm_exports.h; the script calls an export too",
+  "proves": [
+    "script.build"
+  ],
+  "mods": [
+    "../../mods/k5-c"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 60,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k5-c.c",
+      "is": [
+        5.0,
+        6,
+        195,
+        [
+          true,
+          false
+        ],
+        331,
+        26,
+        3,
+        4
+      ]
+    }
+  ]
+}

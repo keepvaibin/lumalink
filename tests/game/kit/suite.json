@@ -1,0 +1,32 @@
+{
+  "harness": 1,
+  "tests": [
+    "k9-kit",
+    "kit-actor",
+    "kit-area",
+    "kit-camera",
+    "kit-cutscene",
+    "kit-gravity",
+    "kit-hud",
+    "kit-item",
+    "kit-kept-a",
+    "kit-kept-b",
+    "kit-menu",
+    "kit-menu-key",
+    "kit-net.kit",
+    "kit-player.character",
+    "kit-player.form",
+    "kit-player.state",
+    "kit-pointer",
+    "kit-progress",
+    "kit-projectile",
+    "kit-replay",
+    "kit-ride",
+    "kit-screen",
+    "kit-shop",
+    "kit-stage",
+    "kit-stage-more",
+    "kit-talk",
+    "kit-ui.kit"
+  ]
+}

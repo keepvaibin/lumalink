@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-projectile",
+  "version": "1.0.0",
+  "name": "kit-projectile",
+  "summary": "LumaKit projectile conformance: three bounces then a burst, each on_hit answer, a falling shot along a planet's gravity, 64 at once, the thrower's mod off.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "format": "1.0",
+  "id": "kit-stage",
+  "version": "1.0.0",
+  "name": "kit-stage",
+  "summary": "LumaKit stage conformance: a galaxy and a dome from kit/stage data and one from code found by name, a warp to a scenario, the hub replaced and given back.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.stage": 1
+  }
+}

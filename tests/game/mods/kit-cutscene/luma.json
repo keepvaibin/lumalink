@@ -1,0 +1,22 @@
+{
+  "format": "1.0",
+  "id": "kit-cutscene",
+  "version": "1.0.0",
+  "name": "kit-cutscene",
+  "summary": "LumaKit cutscene conformance: each shot kind, skipped and run through, an actor that dies in its scene, letterbox.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ],
+  "kit": {
+    "lumakit.cutscene": 1
+  }
+}

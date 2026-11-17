@@ -1,0 +1,24 @@
+// K6 (language 5.5, classes contract): a mod's class from a game class. The stage's Kuribos are made as Walker
+// (replaces); each has its own `ticks` in the data the kernel keeps beside it; its `control` override counts and then
+// runs Kuribo's own (base.control), so the Goombas still walk; `self`'s game fields are read through the object.
+
+var logged = false
+
+class Walker : Kuribo replaces Kuribo {
+    var ticks = 0
+    var step: i32 = 2
+    override fn control() {
+        ticks += 1
+        if ticks == 30 and not logged {
+            logged = true
+            log fact "ticks" ticks
+            log fact "step" step
+            log fact "dead" self.mFlag.mIsDead
+        }
+        base.control()
+    }
+}
+
+on start {
+    log fact "started" true
+}

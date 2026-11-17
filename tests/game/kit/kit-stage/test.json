@@ -1,0 +1,60 @@
+{
+  "harness": 1,
+  "name": "kit-stage",
+  "about": "LumaKit stage (lumakit.md 2.16, lumakit-modules.md row 22), the cases written so far: kit/stage/galaxies.json's JkDataGalaxy and JkDome found, JkCodeGalaxy defined in code and found, the hub replaced with EggStarGalaxy and given back, go_to EggStarGalaxy scenario 2 (the stage after the load). Waiting on their layers: listed_after_20, stars_counted, comet_star, music, built_in_code, downloaded_stage. Written, not run (owner 08:40).",
+  "proves": [
+    "script.build",
+    "kit.stage"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-stage"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-stage.warp_scenario",
+        "exists": true
+      },
+      "picture": "after-warp"
+    },
+    {
+      "at": 2400,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-stage.data_galaxy",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage.data_dome",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage.code_galaxy",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage.hub_set",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage.hub_back",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-stage.warp_stage",
+      "is": "EggStarGalaxy"
+    },
+    {
+      "fact": "mod.kit-stage.warp_scenario",
+      "is": 2
+    }
+  ]
+}

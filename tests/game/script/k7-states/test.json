@@ -1,0 +1,42 @@
+{
+  "harness": 1,
+  "name": "k7-states",
+  "about": "A LumaScript state machine (language 11.2) per object of a mod's class (Stepper replaces Kuribo), run from the control override the back end adds: Count's update counts to 20 and goes to Wait (its exit sees 20); Wait's task waits 10 frames while its update counts on, then goes to Done, whose enter reads is_state and stops the machine",
+  "proves": [
+    "script.build",
+    "kernel.classes.define",
+    "kernel.classes.data",
+    "kernel.classes.override"
+  ],
+  "mods": [
+    "../../mods/k7-states"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 180,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k7-states.left_count",
+      "is": 20
+    },
+    {
+      "fact": "mod.k7-states.counted_while_waiting",
+      "is": true
+    },
+    {
+      "fact": "mod.k7-states.in_done",
+      "is": true
+    },
+    {
+      "fact": "mod.k7-states.not_in_wait",
+      "is": true
+    }
+  ]
+}

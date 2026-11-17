@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k2-hooks",
+  "version": "1.0.0",
+  "name": "k2-hooks",
+  "summary": "k2-hooks (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

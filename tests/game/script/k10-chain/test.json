@@ -1,0 +1,49 @@
+{
+  "harness": 1,
+  "name": "k10-chain",
+  "about": "Library mods chained (abi draft 3 addition 2, lumakit rule 8): k10-chain calls k10mid's twice, which calls k10inner's times_million through its own kind 6 import. twice(3) gives 6000000 back across both. twice(5000) overflows inside k10inner (S0904), and the report is k10-chain's, at main.lum line 15, because each export passes the first caller and its place through. That frame's run ends, so `after` is never logged",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "script.library.chain",
+    "script.library.report_at_caller"
+  ],
+  "mods": [
+    "../../mods/k10inner",
+    "../../mods/k10mid",
+    "../../mods/k10-chain"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 60,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k10-chain.small",
+      "is": 6000000
+    },
+    {
+      "fact": "mod.k10-chain.before",
+      "is": true
+    },
+    {
+      "fact": "mod.k10-chain.after",
+      "absent": true
+    },
+    {
+      "fact": "modlog",
+      "has": {
+        "mod": "k10-chain",
+        "file": "main.lum",
+        "line": 15
+      },
+      "when": "any"
+    }
+  ]
+}

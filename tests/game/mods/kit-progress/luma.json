@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-progress",
+  "version": "1.0.0",
+  "name": "kit-progress",
+  "summary": "LumaKit progress conformance: stars past 120, a star replaced by an item, a comet added, flags and numbers per file, a new-file rule.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

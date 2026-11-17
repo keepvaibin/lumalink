@@ -1,0 +1,222 @@
+{
+  "harness": 1,
+  "name": "kit-actor",
+  "about": "LumaKit actor (lumakit.md 2.6, lumakit-modules.md row 1; K's body). stands: the placed walker (on_ground) on the curved start planet is within 5 units of its row's place after 300 frames, moved at most 1, its up within 1 degree of minus its gravity, on the ground. lands: an on_ground kind spawned 300 above the ground falls more than 200, is on the ground and rests (moved at most 1 in its last 60 frames), upright. skinned_shown: a kind whose look is the mod's own skinned glTF (Keeper.glb: a skeleton, a Wait clip) spawned 300 units in front of the player shows in the picture 'skinned' and stays within 10 units of where it was spawned (it lands). floats: an on_ground false kind spawned in the air has not moved at all. placed_from_data and spawned: the kind of kit/actor/walker.json, defined by the kit on kit-actor's first frame, placed as \"kit-actor/walker\" by the mod's base layer (a patch adding one row to EggStarGalaxy's common objinfo, 800 units from scenario 1's start) stands once, twice after a spawn. walks: a code kind's on_frame moves it toward the player (closer after 60 frames, on_frame ran). sensors_each: the four sensors by name. stomped: a kind defeated by Trample under the player (A jumps onto it): on_attacked says trample, none stands after its Down action, drops_coins: 3 coins more once walked over. spun: a shake beside a Spin kind (the file has the spin: save.spin): on_attacked says spin, none stands. talk: A beside a talkable kind: one call. hat_on_head: a model attached to the player's Head and a Goomba's, alive, removed. placement_twice: the placement key is a fact (the same text on every run of this test: compared with the first run's by the suite) and find_placed finds it. spawn_game: Karikari, which EggStarGalaxy's files do not hold, lives. two_mods_one_name: kit-actor-b's own 'walker' is found by b, kit-actor's by kit-actor (the game knows them as \"kit-actor-b/walker\" and \"kit-actor/walker\": alias names are one space for every mod). WAITING: make, model/effect types, fail, kit_read binding, as? (K's queue); classes.alias, stage placement keys, LUMA_OUT marks, SimpleMapObj in the names DB (were F's and J's).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.actor"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-actor",
+    "../../mods/kit-actor-b"
+  ],
+  "save": {
+    "spin": true
+  },
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-actor.skinned_ready",
+        "is": true
+      },
+      "picture": "skinned",
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-actor.stomp_ready",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 6,
+      "timeout": 1800
+    },
+    {
+      "after": {
+        "fact": "mod.kit-actor.stomp_ready",
+        "is": true
+      },
+      "picture": "stomp",
+      "timeout": 60
+    },
+    {
+      "after": {
+        "fact": "mod.kit-actor.attacked_with",
+        "is": "trample"
+      },
+      "stick": [
+        0,
+        1
+      ],
+      "frames": 60,
+      "timeout": 600
+    },
+    {
+      "after": {
+        "fact": "mod.kit-actor.spin_ready",
+        "is": true
+      },
+      "shake": 10,
+      "timeout": 1800
+    },
+    {
+      "after": {
+        "fact": "mod.kit-actor.talk_ready",
+        "is": true
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4,
+      "timeout": 1800
+    },
+    {
+      "after": {
+        "fact": "mod.kit-actor.done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 3000
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-actor.skinned_spawned",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.skinned_moved",
+      "at_most": 10
+    },
+    {
+      "fact": "mod.kit-actor.skinned_alive",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.stand_from_place",
+      "at_most": 5
+    },
+    {
+      "fact": "mod.kit-actor.stand_moved",
+      "at_most": 1
+    },
+    {
+      "fact": "mod.kit-actor.stand_tilt",
+      "at_most": 0.00015
+    },
+    {
+      "fact": "mod.kit-actor.stand_on_ground",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.drop_fell_far",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.drop_on_ground",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.drop_rest_moved",
+      "at_most": 1
+    },
+    {
+      "fact": "mod.kit-actor.drop_tilt",
+      "at_most": 0.00015
+    },
+    {
+      "fact": "mod.kit-actor.float_moved",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-actor.find_data",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.placed",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-actor.placed_and_spawned",
+      "is": 2
+    },
+    {
+      "fact": "mod.kit-actor.placement_key",
+      "exists": true
+    },
+    {
+      "fact": "mod.kit-actor.find_placed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.walks_closer",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.on_frame_ran",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.sensors",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.attacked_with",
+      "is": "trample",
+      "when": "first"
+    },
+    {
+      "fact": "mod.kit-actor.stomped_gone",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-actor.coins_more",
+      "is": 3
+    },
+    {
+      "fact": "mod.kit-actor.attacked_with",
+      "is": "spin",
+      "when": "last"
+    },
+    {
+      "fact": "mod.kit-actor.spun_gone",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-actor.talks",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-actor.hat_on_player",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.hat_removed",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.hat_on_goomba",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.spawn_game",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-actor.own_name",
+      "is": "walker"
+    },
+    {
+      "fact": "mod.kit-actor-b.found_own",
+      "is": true
+    }
+  ]
+}

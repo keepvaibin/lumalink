@@ -1,0 +1,247 @@
+{
+  "harness": 1,
+  "name": "kit-talk",
+  "about": "LumaKit talk (lumakit.md 2.14, lumakit-modules.md row 20): the stage's first Goomba says a line in the game's balloon (A closes it), asks with two choices (row 1) and four (row 3) through kit.screen, runs kit/talk/loop.json (start, ask; Yes loops to start setting the per-file flag kit_talk_looped, No ends at ask), says a voiced line (SE_SV_KINOPIO_PUHA), and is killed 30 frames into a line, which ends the say without a press. Cases: say, ask_two_four, tree_loop_flag, voiced, speaker_killed. Written, not run (owner 08:40).",
+  "proves": [
+    "script.build",
+    "kit.talk"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-talk"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 11
+      },
+      "picture": "balloon"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 11
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 21
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 22
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 23
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 31
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 32
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 33
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 34
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 35
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 41
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 42
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 43
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 44
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 45
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 46
+      },
+      "hold": [
+        "DOWN"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 47
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-talk.cue",
+        "is": 51
+      },
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "at": 3000,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-talk.speaker",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-talk.said",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-talk.ask_two",
+      "is": 1
+    },
+    {
+      "fact": "mod.kit-talk.ask_four",
+      "is": 3
+    },
+    {
+      "fact": "mod.kit-talk.tree_end",
+      "is": "ask"
+    },
+    {
+      "fact": "mod.kit-talk.flag",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-talk.voiced",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-talk.killed_ended",
+      "is": true
+    },
+    {
+      "picture": "balloon",
+      "like": "refs/balloon-{renderer}.png",
+      "within": {
+        "rmse": 12
+      },
+      "box": [
+        85,
+        110,
+        400,
+        45
+      ]
+    }
+  ]
+}

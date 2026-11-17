@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "c-tables",
+  "version": "1.0.0",
+  "name": "c-tables",
+  "summary": "c-tables (a conformance mod): a game table written by name, and a downcast.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "harness": 1,
+  "name": "k2-frame",
+  "about": "LumaScript on frame in a mod built by lumalink build: one body a mod (D10.2) through the time service's on_frame, every frame from the one after start; an index error (S0902) on its fifth frame ends that frame's run only (the second count, after the error, lags by one from then on), the next frame runs it again",
+  "proves": [
+    "script.build"
+  ],
+  "mods": [
+    "../../mods/k2-frame"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 120,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k2-frame.frames",
+      "is": [
+        61,
+        60,
+        "ababab"
+      ]
+    }
+  ]
+}

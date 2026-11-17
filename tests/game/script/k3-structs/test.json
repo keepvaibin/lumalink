@@ -1,0 +1,61 @@
+{
+  "harness": 1,
+  "name": "k3-structs",
+  "about": "A LumaScript mod's copies of plain game structs (C42-1): LiveActor.mFlag copied, its copy written while the player's flag stays; a second copy its own (copy on write); a copy through ?. and in a list written there; Mario.mMovementStates copied, its bit-field keeping the value it had when the game's changes",
+  "proves": [
+    "script.build",
+    "kernel.hook.after",
+    "kernel.field"
+  ],
+  "mods": [
+    "../../mods/k3-structs"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::zeroVelocity",
+      "signature": "void(LiveActor *)",
+      "args": [
+        "player"
+      ]
+    },
+    {
+      "at": 40,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k3-structs.flag",
+      "is": [
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k3-structs.cow",
+      "is": true
+    },
+    {
+      "fact": "mod.k3-structs.opt",
+      "is": false
+    },
+    {
+      "fact": "mod.k3-structs.list",
+      "is": [
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "fact": "mod.k3-structs.bits",
+      "is": true
+    }
+  ]
+}

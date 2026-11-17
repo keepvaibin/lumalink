@@ -1,0 +1,78 @@
+// kit.progress conformance (lumakit-modules.md row 13; lumakit.md 2.17). Each case writes its facts:
+// past_120          a galaxy of this mod (kit.stage) with three stars: giving them counts them into the game's own
+//                   total (stars() and the game's calcCurrentPowerStarNum both move by 3)
+// on_star_instead   on_star answers Instead(Coins 9) for one scenario: the coins come, the star is not recorded
+// comet_added       a Speedy comet added to EggStarGalaxy scenario 2: the game's comet schedule answers it
+// flags_copy_erase  a flag and a number set on this file; the harness copies the file and erases the copy
+//                   (test.json): the facts read after each
+// new_file_rule     on_new_file runs when the harness makes a file (counted from the first frames of each run)
+use kit.progress
+use kit.stage
+use kit.item
+
+var new_files: u32 = 0
+
+fn rule(galaxy: text, scenario: u32) -> progress.StarGet {
+    if galaxy == "KitProgressGalaxy" and scenario == 9 {
+        return progress.StarGet.Instead(item.Gives.Coins(9))
+    }
+    return progress.StarGet.Star
+}
+
+fn made() {
+    new_files += 1
+    progress.set_flag("fresh", true)
+    log fact "new_file_rule" new_files
+}
+
+on start {
+    stage.define_galaxy(stage.Galaxy { name: "KitProgressGalaxy", title: "Kit Progress", dome: stage.Dome.Terrace,
+        stars: [stage.Star { scenario: 1, title: "One" }, stage.Star { scenario: 2, title: "Two" },
+                stage.Star { scenario: 3, title: "Three" }] })
+    progress.on_star(rule)
+    progress.on_new_file(made)
+}
+
+task run() {
+    wait 60 frames
+    new_files = 0   // new_file_rule counts the files made from here on (the harness made file 1 before the mod ran)
+    // past_120
+    let before = progress.stars()
+    let game_before = GameDataFunction::calcCurrentPowerStarNum()
+    progress.give_star("KitProgressGalaxy", 1)
+    progress.give_star("KitProgressGalaxy", 2)
+    progress.give_star("KitProgressGalaxy", 3)
+    progress.give_star("KitProgressGalaxy", 3)
+    log fact "stars_more" progress.stars() - before
+    log fact "game_total_more" GameDataFunction::calcCurrentPowerStarNum() - game_before
+    log fact "has_star" progress.has_star("KitProgressGalaxy", 2)
+    log fact "has_not" progress.has_star("KitProgressGalaxy", 4)
+
+    // on_star_instead
+    let coins = MR::getCoinNum()
+    progress.give_star("KitProgressGalaxy", 9)
+    log fact "instead_coins" MR::getCoinNum() - coins
+    log fact "instead_no_star" not progress.has_star("KitProgressGalaxy", 9)
+
+    // comet_added
+    progress.add_comet("EggStarGalaxy", 2, stage.Comet.Speedy)
+    log fact "comet_set" true
+
+    // flags_copy_erase: set here; the harness copies and erases, then reads through the calls in test.json.
+    progress.flag_set(progress.flag("met_toad"), true)
+    log fact "number_after_add" progress.number_add(progress.number("xp"), 40)
+    log fact "flag_now" progress.flag_get(progress.flag("met_toad"))
+
+    // foreign_refused: a Flag or Number naming another mod's key (a key is a plain field) is not written (rule 4).
+    let other_flag = progress.Flag { key: "kit-kept/kit.progress.flag.3" }
+    progress.flag_set(other_flag, true)
+    log fact "foreign_flag_set" progress.flag_get(other_flag)
+    let other_number = progress.Number { key: "kit-kept/kit.progress.number.3" }
+    progress.number_set(other_number, 7)
+    log fact "foreign_number" progress.number_get(other_number)
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    start run()
+}

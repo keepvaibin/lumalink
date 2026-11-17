@@ -1,0 +1,4 @@
+// K10, the inner library: 1000000 times a number over 2147 does not fit an i32 (S0904).
+pub fn times_million(x: i32) -> i32 {
+    return x * 1000000
+}

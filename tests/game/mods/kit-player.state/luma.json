@@ -1,0 +1,27 @@
+{
+  "format": "1.0",
+  "id": "kit-player.state",
+  "version": "1.0.0",
+  "name": "kit-player.state",
+  "summary": "LumaKit player.state conformance: double jump, glide, dive, ground pound, tune and end, two mods, off mid-move.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "options": [
+    {
+      "key": "dive",
+      "kind": "key",
+      "name": "Dive",
+      "default": "b"
+    }
+  ],
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

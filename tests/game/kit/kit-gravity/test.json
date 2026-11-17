@@ -1,0 +1,108 @@
+{
+  "harness": 1,
+  "name": "kit-gravity",
+  "about": "LumaKit gravity (lumakit.md 2.8, lumakit-modules.md row 9). kit-gravity and kit-gravity-b on EggStarGalaxy. parallel_flip_end: an override up makes the player's gravity up; ended, the game's where the player is now. by_frames: an override of 30 frames alive at 10, ended by 40, the game's gravity again. shape_priority: kit-gravity's shape KitTestPull (+x, priority 100) placed by its planetobjinfo patch 8000 along z from the start: gravity.at there is +x. two_mods: kit-gravity-b's later override holds over kit-gravity's; when it ends kit-gravity's is back (rule 7). WAITING: LUMA_OUT marks on MR::calcGravityVector/calcGravityVectorOrZero and a hookable const void* param, a derive path for PlanetGravity (not a NameObj) or define_class with such a base, PlanetGravity::calcOwnGravityVector's row (F); the shape placed by its name (classes.alias, F).",
+  "proves": [
+    "script.build",
+    "script.library.call",
+    "kit.gravity"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-gravity",
+    "../../mods/kit-gravity-b"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-gravity.two_start",
+        "is": true
+      },
+      "hold": [
+        "ONE"
+      ],
+      "frames": 1,
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-gravity.done",
+        "is": true
+      },
+      "take_out": "kit-gravity",
+      "timeout": 900
+    },
+    {
+      "after": {
+        "log": "kit-gravity: taken out"
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-gravity.flip_gravity",
+      "near": [
+        0,
+        1,
+        0
+      ],
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-gravity.flip_back",
+      "less": 0.01
+    },
+    {
+      "fact": "mod.kit-gravity.frames_alive_10",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-gravity.frames_alive_40",
+      "is": false
+    },
+    {
+      "fact": "mod.kit-gravity.frames_back",
+      "less": 0.01
+    },
+    {
+      "fact": "mod.kit-gravity.shape_at",
+      "near": [
+        1,
+        0,
+        0
+      ],
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-gravity.two_b_holds",
+      "near": [
+        0,
+        0,
+        1
+      ],
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-gravity.two_mine_back",
+      "near": [
+        0,
+        0,
+        -1
+      ],
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-gravity-b.b_done",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

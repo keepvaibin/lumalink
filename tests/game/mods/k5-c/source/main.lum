@@ -1,0 +1,37 @@
+// K5 conformance, C in the same mod (language 13, abi 9; plan 4.6): `use c` names the mod's header, `extern c fn`
+// calls its C (numbers, bool, text and bytes as pointer and length) and its C++; `export c fn` gives the mod's C the
+// script's functions (its C calls ball_count, name_len with a text, and is_big), and the script calls them too.
+
+use c "fastmath.h"
+
+extern c fn k5_mix(a: f32, b: f32) -> f32
+extern c fn k5_len(s: text) -> i64
+extern c fn k5_sum_bytes(b: bytes) -> i32
+extern c fn k5_odd(x: i32) -> bool
+extern c fn k5_from_c() -> i32
+extern c fn k5_cpp_sum(a: i32, b: i32) -> i32
+
+var balls = 3
+
+export c fn ball_count() -> i32 {
+    return balls
+}
+
+export c fn name_len(s: text) -> i32 {
+    return s.len()
+}
+
+export c fn is_big(x: i32) -> bool {
+    return x > 100
+}
+
+on start {
+    let mixed = k5_mix(1.5, 2.0)
+    let n = k5_len("héllo")
+    let sum = k5_sum_bytes("ab".bytes())
+    let odd = (k5_odd(3), k5_odd(4))
+    let from_c = k5_from_c()
+    let cpp = k5_cpp_sum(5, 1)
+    let seen = (mixed, n, sum, odd, from_c, cpp, ball_count(), name_len("four"))
+    log fact "c" seen
+}

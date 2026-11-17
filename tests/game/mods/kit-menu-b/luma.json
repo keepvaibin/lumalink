@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-menu-b",
+  "version": "1.0.0",
+  "name": "kit-menu-b",
+  "summary": "LumaKit menu conformance helper: one pause menu entry, above kit-menu's (it is first in the Mods list); taken out while the pause menu is open.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}
