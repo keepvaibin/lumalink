@@ -112,3 +112,28 @@ fn an_authors_c_may_have_a_frame_over_4_kib() {
     let built = build::build(&folder, &Game::default(), &sdk, &clang, &dir.path().join("work"), &[host.to_string()]).unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(built.recorded, [host]);
 }
+
+/// A mod with neither LumaScript nor C is refused, by name, before any compile.
+#[test]
+fn a_mod_with_no_code_is_refused() {
+    let Some(sdk) = sdk() else {
+        eprintln!("skipped: no SDK (LUMA_SDK, or nebula/native/include beside this workspace)");
+        return;
+    };
+    let Some(host) = build::HOST else {
+        eprintln!("skipped: this system is none of the nine platforms");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("empty");
+    std::fs::create_dir_all(folder.join("source")).unwrap();
+    std::fs::write(folder.join("source/notes.h"), "/* a header alone is no code */\n").unwrap();
+    let (major, minor) = luma_validate::FORMAT;
+    std::fs::write(
+        folder.join("luma.json"),
+        format!("{{\n  \"format\": \"{major}.{minor}\",\n  \"id\": \"test.empty\",\n  \"version\": \"1.0.0\",\n  \"name\": \"Empty\",\n  \"summary\": \"No code.\",\n  \"authors\": [\"keepvaibin\"],\n  \"game\": {{ \"id\": \"RMG\" }}\n}}\n"),
+    )
+    .unwrap();
+    let result = build::build(&folder, &Game::default(), &sdk, &build::default_clang(), &dir.path().join("work"), &[host.to_string()]);
+    assert!(matches!(result, Err(build::BuildError::NoScripts(_))), "{result:?}");
+}
