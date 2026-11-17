@@ -277,6 +277,46 @@ fn the_tree_takes_the_grammars_reading() {
     assert!(matches!(&ty(2).kind, TypeKind::Tuple(items) if items.len() == 2));
 }
 
+/// A fact's name of text ends before its value, so a value may start with `(`, `[` or `-`; `+` joins terms to the
+/// name. Before, `log fact "odd" (n & 1) != 0` read as a call of the text and left no value.
+#[test]
+fn a_fact_name_of_text_ends_before_its_value() {
+    use lumascript::ast::{BinOp, ExprKind, StmtKind};
+    let src = "log fact \"odd\" (n & 1) != 0
+log fact \"neg\" -1
+log fact \"list\" [1, 2]
+log fact \"hits_\" + k n
+log fact name_of(k) v
+";
+    let (statements, d) = parse_statements(src);
+    assert!(d.is_empty(), "{}", shown("fact names", &d));
+    let read: Vec<(String, String)> = statements
+        .iter()
+        .map(|s| match &s.kind {
+            StmtKind::Log { fact: Some(name), value } => {
+                let name = match &name.kind {
+                    ExprKind::Str(_) => "text".to_string(),
+                    ExprKind::Binary { op: BinOp::Add, .. } => "joined".to_string(),
+                    ExprKind::Call { .. } => "call".to_string(),
+                    other => format!("{other:?}"),
+                };
+                let value = match &value.kind {
+                    ExprKind::Binary { op: BinOp::Ne, .. } => "not equal",
+                    ExprKind::Neg(_) => "negative",
+                    ExprKind::Number(_) => "number",
+                    ExprKind::List(_) => "list",
+                    ExprKind::Name { .. } => "name",
+                    _ => "other",
+                };
+                (name, value.to_string())
+            }
+            other => panic!("not a fact: {other:?}"),
+        })
+        .collect();
+    let want = [("text", "not equal"), ("text", "negative"), ("text", "list"), ("joined", "name"), ("call", "name")];
+    assert_eq!(read.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect::<Vec<_>>(), want);
+}
+
 /// An error inside an interpolation is said at its place in the file.
 #[test]
 fn an_interpolation_is_checked_where_it_stands() {

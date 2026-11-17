@@ -1067,7 +1067,7 @@ impl<'a> Parser<'a> {
                 || ["true", "false", "none", "self", "result"].iter().any(|w| next.is(w));
             let fact = if self.at_word("fact") && value_next {
                 self.take();
-                Some(self.expr(false)?)
+                Some(self.fact_name()?)
             } else {
                 None
             };
@@ -1191,6 +1191,28 @@ impl<'a> Parser<'a> {
     pub fn expr(&mut self, nostruct: bool) -> R<Expr> {
         let at = self.peek(0).at;
         self.nested(at, |p| p.binary(0, nostruct))
+    }
+
+    /// A fact's name (`log fact NAME VALUE`). A name that starts with a text is that text and the terms `+` joins to
+    /// it (`"hits_" + n`), so the value may start with `(`, `[` or `-`: `log fact "odd" (n & 1) != 0` is the fact
+    /// "odd" of `(n & 1) != 0`, never a call of the text. Any other name is one expression (`log fact name_of(k) v`).
+    fn fact_name(&mut self) -> R<Expr> {
+        if self.peek(0).kind != Kind::Str {
+            return self.expr(false);
+        }
+        self.keeping_depth(|p| p.fact_name_here())
+    }
+
+    fn fact_name_here(&mut self) -> R<Expr> {
+        let mut name = self.primary(false)?;
+        while self.peek(0).kind == Kind::Op && self.peek(0).text == "+" {
+            let first = self.take().at;
+            let right = self.unary(false)?;
+            self.wrap_deeper(first)?;
+            let at = name.at;
+            name = Expr { id: self.new_id(), at, kind: ExprKind::Binary { op: BinOp::Add, left: Box::new(name), right: Box::new(right) } };
+        }
+        Ok(name)
     }
 
     /// The binary operator at the token and its level (G.4), if one is there.
