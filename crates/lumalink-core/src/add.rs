@@ -577,6 +577,18 @@ mod tests {
         (dir, folder)
     }
 
+    /// A mod with id `lumakit` at `version` in `dir`, beside the mod `new_mod` makes.
+    fn kit_beside(dir: &Path, version: &str) {
+        let kit = dir.join("lumakit");
+        match crate::jobs::new_mod(&kit, "lumakit", "LumaKit", "The kit.", &["keepvaibin".to_string()]).unwrap() {
+            crate::jobs::NewMod::Made(_) => {}
+            crate::jobs::NewMod::Refused(r) => panic!("{:?}", r.findings),
+        }
+        let mut m = manifest(&kit);
+        m["version"] = json!(version);
+        std::fs::write(kit.join("luma.json"), manifest_text(m.as_object().unwrap())).unwrap();
+    }
+
     fn manifest(folder: &Path) -> Value {
         serde_json::from_slice(&std::fs::read(folder.join("luma.json")).unwrap()).unwrap()
     }
@@ -593,7 +605,10 @@ mod tests {
 
     #[test]
     fn each_manifest_part_is_written_in_the_format_order_and_checked() {
-        let (_dir, folder) = new_mod();
+        let (dir, folder) = new_mod();
+        // The needed kit beside the mod, where the check looks first, so the result does not depend on this machine's
+        // installed game.
+        kit_beside(dir.path(), "1.2.0");
         done(&folder, Part::Need { id: "lumakit".into(), version: ">=1.0.0".into() });
         done(&folder, Part::Need { id: "lumakit".into(), version: ">=1.2.0".into() });
         done(&folder, Part::Conflict { id: "other-flower".into(), why: "Both change the Fire Flower.".into() });
