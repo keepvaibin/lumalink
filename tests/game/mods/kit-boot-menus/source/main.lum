@@ -1,0 +1,30 @@
+// kit-boot-menus: a shop opened and a cutscene played on the title screen, with no stage, no player and no camera
+// (the harness's call MR::getRandom(0, 6802)). The game goes on: the shop's list shows (the mod asked for it) and
+// buys nothing (no coins), the cutscene's camera calls are not made. Facts: "asked" (both asked for), "alive" 60
+// frames later.
+use kit.camera
+use kit.item
+use kit.shop
+use kit.cutscene
+
+var asked_at: i64 = 0
+var frames: i64 = 0
+
+hook after `MR::getRandom(s32, s32)`(low, high) {
+    if high == 6802 and asked_at == 0 {
+        asked_at = frames
+        let e = camera.now()
+        let sh = shop.Shop { title: "kit-boot", wares: [shop.Ware { name: "coin", price: 1, gives: item.Gives.Coins(1) }],
+                             currency: shop.Currency.Coins }
+        let bought = shop.open(sh)
+        let shown = cutscene.play(cutscene.Scene { shots: [cutscene.Shot.Move(e, e, 10)] })
+        log fact "asked" true
+    }
+}
+
+on frame {
+    frames += 1
+    if asked_at != 0 and frames == asked_at + 60 {
+        log fact "alive" true
+    }
+}

@@ -1,0 +1,43 @@
+// kit-boot: LumaKit's calls that read the running game (the camera, the pointer, the player's items, whether a
+// cutscene plays), made at boot frame 1, with no scene, no player and no camera, and again on the stage. None may end the
+// game: a game function whose scene object is not there is not called (Call.NotNow) and gives its empty value.
+// Facts: "boot_calls" and "stage_calls" (how many of the six calls returned), "boot_eye_zero" (camera.now()'s eye
+// at boot is the empty vector), "stage_eye_zero" (on the stage it is not).
+use kit.camera
+use kit.pointer
+use kit.item
+use kit.cutscene
+
+var frames: i64 = 0
+
+fn calls() -> (i64, bool) {
+    var done: i64 = 0
+    let e = camera.now()
+    done += 1
+    let w = pointer.world()
+    done += 1
+    let s = pointer.screen()
+    done += 1
+    item.give(item.Gives.Coins(1))
+    done += 1
+    item.give(item.Gives.Health(1))
+    done += 1
+    let playing = cutscene.active()
+    done += 1
+    return (done, e.eye.x == 0.0 and e.eye.y == 0.0 and e.eye.z == 0.0)
+}
+
+on frame {
+    frames += 1
+    if frames == 1 {
+        let (n, zero) = calls()
+        log fact "boot_calls" n
+        log fact "boot_eye_zero" zero
+    }
+}
+
+on stage "EggStarGalaxy" {
+    let (n, zero) = calls()
+    log fact "stage_calls" n
+    log fact "stage_eye_zero" zero
+}

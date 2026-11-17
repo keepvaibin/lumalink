@@ -1,0 +1,49 @@
+{
+  "harness": 1,
+  "name": "kit-boot-menus",
+  "about": "LumaKit's shop.open and cutscene.play asked for on the title screen, with no stage, no player and no camera: the game goes on (the shop's list shows, as the mod asked; the cutscene's camera calls are not made)",
+  "proves": [
+    "kit.safe_any_time"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-boot-menus"
+  ],
+  "steps": [
+    {
+      "at": 30,
+      "call": "MR::getRandom",
+      "signature": "s32(s32, s32)",
+      "args": [
+        0,
+        6802
+      ]
+    },
+    {
+      "after": {
+        "fact": "mod.kit-boot-menus.alive",
+        "is": true
+      },
+      "end": true,
+      "timeout": 600
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-boot-menus.asked",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-boot-menus.alive",
+      "is": true
+    },
+    {
+      "fact": "guard.kit-boot-menus",
+      "absent": true
+    },
+    {
+      "fact": "guard.lumakit",
+      "absent": true
+    }
+  ]
+}

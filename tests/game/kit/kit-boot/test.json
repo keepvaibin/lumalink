@@ -1,0 +1,52 @@
+{
+  "harness": 1,
+  "name": "kit-boot",
+  "about": "LumaKit's calls that read the running game (camera.now, pointer.world, pointer.screen, item.give coins and health, cutscene.active) at boot frame 1, with no scene, no player and no camera: each returns and the game goes on, camera.now()'s eye is the empty vector; on the stage the same calls return and the eye is the camera's. Before M2 the first ended the game",
+  "proves": [
+    "kit.safe_any_time"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-boot"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-boot.stage_calls",
+        "is": 6
+      },
+      "end": true,
+      "timeout": 900
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-boot.boot_calls",
+      "is": 6
+    },
+    {
+      "fact": "mod.kit-boot.boot_eye_zero",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-boot.stage_calls",
+      "is": 6
+    },
+    {
+      "fact": "mod.kit-boot.stage_eye_zero",
+      "is": false
+    },
+    {
+      "fact": "guard.kit-boot",
+      "absent": true
+    },
+    {
+      "fact": "guard.lumakit",
+      "absent": true
+    }
+  ]
+}

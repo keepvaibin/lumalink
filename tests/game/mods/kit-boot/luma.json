@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-boot",
+  "version": "1.0.0",
+  "name": "kit-boot",
+  "summary": "LumaKit's calls that read the running game, made at boot frame 1 and again on a stage: none ends the game.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

@@ -4,6 +4,8 @@
     "k9-kit",
     "kit-actor",
     "kit-area",
+    "kit-boot",
+    "kit-boot-menus",
     "kit-camera",
     "kit-cutscene",
     "kit-gravity",

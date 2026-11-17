@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-boot-menus",
+  "version": "1.0.0",
+  "name": "kit-boot-menus",
+  "summary": "LumaKit's shop and cutscene asked for at boot frame 1, with no scene and no player: the game goes on.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}
