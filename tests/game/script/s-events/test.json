@@ -1,0 +1,81 @@
+{
+  "harness": 1,
+  "name": "s-events",
+  "about": "A LumaScript mod watches every game event (events.watch with events.ALL): StageStart gives EggStarGalaxy and mission 1; the test's MR::incCoin(5) and MR::incCoin(3) are told as Coin 5 and Coin 3, after which it stops watching (kinds 0), so a third MR::incCoin(2) is not told",
+  "proves": [
+    "events.watch"
+  ],
+  "mods": [
+    "../../mods/s-events"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 60,
+      "call": "MR::incCoin",
+      "signature": "void(int)",
+      "args": [
+        5
+      ]
+    },
+    {
+      "at": 62,
+      "call": "MR::incCoin",
+      "signature": "void(int)",
+      "args": [
+        3
+      ]
+    },
+    {
+      "after": {
+        "fact": "mod.s-events.stopped",
+        "exists": true
+      },
+      "call": "MR::incCoin",
+      "signature": "void(int)",
+      "args": [
+        2
+      ]
+    },
+    {
+      "at": 90,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.s-events.stage",
+      "is": "EggStarGalaxy"
+    },
+    {
+      "fact": "mod.s-events.mission",
+      "is": 1
+    },
+    {
+      "fact": "mod.s-events.coin",
+      "is": 5,
+      "when": "first"
+    },
+    {
+      "fact": "mod.s-events.coin",
+      "is": 3,
+      "when": "last"
+    },
+    {
+      "fact": "mod.s-events.coin",
+      "count": 2
+    },
+    {
+      "fact": "mod.s-events.coin_name_size",
+      "is": 0,
+      "when": "all"
+    },
+    {
+      "fact": "mod.s-events.stopped",
+      "is": true
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+// The events service from LumaScript (services/events.md): the game's events told at the start of the next frame as
+// events.Event cases, each with its events.Game record. The test's MR::incCoin(5) is told as Coin 5; the stage start
+// as StageStart with the stage's name and mission; a watch of no kinds stops the events.
+use svc.events
+
+var coins = 0
+
+on start {
+    events.watch(events.ALL, fn(e: events.Event) {
+        match e {
+            events.Event.Coin(data) => {
+                coins += 1
+                log fact "coin" data.value
+                log fact "coin_name_size" data.name_size
+                if coins == 2 {
+                    events.watch(0, none)
+                    log fact "stopped" true
+                }
+            }
+            events.Event.StageStart(data) => {
+                log fact "stage" data.name
+                log fact "mission" data.value
+            }
+            else => return
+        }
+    })
+}

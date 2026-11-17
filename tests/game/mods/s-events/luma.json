@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "s-events",
+  "version": "1.0.0",
+  "name": "s-events",
+  "summary": "s-events (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}
