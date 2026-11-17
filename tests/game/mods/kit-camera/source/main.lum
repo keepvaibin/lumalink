@@ -64,11 +64,13 @@ task run() {
     let near_game = MR::getNearZ()
     let fp = camera.take(camera.eye(MarioAccess::getPlayerActor()!, "Head", 5.0))
     wait 5 frames
-    log fact "fp_hidden" MarioAccess::getPlayerActor()!.mHidden
+    // The body not drawn (player.set_drawn: MarioActor::mModHidden bit 1, kModHiddenBody); the game's own mHidden
+    // stays as the game has it.
+    log fact "fp_hidden" (MarioAccess::getPlayerActor()!.mModHidden & 1) != 0
     log fact "fp_near" MR::getNearZ()
     camera.end(fp)
     wait 5 frames
-    log fact "fp_shown" not MarioAccess::getPlayerActor()!.mHidden
+    log fact "fp_shown" (MarioAccess::getPlayerActor()!.mModHidden & 1) == 0
     log fact "fp_near_back" MR::getNearZ() == near_game
 
     // side
