@@ -432,6 +432,67 @@ fn c_functions_cross_both_ways() {
     assert!(c.contains("if (lm_main__twice("), "the script calls its own function:\n{c}");
 }
 
+/// N-4023: vectors, `quat`, `mat34`, `color`, a `c struct` and `ref<C>` cross to C by value both ways. A `c struct` is
+/// the C struct of its name as written, in lm_exports.h with lumart.h's value types and a getter per handle type,
+/// which the mod's C and C++ include; a field that cannot cross (text) is refused at the field.
+#[test]
+fn vectors_c_structs_and_handles_cross_to_c() {
+    let src = "c struct Ball {\n    pos: vec3\n    n: i32\n    lit: bool\n    tint: color\n}\nc struct Pair {\n    a: Ball\n    b: Ball\n    who: ref<Actor>\n}\n\nextern c fn c_move(b: Ball, by: vec3, h: ref<Actor>) -> Ball\nextern c fn c_turn(m: mat34, q: quat, w: vec4) -> vec2\nextern c fn c_pair(p: Pair) -> color\n\nexport c fn ball_up(b: Ball, at: vec2) -> Ball {\n    var c = b\n    c.n += 1\n    c.pos.y += at.x\n    return c\n}\nexport c fn keep(h: ref<Actor>) -> ref<Actor> {\n    return h\n}\n\nfn flip(var x: bool) {\n    x = not x\n}\n\non start {\n    guard let a = MR::actor() else { return }\n    var b = Ball { pos: vec3(), n: 1, lit: true, tint: color() }\n    flip(var b.lit)\n    let m = c_move(b, vec3(), ref(a))\n    let t = c_turn(mat34(), quat(), vec4())\n    let k = c_pair(Pair { a: m, b: b, who: keep(ref(a)) })\n    log \"{m.n} {t} {k}\"\n}\n";
+    let x = build_file(src, "lum/lm_exports.h").unwrap();
+    assert!(x.contains("#include \"lumart.h\""), "{x}");
+    assert!(x.contains("typedef struct Ball {\n    lm_vec3 pos;\n    int32_t n;\n    bool lit;\n    lm_color tint;\n} Ball;"), "{x}");
+    assert!(x.contains("typedef struct Pair {\n    Ball a;\n    Ball b;\n    lumart_ref who;\n} Pair;"), "{x}");
+    assert!(x.find("} Ball;") < x.find("} Pair;"), "Ball before the struct holding it:\n{x}");
+    assert!(x.contains("static inline void* lm_ref_get_Actor(lumart_ref r) {"), "{x}");
+    assert!(x.contains("Ball ball_up(Ball p0, lm_vec2 p1);") && x.contains("lumart_ref keep(lumart_ref p0);"), "{x}");
+    let h = build_file(src, "lum/lm.h").unwrap();
+    assert!(h.contains("Ball c_move(Ball p0, lm_vec3 p1, lumart_ref p2);"), "{h}");
+    assert!(h.contains("lm_vec2 c_turn(lm_mat34 p0, lm_quat p1, lm_vec4 p2);") && h.contains("lm_color c_pair(Pair p0);"), "{h}");
+    assert!(h.find("#include \"lm_exports.h\"") < h.find("Ball c_move("), "the types before the prototypes:\n{h}");
+    assert!(!h.contains("typedef struct Ball"), "one definition, lm_exports.h's:\n{h}");
+    let c = build(src).unwrap();
+    assert!(c.contains("Ball ball_up(Ball p0, lm_vec2 p1) {") && c.contains("\"ball_up\")) { return (Ball){0}; }"), "{c}");
+    assert!(c.contains("    Ball r = (Ball){0};"), "{c}");
+    // The mod's own C and C++ see the same types, the getter and the exports.
+    let Some(sdk) = std::env::var_os("LUMA_SDK") else { return };
+    let (module, _) = lumascript::parse_module(src);
+    let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+    let game = game();
+    let files = lumascript::on_compiler_stack(|| {
+        let checked = check::check(&sources, &[], ModFacts::of_game(&game));
+        emit::emit("small", &sources, &checked, &game).map(|o| o.files).unwrap_or_default()
+    })
+    .unwrap();
+    let clang = std::env::var_os("LUMA_CLANG").unwrap_or_else(|| "C:/Program Files/LLVM/bin/clang.exe".into());
+    let dir = std::env::temp_dir().join(format!("lumascript-n4023-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("source")).unwrap();
+    for (rel, text) in &files {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+    }
+    let own = "#include \"lm_exports.h\"\n\nBall c_move(Ball b, lm_vec3 by, lumart_ref h) {\n    b.pos.x += by.x;\n    b.lit = lm_ref_get_Actor(h) != 0;\n    b = ball_up(b, (lm_vec2){1.0f, 2.0f});\n    return b;\n}\nlm_vec2 c_turn(lm_mat34 m, lm_quat q, lm_vec4 w) {\n    lm_vec2 r = {m.m[0][0] + q.w, w.z};\n    return r;\n}\nlm_color c_pair(Pair p) {\n    lumart_ref k = keep(p.who);\n    lm_color c = p.a.tint;\n    c.a = lm_ref_get_Actor(k) != 0 ? 1.0f : 0.0f;\n    return c;\n}\n";
+    std::fs::write(dir.join("source/own.c"), own).unwrap();
+    std::fs::write(dir.join("source/own.cpp"), "#include \"lm_exports.h\"\n\nextern \"C\" int own_cpp(Ball b, lumart_ref h) {\n    Pair p{};\n    p.a = ball_up(b, lm_vec2{0.0f, 1.0f});\n    p.who = keep(h);\n    return p.a.n + (lm_ref_get_Actor(p.who) != nullptr) + (b.lit ? 1 : 0);\n}\n").unwrap();
+    for (file, lang) in [("source/own.c", "-std=c17"), ("source/own.cpp", "-std=c++20"), ("lum/main.c", "-std=c17")] {
+        let out = std::process::Command::new(&clang)
+            .current_dir(&dir)
+            .arg("--target=x86_64-pc-windows-msvc")
+            .args(emit::C_FLAGS.iter().filter(|f| !f.starts_with("-std=")))
+            .arg(lang)
+            .arg("-Werror")
+            .arg("-I").arg(dir.join("lum")).arg("-I").arg(&sdk).arg("-I").arg(dir.join("source"))
+            .arg("-fsyntax-only").arg(file)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{file}:\n{}", String::from_utf8_lossy(&out.stderr));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    // A field that would carry the script's counted text into C is refused, at the field.
+    let said = build("c struct Named {\n    n: i32\n    name: text\n}\n\non start {\n    let s = Named { n: 1, name: \"x\" }\n    log \"{s.n}\"\n}\n").unwrap_err();
+    assert!(said.contains(&"a c struct field of type text".to_string()), "{said:?}");
+}
+
 /// C gets a copy, so a `var` parameter on either side would lose its write-back without a word: refused.
 #[test]
 fn a_c_var_parameter_is_refused() {

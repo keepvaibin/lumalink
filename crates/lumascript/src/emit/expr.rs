@@ -1180,7 +1180,11 @@ impl<'a> Gen<'a> {
             };
             let (i, p) = *params.get(k).ok_or_else(lost)?;
             let pt = self.declared_ty(item, &pkey(i, p));
-            let v = if p.var {
+            let v = if p.var && pt == Ty::Bool {
+                // A `c struct`'s bool field is C's `bool` (N-4023), one byte as the script's uint8_t on every target; a
+                // char type may point at it, and the script writes 0 or 1 only.
+                format!("(uint8_t*)&{}", self.place(fx, &a.value)?)
+            } else if p.var {
                 format!("&{}", self.place(fx, &a.value)?)
             } else {
                 let v = self.expr(fx, &a.value)?;
