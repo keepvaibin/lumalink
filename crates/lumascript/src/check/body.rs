@@ -1239,37 +1239,41 @@ impl<'w, 'a> Walk<'w, 'a> {
         if self.c.inferring.len() < INFER_DEPTH {
             self.module_binding(item);
         } else {
-            self.infer_listed(item, at);
+            self.infer_listed(item);
         }
         self.c.inferred.get(&key).cloned().unwrap_or(Ty::Error)
     }
 
     /// Module values found by a work list, not inside one another: each value is walked quietly for the module values
     /// it reads that are not found yet, those are found first, then it is found as [`Walk::module_binding`] finds it.
-    /// One read that is on the list below it is a cycle, said by its walk as the recursion would say it.
-    fn infer_listed(&mut self, start: ItemRef, at: Pos) {
+    /// A read of one whose reads are being found (on the path from `start` to it) is a cycle, said by its walk as the
+    /// recursion would say it; a read of one only waiting on the list is none, and is found first (N-4043).
+    fn infer_listed(&mut self, start: ItemRef) {
         let found = |c: &Checker<'_>, item: &ItemRef| c.inferred.contains_key(&(*item, "=".to_string()));
-        let mut list: Vec<(ItemRef, Pos)> = vec![(start, at)];
-        self.c.listed.insert(start);
-        while let Some(&(top, _)) = list.last() {
-            if found(self.c, &top) {
+        // Each value on the list, and whether its reads were listed above it (it is then in `listed`, on the path). A
+        // value read by two may be on the list twice; the lower one is found by then and let go.
+        let mut list: Vec<(ItemRef, bool)> = vec![(start, false)];
+        while let Some(&(top, opened)) = list.last() {
+            if found(self.c, &top) || (!opened && self.c.listed.contains(&top)) {
                 list.pop();
-                self.c.listed.remove(&top);
                 continue;
             }
-            let mut more = false;
-            for (item, at) in self.reads_of_module_value(top) {
-                let busy = self.c.inferring.contains(&(item, "=".to_string()));
-                if !found(self.c, &item) && !busy && self.c.listed.insert(item) {
-                    list.push((item, at));
-                    more = true;
+            if !opened {
+                if let Some(last) = list.last_mut() {
+                    last.1 = true;
                 }
+                self.c.listed.insert(top);
+                for (item, _) in self.reads_of_module_value(top) {
+                    let busy = self.c.inferring.contains(&(item, "=".to_string()));
+                    if !found(self.c, &item) && !busy && !self.c.listed.contains(&item) {
+                        list.push((item, false));
+                    }
+                }
+                continue;
             }
-            if !more {
-                self.c.listed.remove(&top);
-                self.module_binding(top);
-                list.pop();
-            }
+            self.c.listed.remove(&top);
+            self.module_binding(top);
+            list.pop();
         }
     }
 

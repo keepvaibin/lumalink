@@ -237,6 +237,10 @@ on start {{
     // recursion said it.
     let (_, said) = check_timed("let a = b\nlet b = c\nlet c = b\non start {\n    log a\n}\n");
     assert_eq!(said.iter().map(|d| (d.code, d.at.line, d.args.clone())).collect::<Vec<_>>(), [(code::TYPE_NEEDS_WRITING, 3, vec![("found", lumascript::Arg::Text("b".into()))])]);
+    // N-4043: two values on the work list, one reading the other, are no cycle: `c` reads `b`, which waits below it on
+    // the list (fails before: "b" said as a value that reads itself).
+    let (_, said) = check_timed("let x = a\nlet a = b + c\nlet c = b\nlet b = 1\non start {\n    log x\n}\n");
+    assert!(said.is_empty(), "{said:?}");
 }
 
 /// A match on a case of `n` bools with an arm for each row of `rows` (a field's value, or None for a name that takes

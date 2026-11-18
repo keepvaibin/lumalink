@@ -399,8 +399,8 @@ struct Checker<'a> {
     needs: body::Needs,
     /// What is left of [`NEAR_BUDGET`] for this check's unknown names.
     near_budget: usize,
-    /// Module values the work list of [`body`] holds, not yet found: one read while another's value is walked closes a
-    /// cycle (N-4032).
+    /// Module values on the path of the work list of [`body`], their reads being found: one read while another's value
+    /// is walked closes a cycle (N-4032; one only waiting on the list is no cycle, N-4043).
     listed: std::collections::HashSet<ItemRef>,
     /// Walks that only look for what a value reads (part c's work list): while one runs nothing is said or marked said.
     quiet: u32,
