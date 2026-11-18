@@ -362,6 +362,8 @@ pub(super) struct Walk<'w, 'a> {
     captured: std::collections::HashSet<ExprId>,
     /// Game fields, globals and elements a script may not write, with the phrase that says why.
     read_only: HashMap<ExprId, &'static str>,
+    /// Game fields a write gives a `T` only (PlaceTy::takes_some), by the member expression: the field's name.
+    takes_some: HashMap<ExprId, String>,
     /// The locals that are parameters (S0064 says "a parameter" for them).
     params: std::collections::HashSet<LocalId>,
     /// Inside an expression of literals whose whole was fit-checked (A42C-2): its parts are not checked again.
@@ -470,6 +472,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             game_places: Default::default(),
             captured: Default::default(),
             read_only: HashMap::new(),
+            takes_some: HashMap::new(),
             params: Default::default(),
             folding: false,
             tick: 0,
@@ -2438,7 +2441,13 @@ impl<'w, 'a> Walk<'w, 'a> {
             self.say(Diagnostic::new(code::NOT_A_PLACE, target.at).with("why", Arg::Phrase(why)));
         }
         let Some(bin) = assign_op(op) else {
-            self.expr(value, Want::Ty(&t));
+            let v = self.expr(value, Want::Ty(&t));
+            // M-123: a field the game reads without a test takes a value, never `none` or a `T?`; clearing it is a
+            // choice made in C (S0157 names the form).
+            if let (Some(field), Ty::Opt(inner), Ty::Opt(_)) = (self.takes_some.get(&target.id), &t, &v) {
+                let (field, expected) = (field.clone(), self.ty_text(inner));
+                self.say(Diagnostic::new(code::FIELD_TAKES_SOME, value.at).with("field", Arg::Text(field)).with("expected", Arg::Text(expected)));
+            }
             // `a.x = wait p`: the place is written after the wait, through a view made before it (S0104).
             let waited = self.waited_from(from);
             if let (Some(w), Some(id)) = (waited, self.root_local(target)) {

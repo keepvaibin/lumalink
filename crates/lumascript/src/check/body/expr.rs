@@ -1708,6 +1708,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                     } else if konst {
                         self.read_only.insert(e.id, "Script.Place.ConstView");
                     }
+                    if place.takes_some {
+                        self.takes_some.insert(e.id, format!("{record}::{name}"));
+                    }
                 }
                 let t = self.place_ty(e, &place.ty, konst);
                 // A record field of a copy is part of the copy.

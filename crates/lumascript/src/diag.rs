@@ -351,6 +351,9 @@ pub mod code {
     pub const CAN_WHAT: u16 = 155;
     /// Part (g): `holds` takes the name of a set the game proves (`{sets}`), as `holds("player")`.
     pub const HOLDS_WHAT: u16 = 156;
+    /// M-123: the game reads `{field}` without testing it for none: a write takes a `{expected}`; clearing it on
+    /// purpose is an `extern c fn`'s.
+    pub const FIELD_TAKES_SOME: u16 = 157;
     /// The back end does not write `{what}` yet; the build stops here rather than guess.
     pub const BACKEND_NOT_YET: u16 = 800;
 

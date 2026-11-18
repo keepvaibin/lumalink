@@ -39,7 +39,8 @@ const FIXTURE: &str = r#"{
                 {"name": "mBaseMtx", "type": "Mtx", "offset": 112, "count": 1, "extents": null, "access": "public", "bits": null},
                 {"name": "mCount", "type": "const s32", "offset": 160, "count": 1, "extents": null, "access": "public", "bits": null},
                 {"name": "mWide", "type": "f32 : 2", "offset": 164, "count": 1, "extents": null, "access": "public", "bits": {"width": 2, "offset": 0}},
-                {"name": "mBuf", "type": "char *", "offset": 168, "count": 1, "extents": null, "access": "public", "bits": null}]},
+                {"name": "mBuf", "type": "char *", "offset": 168, "count": 1, "extents": null, "access": "public", "bits": null},
+                {"name": "mNext", "type": "LiveActor *", "offset": 176, "count": 1, "extents": null, "access": "public", "bits": null, "nullable": true}]},
     {"kind": "struct", "name": "MR::GrowBuffer", "size": 8, "align": 4, "polymorphic": false, "abstract": false, "trivial_copy": false, "trivial_destroy": false, "no_copy": true, "bases": [], "reachable": [], "fields": []},
     {"kind": "struct", "name": "SoundID", "size": 4, "align": 4, "polymorphic": false, "abstract": false, "trivial_copy": false, "trivial_destroy": true, "no_copy": false, "bases": [], "reachable": [], "fields": []},
     {"kind": "struct", "name": "NebulaListLink<Mario>", "size": 8, "align": 4, "polymorphic": false, "abstract": false, "trivial_copy": true, "trivial_destroy": true, "no_copy": true, "bases": [], "reachable": [], "fields": []},
@@ -190,7 +191,9 @@ fn fields_are_places_of_their_kind() {
     let types = game.types.as_ref().unwrap();
     let actor = &types.records["LiveActor"];
     let field = |name: &str| game.field(actor.own.iter().find(|f| f.name == name).unwrap());
-    let place_ty = |ty: GameTy, read_only: bool| Ok(PlaceTy { ty, read_only, constant: None });
+    let place_ty = |ty: GameTy, read_only: bool| Ok(PlaceTy { ty, read_only, constant: None, takes_some: false });
+    // A pointer field with no LUMA_NULLABLE: read as `T?`, written with a `T` only (M-123).
+    let some_ty = |ty: GameTy, read_only: bool| Ok(PlaceTy { ty, read_only, constant: None, takes_some: true });
     assert_eq!(field("mPos"), place_ty(GameTy::Value(Value::Vec3), false));
     assert_eq!(field("mFlags"), place_ty(GameTy::Bits { of: Scalar::U32, width: 3 }, false));
     // An enum bit-field is stored as its underlying integer.
@@ -198,11 +201,13 @@ fn fields_are_places_of_their_kind() {
     assert_eq!(field("mGrid"), place_ty(GameTy::Array { of: Box::new(GameTy::Scalar(Scalar::F32)), extents: vec![3, 4] }, false));
     assert_eq!(field("mRow"), place_ty(GameTy::Array { of: Box::new(GameTy::Scalar(Scalar::I16)), extents: vec![4] }, false));
     // The game's text is read; writing a script's text into the game's object is not offered.
-    assert_eq!(field("mName"), place_ty(opt(GameTy::Text), true));
+    assert_eq!(field("mName"), some_ty(opt(GameTy::Text), true));
     // A plain struct inside a view is a view: `actor.mStates.onGround = true` writes the game's object.
     assert_eq!(field("mStates"), place_ty(view("Mario::MovementStates", false), false));
-    assert_eq!(field("mTarget"), place_ty(opt(view("LiveActor", false)), false));
-    assert_eq!(field("mScale"), place_ty(opt(place(GameTy::Scalar(Scalar::F32), true)), false));
+    assert_eq!(field("mTarget"), some_ty(opt(view("LiveActor", false)), false));
+    assert_eq!(field("mScale"), some_ty(opt(place(GameTy::Scalar(Scalar::F32), true)), false));
+    // LUMA_NULLABLE on the field: the game tests it, so a write may give `none`.
+    assert_eq!(field("mNext"), place_ty(opt(view("LiveActor", false)), false));
     assert_eq!(field("mBaseMtx"), place_ty(GameTy::Value(Value::Mat34), false));
     assert_eq!(field("mCount"), place_ty(GameTy::Scalar(Scalar::I32), true));
     assert_eq!(field("mWide"), Err(NotCrossing::BitFieldType("f32 : 2".into())));
@@ -214,11 +219,11 @@ fn fields_are_places_of_their_kind() {
 #[test]
 fn globals_are_places_and_a_const_one_is_read_only() {
     let game = game();
-    assert_eq!(game.global("gCount"), Ok(PlaceTy { ty: GameTy::Scalar(Scalar::I32), read_only: false, constant: None }));
-    assert_eq!(game.global("gLimit"), Ok(PlaceTy { ty: GameTy::Scalar(Scalar::F32), read_only: true, constant: None }));
-    assert_eq!(game.global("gActor"), Ok(PlaceTy { ty: opt(view("LiveActor", false)), read_only: false, constant: None }));
+    assert_eq!(game.global("gCount"), Ok(PlaceTy { ty: GameTy::Scalar(Scalar::I32), read_only: false, constant: None, takes_some: false }));
+    assert_eq!(game.global("gLimit"), Ok(PlaceTy { ty: GameTy::Scalar(Scalar::F32), read_only: true, constant: None, takes_some: false }));
+    assert_eq!(game.global("gActor"), Ok(PlaceTy { ty: opt(view("LiveActor", false)), read_only: false, constant: None, takes_some: false }));
     // A constant the module does not define is its value, folded; only a number's or an enum's.
-    assert_eq!(game.global("ChordInfo::OCTAVE"), Ok(PlaceTy { ty: GameTy::Scalar(Scalar::I32), read_only: true, constant: Some("12".into()) }));
+    assert_eq!(game.global("ChordInfo::OCTAVE"), Ok(PlaceTy { ty: GameTy::Scalar(Scalar::I32), read_only: true, constant: Some("12".into()), takes_some: false }));
     assert_eq!(game.global("Table::cOrigin"), Err(NotCrossing::Other("const Vec3f".into())));
     assert_eq!(
         game.global("gDeclared"),

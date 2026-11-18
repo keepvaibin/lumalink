@@ -73,7 +73,9 @@ const GAME: &str = r#"{
       {"name": "mFlags.isDead", "type": "bool : 1", "offset": 80, "count": 1, "extents": null, "access": "public", "bits": {"width": 1, "offset": 640}},
       {"name": "mCount", "type": "const s32", "offset": 84, "count": 1, "extents": null, "access": "public", "bits": null},
       {"name": "mBox", "type": "Box", "offset": 104, "count": 1, "extents": null, "access": "public", "bits": null},
-      {"name": "mTable", "type": "s32", "offset": 88, "count": 4, "extents": null, "access": "public", "bits": null}]},
+      {"name": "mTable", "type": "s32", "offset": 88, "count": 4, "extents": null, "access": "public", "bits": null},
+      {"name": "mTarget", "type": "LiveActor *", "offset": 160, "count": 1, "extents": null, "access": "public", "bits": null},
+      {"name": "mNext", "type": "LiveActor *", "offset": 168, "count": 1, "extents": null, "access": "public", "bits": null, "nullable": true}]},
     {"kind": "class", "name": "Kuribo", "size": 300, "align": 8, "polymorphic": true, "abstract": false, "trivial_copy": false, "trivial_destroy": false, "no_copy": false, "bases": [{"name": "LiveActor", "offset": 0, "virtual": false}], "reachable": [], "fields": []},
     {"kind": "class", "name": "Thing", "size": 8, "align": 8, "polymorphic": true, "abstract": false, "trivial_copy": false, "trivial_destroy": false, "no_copy": false, "bases": [], "reachable": [], "fields": []},
     {"kind": "struct", "name": "Vec3<f32>", "size": 12, "align": 4, "polymorphic": false, "abstract": false, "trivial_copy": true, "trivial_destroy": true, "no_copy": false, "bases": [], "reachable": [], "fields": [
@@ -356,6 +358,29 @@ fn calls_and_arguments() {
     assert_eq!(said("fn t() { }\non start {\n    let h = start t()\n}\n"), vec![code::START_NOT_TASK]);
     assert_eq!(said("task t() { }\ntask u() {\n    let h = start t()\n    wait h\n    wait 2 frames\n    wait 0.5 seconds\n    h.stop()\n}\n"), vec![]);
     assert_eq!(said("task u() {\n    wait \"a\"\n}\n"), vec![code::WAIT_WHAT]);
+}
+
+#[test]
+fn a_field_the_game_reads_untested_takes_a_value() {
+    // M-123: mTarget has no LUMA_NULLABLE, so the game reads it without a test: a write gives a LiveActor, never
+    // `none` or a `LiveActor?` (S0157, which names the extern c fn form for clearing it on purpose).
+    let on = |body: &str| format!("on start {{
+    if let a = MR::maybe() {{
+        {body}
+    }}
+}}
+");
+    assert_eq!(said(&on("a.mTarget = a")), vec![]);
+    assert_eq!(said(&on("a.mTarget = none")), vec![code::FIELD_TAKES_SOME]);
+    assert_eq!(said(&on("a.mTarget = MR::maybe()")), vec![code::FIELD_TAKES_SOME]);
+    assert_eq!(said(&on("a.mTarget = a.mNext")), vec![code::FIELD_TAKES_SOME]);
+    assert_eq!(said(&on("if let n = a.mNext {
+            a.mTarget = n
+        }")), vec![]);
+    assert_eq!(said(&on("a.mTarget = a.mTarget ?? a")), vec![]);
+    // LUMA_NULLABLE on mNext: the game tests it, so `none` may go there.
+    assert_eq!(said(&on("a.mNext = none")), vec![]);
+    assert_eq!(said(&on("a.mNext = MR::maybe()")), vec![]);
 }
 
 #[test]

@@ -278,6 +278,9 @@ pub struct PlaceTy {
     /// A constant the game's module does not define (docs/modding/language/types.md, section 2): its value as the types file
     /// writes it. It binds nothing; the checker folds it, read only, and no import row names it.
     pub constant: Option<String>,
+    /// A pointer field the game reads without testing it for null (no LUMA_NULLABLE, so no `"nullable": true` in the
+    /// types file; M-123): it reads as `T?`, but a write takes a `T` (S0157). An `extern c fn` may still clear it.
+    pub takes_some: bool,
 }
 
 /// The game for one game version: its function rows and types (design section 2). Plain data; LumaLink reads it from
@@ -1002,16 +1005,17 @@ impl Game {
                 GameTy::Enum(e) => self.enum_scalar(&e).ok_or_else(|| NotCrossing::BitFieldType(field.ty.clone()))?,
                 _ => return Err(NotCrossing::BitFieldType(field.ty.clone())),
             };
-            return Ok(PlaceTy { ty: GameTy::Bits { of, width }, read_only, constant: None });
+            return Ok(PlaceTy { ty: GameTy::Bits { of, width }, read_only, constant: None, takes_some: false });
         }
         if field.bits.is_some() {
             return Err(NotCrossing::Other(field.ty.clone()));
         }
         let ty = self.map(&t, Place::Field, 0)?;
         if field.extents.is_empty() {
-            return Ok(PlaceTy { read_only: read_only || matches!(ty, GameTy::Opt(ref t) if **t == GameTy::Text), ty, constant: None });
+            let takes_some = matches!(ty, GameTy::Opt(_)) && !field.nullable;
+            return Ok(PlaceTy { read_only: read_only || matches!(ty, GameTy::Opt(ref t) if **t == GameTy::Text), ty, constant: None, takes_some });
         }
-        Ok(PlaceTy { ty: GameTy::Array { of: Box::new(ty), extents: field.extents.clone() }, read_only, constant: None })
+        Ok(PlaceTy { ty: GameTy::Array { of: Box::new(ty), extents: field.extents.clone() }, read_only, constant: None, takes_some: false })
     }
 
     /// A global by name: its place and whether a script may write it (docs/modding/language/compiled-form.md: a const global is read only).
@@ -1023,7 +1027,7 @@ impl Game {
             if let Some(value) = &global.value {
                 let t = ctype::parse_type(&global.ty).map_err(NotCrossing::Unreadable)?;
                 return match self.map(&t, Place::Global, 0)? {
-                    ty @ (GameTy::Scalar(_) | GameTy::Enum(_)) => Ok(PlaceTy { ty, read_only: true, constant: Some(value.clone()) }),
+                    ty @ (GameTy::Scalar(_) | GameTy::Enum(_)) => Ok(PlaceTy { ty, read_only: true, constant: Some(value.clone()), takes_some: false }),
                     _ => Err(NotCrossing::Other(global.ty.clone())),
                 };
             }
@@ -1036,7 +1040,7 @@ impl Game {
         };
         let t = ctype::parse_type(&global.ty).map_err(NotCrossing::Unreadable)?;
         let ty = self.map(&t, Place::Global, 0)?;
-        Ok(PlaceTy { read_only: global.is_const || top_const(&t) || matches!(ty, GameTy::Opt(ref t) if **t == GameTy::Text), ty, constant: None })
+        Ok(PlaceTy { read_only: global.is_const || top_const(&t) || matches!(ty, GameTy::Opt(ref t) if **t == GameTy::Text), ty, constant: None, takes_some: false })
     }
 
     /// A table's element as a part of the table's bytes: the record it names (any record, plain data or not: the
