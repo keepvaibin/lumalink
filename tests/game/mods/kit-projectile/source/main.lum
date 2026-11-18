@@ -158,6 +158,7 @@ task run() {
     }
     // Its burst lasts 30 frames, then it is killed.
     wait 35 frames
+    guard holds("stage") else { return }
     log fact "aimed_target_made" target != none
     log fact "aimed_calls" aimed_calls
     log fact "aimed_on_target" aimed_on_target
@@ -205,12 +206,14 @@ task run() {
             p0 = o.mPosition
         }
         wait 10 frames
+        guard holds("stage") else { return }
         if let o = r.get() {
             still = length(o.mPosition - p0) < 0.5 and not MR::isDead(o)
         }
     }
     log fact "stick_still" still
     // The pass and stick shots live 600 frames: ended here, so thrower_off's take-out finds its 10 alone.
+    guard holds("stage") else { return }
     for h in [pa, st] {
         if let r = h {
             if let o = r.get() {

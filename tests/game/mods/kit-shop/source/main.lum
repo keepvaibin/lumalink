@@ -27,6 +27,7 @@ task refused_later(which: u32) {
 
 // The game's refusal sound, counted: the shop plays it for a ware it does not sell.
 hook after `MR::startSystemSE(const char *, s32, s32)`(id, a, b) {
+    guard holds("stage") else { return }
     if id == "SE_SY_BUZZER" {
         buzzers += 1
         let paid = coins_at_open - MR::getCoinNum()
@@ -50,6 +51,7 @@ task announce() {
 task first_run() {
     // After the landing and the game's key lock: the harness waits for the player to take input before its steps.
     wait 300 frames
+    guard holds("player") else { return }
     let found = shop.find("corner")
     log fact "found" found != none
     guard let corner = found else {
@@ -64,6 +66,7 @@ task first_run() {
     coins_at_open = MR::getCoinNum()
     start announce()
     let bought = wait shop.open(corner)
+    guard holds("stage") else { return }
     if let w = bought {
         log fact "buy_ware" w.name
     } else {
@@ -75,6 +78,7 @@ task first_run() {
 
     // out_of_stock: the same shop, the same row
     wait 30 frames
+    guard holds("stage") else { return }
     coins_at_open = MR::getCoinNum()
     start announce()
     let again = wait shop.open(corner)
@@ -82,6 +86,7 @@ task first_run() {
 
     // too_poor: a shop made in code
     wait 30 frames
+    guard holds("stage") else { return }
     let dear = shop.Shop { title: "Dear", wares: [shop.Ware { name: "Bits", price: 500, gives: item.Gives.StarBits(10) }],
                            currency: shop.Currency.Coins }
     coins_at_open = MR::getCoinNum()

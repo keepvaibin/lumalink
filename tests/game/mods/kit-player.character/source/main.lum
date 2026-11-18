@@ -39,7 +39,7 @@ on frame {
         log fact "switch_back_mario" pc.current() == none and pc.mario().is_current()
         log fact "switch_back_untuned" getMarioConstant(0, "mJumpHeight", 0) == jump_before
     }
-    if frames == 200 {
+    if frames == 200 and holds("system") {
         let before = MR::isPlayerLuigi()
         green.play()
         let during = MR::isPlayerLuigi()

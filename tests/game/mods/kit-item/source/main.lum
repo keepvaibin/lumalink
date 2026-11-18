@@ -35,6 +35,7 @@ task first_run() {
     log fact "ready" true
     // placed: the harness walks into the key.
     wait 150 frames
+    guard holds("stage") else { return }
     if let key = item.find("key") {
         log fact "placed_carried" item.carried(key)
     }
@@ -42,15 +43,19 @@ task first_run() {
     // spawned, gives_each
     let coins = MR::getCoinNum()
     wait start take("coins", item.Gives.Coins(3))
+    guard holds("stage") else { return }
     log fact "coins_more" MR::getCoinNum() - coins
     let bits = MR::getStarPieceNum()
     wait start take("bits", item.Gives.StarBits(5))
+    guard holds("stage") else { return }
     log fact "bits_more" MR::getStarPieceNum() - bits
     let lives = MR::getPlayerLeft()
     wait start take("life", item.Gives.Lives(1))
+    guard holds("system") else { return }
     log fact "lives_more" MR::getPlayerLeft() - lives
     wait start take("heart", item.Gives.Health(1))
     wait start take("call", item.Gives.Call(called))
+    guard holds("stage") else { return }
     log fact "call_ran" calls
 
     // bubble: 800 units ahead so the player does not touch it.
@@ -59,6 +64,7 @@ task first_run() {
     if let made = item.spawn(bubble, far_at) {
         let kept = ref(made)
         wait 2 frames
+        guard holds("stage") else { return }
         if let b = kept.get() {
             log fact "bubble_height" length(b.mPosition - far_at)
             b.kill()
@@ -68,12 +74,14 @@ task first_run() {
     // crystal: spawned on the player; held while its crystal stands, taken once the crystal is killed.
     let boxed = item.define(item.Item { id: "boxed", look: model "Key", gives: item.Gives.Coins(7), container: item.Container.Crystal,
                                         floats: false })
+    guard holds("player") else { return }
     let before = MR::getCoinNum()
     var boxed_obj: ref<LiveActor>? = none
     if let made = item.spawn(boxed, here()) {
         boxed_obj = ref(made)
     }
     wait 40 frames
+    guard holds("player") else { return }
     // The crystal's collision puts the player out of it: the player is put on the item again (its touch, held and
     // then taken) before each fact.
     var item_at = here()
@@ -84,6 +92,7 @@ task first_run() {
     }
     MR::setPlayerPos(item_at)
     wait 10 frames
+    guard holds("stage") else { return }
     log fact "crystal_held" MR::getCoinNum() == before
     // Its own crystal (the stage's zones have others of the same class: a search by name finds one of theirs).
     var found = false
@@ -97,8 +106,10 @@ task first_run() {
     }
     log fact "crystal_found" found
     wait 2 frames
+    guard holds("player") else { return }
     MR::setPlayerPos(item_at)
     wait 40 frames
+    guard holds("stage") else { return }
     log fact "crystal_taken" MR::getCoinNum() == before + 7
     log fact "first_done" true
 }

@@ -179,6 +179,10 @@ pub fn emit_with(
         class_defines: Vec::new(),
         frames: Vec::new(),
         stages: Vec::new(),
+        stage_ready: Vec::new(),
+        player_ready: Vec::new(),
+        stage_ended: Vec::new(),
+        plays: Vec::new(),
         options: Vec::new(),
         option_ons: Vec::new(),
         load: None,
@@ -329,6 +333,12 @@ struct Gen<'a> {
     /// `on stage "<name>"` handlers (section 10) with their stage's name, in module and source order: the frame
     /// handler runs each on the first frame a scene of that stage plays after it loaded.
     stages: Vec<(String, String)>,
+    /// `on stage ready`, `on player ready`, `on stage ended` and `on play` handlers, each kind in module and source
+    /// order (Nebula's docs/plan/M2-NEEDS-PROOF.md): the frame handler runs each when its set holds.
+    stage_ready: Vec<String>,
+    player_ready: Vec<String>,
+    stage_ended: Vec<String>,
+    plays: Vec<String>,
     /// Each `option` of the mod: (key, its global, C type, type), read at start and on its OPTION event.
     options: Vec<(String, String, String, Ty)>,
     /// `on option <key>` handlers: (key, C name), in module and source order.
@@ -1017,6 +1027,36 @@ impl<'a> Gen<'a> {
                         self.slot("MR::isExecScenarioStarter", "bool()");
                         self.slot("MR::isStageStateScenarioOpeningCamera", "bool()");
                         self.stages.push((name, text));
+                    }
+                    // `on stage ready`, `on player ready`, `on stage ended`, `on play`: written as `on stage "<name>"`
+                    // is (a task when it waits; `on play` never does), run by the frame handler when its set holds.
+                    ast::OnEvent::StageReady | ast::OnEvent::PlayerReady | ast::OnEvent::StageEnded | ast::OnEvent::Play => {
+                        let (kind, n) = match on.event {
+                            ast::OnEvent::StageReady => ("stage_ready", self.stage_ready.len()),
+                            ast::OnEvent::PlayerReady => ("player_ready", self.player_ready.len()),
+                            ast::OnEvent::StageEnded => ("stage_ended", self.stage_ended.len()),
+                            _ => ("play", self.plays.len()),
+                        };
+                        let name = format!("lm_on_{kind}_{m}_{n}");
+                        let mut fx = Fx::new(&file, m);
+                        fx.task = true;
+                        self.block(&mut fx, &on.body);
+                        self.out_defers(&mut fx);
+                        if fx.waits > 0 {
+                            let code = self.start_task_handler(&fx, &name, on.at);
+                            out.push_str(&code);
+                        } else {
+                            out.push_str(&fx.function(&format!("int32_t {name}(void)"), on.at));
+                        }
+                        self.protos.push(format!("int32_t {name}(void);"));
+                        self.slot("MR::isExecScenarioStarter", "bool()");
+                        self.slot("MR::isStageStateScenarioOpeningCamera", "bool()");
+                        match on.event {
+                            ast::OnEvent::StageReady => self.stage_ready.push(name),
+                            ast::OnEvent::PlayerReady => self.player_ready.push(name),
+                            ast::OnEvent::StageEnded => self.stage_ended.push(name),
+                            _ => self.plays.push(name),
+                        }
                     }
                     // `on step` / `on step(now: time.Now)`: the mod's one, on time's on_step; never a task (the
                     // checker refused a wait). Its `now` is the step's own record, read through the pointer given.
@@ -1724,7 +1764,8 @@ impl<'a> Gen<'a> {
         }
         // `on frame` (docs/modding/services/time.md, section 9): one handler for the mod, each body in order; a script error ends that body's
         // run for the frame (reported by lumart), the next body still runs.
-        let framed = !self.frames.is_empty() || self.tasks_used || !self.stages.is_empty();
+        let staged = !self.stages.is_empty() || !self.stage_ready.is_empty() || !self.player_ready.is_empty() || !self.stage_ended.is_empty();
+        let framed = !self.frames.is_empty() || self.tasks_used || staged || !self.plays.is_empty();
         let timed = framed || self.step.is_some();
         if timed {
             c.push_str("#include <luma_time.h>\n\nstatic const LumaTimeService* lm_time;\n");
@@ -1733,9 +1774,12 @@ impl<'a> Gen<'a> {
         if let Some(s) = &self.step {
             let _ = write!(c, "\nstatic void lm_step(void* user, const LumaTimeNow* now) {{\n    (void)user;\n    (void){s}(now);\n}}\n");
         }
-        if !self.stages.is_empty() {
+        if staged {
             // Whether a frame since the last stage's start said BOOT or LOADING: the next PLAY frame is a stage's first.
-            c.push_str("\nstatic uint8_t lm_stage_loaded = 1;\n");
+            // Whether this stage was ready (its `on stage ended` is owed) and its player.
+            c.push_str("\nstatic uint8_t lm_stage_loaded = 1;\nstatic uint8_t lm_stage_on = 0;\nstatic uint8_t lm_player_on = 0;\n");
+        }
+        if !self.stages.is_empty() {
             // The stage's name against a handler's (a mod links no C library).
             c.push_str("\nstatic int lm_stage_is(const char* a, const char* b) {\n    while (*a != 0 && *a == *b) {\n        ++a;\n        ++b;\n    }\n    return *a == *b;\n}\n");
         }
@@ -1746,20 +1790,49 @@ impl<'a> Gen<'a> {
             if self.tasks_used {
                 c.push_str("    const uint32_t lm_n = lumart_tasks_pass(now->frame, now->step);\n");
             }
-            if !self.stages.is_empty() {
-                let slot = self.fn_slots[&("MR::getCurrentStageName".to_string(), "const char *()".to_string())].clone();
+            if staged {
                 let starter = self.fn_slots[&("MR::isExecScenarioStarter".to_string(), "bool()".to_string())].clone();
                 let opening = self.fn_slots[&("MR::isStageStateScenarioOpeningCamera".to_string(), "bool()".to_string())].clone();
-                // A stage's first PLAY frame after BOOT or LOADING on which its opening is over.
-                c.push_str("    if (now->state == LUMA_TIME_BOOT || now->state == LUMA_TIME_LOADING) {\n        lm_stage_loaded = 1;\n    } else if (now->state == LUMA_TIME_PLAY && lm_stage_loaded) {\n");
+                // A ready stage's end: a frame that says BOOT or LOADING, or on which the set `stage` no longer holds
+                // (LumaCore.holds; a kernel without it: BOOT or LOADING only).
+                c.push_str("    if (lm_stage_on && (now->state == LUMA_TIME_BOOT || now->state == LUMA_TIME_LOADING || lumart_holds(\"stage\") == 0)) {\n        lm_stage_on = 0;\n        lm_player_on = 0;\n");
+                for h in &self.stage_ended {
+                    let _ = writeln!(c, "        (void){h}();");
+                }
+                c.push_str("    }\n");
+                // A stage's first PLAY frame after BOOT or LOADING on which the set `stage` holds and its opening is over.
+                c.push_str("    if (now->state == LUMA_TIME_BOOT || now->state == LUMA_TIME_LOADING) {\n        lm_stage_loaded = 1;\n    } else if (now->state == LUMA_TIME_PLAY && lm_stage_loaded && lumart_holds(\"stage\") != 0) {\n");
                 let _ = writeln!(
                     c,
-                    "        void* lm_args[1] = {{0}};\n        uint8_t lm_starting = 0;\n        uint8_t lm_opening = 0;\n        {starter}->invoke(lm_args, (void*)&lm_starting);\n        {opening}->invoke(lm_args, (void*)&lm_opening);\n        if (lm_starting == 0 && lm_opening == 0) {{\n            lm_stage_loaded = 0;\n            const char* lm_stage = 0;\n            {slot}->invoke(lm_args, (void*)&lm_stage);"
+                    "        void* lm_args[1] = {{0}};\n        uint8_t lm_starting = 0;\n        uint8_t lm_opening = 0;\n        {starter}->invoke(lm_args, (void*)&lm_starting);\n        {opening}->invoke(lm_args, (void*)&lm_opening);\n        if (lm_starting == 0 && lm_opening == 0) {{\n            lm_stage_loaded = 0;\n            lm_stage_on = 1;\n            lm_player_on = 0;"
                 );
-                for (h, stage) in &self.stages {
-                    let _ = writeln!(c, "            if (lm_stage != 0 && lm_stage_is(lm_stage, {})) (void){h}();", c_string(stage));
+                if !self.stages.is_empty() {
+                    let slot = self.fn_slots[&("MR::getCurrentStageName".to_string(), "const char *()".to_string())].clone();
+                    let _ = writeln!(c, "            const char* lm_stage = 0;\n            {slot}->invoke(lm_args, (void*)&lm_stage);");
+                    for (h, stage) in &self.stages {
+                        let _ = writeln!(c, "            if (lm_stage != 0 && lm_stage_is(lm_stage, {})) (void){h}();", c_string(stage));
+                    }
+                }
+                for h in &self.stage_ready {
+                    let _ = writeln!(c, "            (void){h}();");
                 }
                 c.push_str("        }\n    }\n");
+                // The ready stage's player: once, the first frame the set `player` holds.
+                if !self.player_ready.is_empty() {
+                    c.push_str("    if (lm_stage_on && !lm_player_on && now->state == LUMA_TIME_PLAY && lumart_holds(\"player\") != 0) {\n        lm_player_on = 1;\n");
+                    for h in &self.player_ready {
+                        let _ = writeln!(c, "        (void){h}();");
+                    }
+                    c.push_str("    }\n");
+                }
+            }
+            // `on play`: each PLAY frame on which the set `player` holds.
+            if !self.plays.is_empty() {
+                c.push_str("    if (now->state == LUMA_TIME_PLAY && lumart_holds(\"player\") != 0) {\n");
+                for h in &self.plays {
+                    let _ = writeln!(c, "        (void){h}();");
+                }
+                c.push_str("    }\n");
             }
             for f in &self.frames {
                 let _ = writeln!(c, "    (void){f}();");
@@ -2427,6 +2500,10 @@ fn on_name(e: &ast::OnEvent) -> &'static str {
         ast::OnEvent::Step(_) => "step",
         ast::OnEvent::Option(_) => "option",
         ast::OnEvent::Stage(_) => "stage",
+        ast::OnEvent::StageReady => "stage ready",
+        ast::OnEvent::StageEnded => "stage ended",
+        ast::OnEvent::PlayerReady => "player ready",
+        ast::OnEvent::Play => "play",
         ast::OnEvent::Draw(_) => "draw",
         ast::OnEvent::Layers(_) => "layers",
         ast::OnEvent::Event { .. } => "a service event",

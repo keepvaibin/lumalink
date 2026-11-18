@@ -35,6 +35,7 @@ on start {
 
 task run() {
     wait 60 frames
+    guard holds("stage") else { return }
     new_files = 0   // new_file_rule counts the files made from here on (the harness made file 1 before the mod ran)
     // past_120
     let before = progress.stars()

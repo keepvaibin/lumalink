@@ -194,6 +194,14 @@ pub enum OnEvent {
     Step(Option<Param>),
     Option(Ident),
     Stage(StrLit),
+    /// `on stage ready`: once a stage, the first frame the set `stage` holds and the scenario's opening is over.
+    StageReady,
+    /// `on stage ended`: once, the first frame a stage whose `on stage ready` ran no longer holds `stage`.
+    StageEnded,
+    /// `on player ready`: once a stage, the first frame after it is ready that the set `player` holds.
+    PlayerReady,
+    /// `on play`: every frame time says PLAY and the set `player` holds.
+    Play,
     Draw(Vec<Ident>),
     Layers(Type),
     /// `<module>.<event> [(names)]`; `ty` the type written on the first name (`on mods.stopped(e:

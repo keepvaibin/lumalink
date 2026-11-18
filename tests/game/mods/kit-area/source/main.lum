@@ -68,6 +68,7 @@ on start {
 task run() {
     // `on stage` fires before the opening ends and the player takes input: settle first.
     wait 300 frames
+    guard holds("player") else { return }
     log fact "ready" true
     let order = area.find("order")!
     let slow = area.find("slow")!
@@ -77,9 +78,11 @@ task run() {
     // three_shapes_order: in each shape for 10 frames, then back home for 10.
     var shapes_ok = true
     for s in 0..3 {
+        guard holds("player") else { return }
         events = []
         MR::setPlayerPos(at_x(4000.0 * (s + 1) as f32))
         wait 10 frames
+        guard holds("player") else { return }
         let was_in = area.player_inside(order)
         MR::setPlayerPos(home)
         wait 10 frames
@@ -91,9 +94,11 @@ task run() {
     log fact "contains_start" area.contains(order, home)
 
     // slow
+    guard holds("player") else { return }
     last_resist = 0.0
     MR::setPlayerPos(at_x(16400.0))
     wait 5 frames
+    guard holds("player") else { return }
     log fact "slow_inside" area.player_inside(slow)
     log fact "slow_resist" last_resist
 
@@ -102,6 +107,7 @@ task run() {
     wait 1 frames
     pushed = vec3(0.0, 0.0, 0.0)
     wait 20 frames
+    guard holds("player") else { return }
     log fact "wind_inside" area.player_inside(wind)
     log fact "wind_push_z" pushed.z
 
@@ -111,6 +117,7 @@ task run() {
     wait 1 frames
     pushed = vec3(0.0, 0.0, 0.0)
     wait 5 frames
+    guard holds("player") else { return }
     log fact "overlap_both" area.player_inside(slow) and area.player_inside(wind)
     log fact "overlap_resist" last_resist
     log fact "overlap_pushed" pushed.z > 0.0
@@ -118,6 +125,7 @@ task run() {
     // side_camera
     MR::setPlayerPos(at_x(24000.0))
     wait 5 frames
+    guard holds("player") else { return }
     log fact "side_distance" camera_reach()
     MR::setPlayerPos(home)
     wait 5 frames

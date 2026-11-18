@@ -337,8 +337,12 @@ fn put_on(p: MarioActor, n: u32) {
 }
 
 // The holder changed: what the one before put on comes off, the new holder's goes on (the game's own form when none
-// is held).
+// is held). Only with a player in a stage: while a scene is made or taken down nothing changes, and the first world
+// step with a player settles it (kit_step).
 fn settle() {
+    if not holds("player") {
+        return
+    }
     guard let p = player() else {
         return
     }
@@ -516,9 +520,11 @@ hook after MarioActor::setPlayerMode(mode, change) {
 
 // The held form's step: LumaKit's one `on step` (kit.replay's) calls it first each world step.
 pub fn kit_step() {
-    if held.len() == 0 {
+    if held.len() == 0 or not holds("player") {
         return
     }
+    // What a new scene's player was not given while it was made (initDrawAndModel) is put on now.
+    settle()
     guard let p = player() else {
         return
     }

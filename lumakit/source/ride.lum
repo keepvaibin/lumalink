@@ -276,7 +276,7 @@ class KitMount : LiveActor made by LumaObj {
                 left_touched = true
                 return false
             }
-            if def == 0 or not def_live[(def - 1) as int] or riding() != none {
+            if def == 0 or not def_live[(def - 1) as int] or riding() != none or not holds("player") {
                 return false
             }
             guard let sensor = pSender else { return false }
@@ -310,7 +310,7 @@ class KitMount : LiveActor made by LumaObj {
         }
         if MR::isMsgRushCancel(msg) {
             // The game ended the ride (the rider hurt, a demo): thrown off, not jumping.
-            if is_ridden(self) {
+            if is_ridden(self) and holds("player") {
                 let_off(false)
             }
             return true
@@ -322,7 +322,7 @@ class KitMount : LiveActor made by LumaObj {
     // (MarioActor::receiveMsgEnemyAttack), so the rider is hurt by it and thrown off, as the game's rides do (Pole,
     // SpaceCocoon: MR::endBindAndPlayerDamageMsg).
     override fn receiveMsgEnemyAttack(msg, pSender, pReceiver) -> bool {
-        if not is_ridden(self) {
+        if not is_ridden(self) or not holds("player") {
             return false
         }
         `MR::endBindAndPlayerDamageMsg(LiveActor *, u32)`(self, msg)
@@ -409,7 +409,8 @@ on mods.stopped(gone) {
     while i > 0 {
         i -= 1
         let k = (obj_def[i] - 1) as int
-        if def_owner[k] == gone {
+        // Killed while its stage lives; a stage that ended took it (and its rider's seat) with it.
+        if def_owner[k] == gone and holds("player") {
             if let a = obj_ref[i].get() {
                 if is_ridden(a) {
                     let_off(true)

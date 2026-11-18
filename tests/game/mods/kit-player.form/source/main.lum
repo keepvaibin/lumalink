@@ -46,6 +46,7 @@ task run() {
     wait 0.5 seconds
     log fact "frames_left" form.frames_left() ?? 0
     wait 2 seconds
+    guard holds("player") else { return }
     log fact "timer_ended_by" ended_by
     log fact "normal_after_timer" form.current() == none and MR::isPlayerElementModeNormal()
 
@@ -83,15 +84,18 @@ task run() {
     // game_form
     form.set(form.game(form.GameForm.Bee))
     wait 10 frames
+    guard holds("player") else { return }
     log fact "game_bee" MR::isPlayerElementModeBee()
     form.end()
     wait 10 frames
+    guard holds("player") else { return }
     log fact "game_normal" MR::isPlayerElementModeNormal()
 
     // game_form_again: the game ends a game form the kit gave (as its own timer and damage do, through setPlayerMode):
     // the kit follows, and the same form given again is on the player again.
     form.set(form.game(form.GameForm.Bee))
     wait 10 frames
+    guard holds("stage") else { return }
     if let p = MarioAccess::getPlayerActor() {
         p.setPlayerMode(0, true)
     }
@@ -99,6 +103,7 @@ task run() {
     log fact "game_end_followed" form.current() == none
     form.set(form.game(form.GameForm.Bee))
     wait 10 frames
+    guard holds("player") else { return }
     log fact "game_bee_again" MR::isPlayerElementModeBee()
     form.end()
     wait 10 frames
@@ -108,10 +113,12 @@ task run() {
     let plain = form.define(form.Form { id: "plain", on_end: over })
     form.set(plain)
     wait 5 frames
+    guard holds("stage") else { return }
     if let p = MarioAccess::getPlayerActor() {
         p.setPlayerMode(2, true)
     }
     wait 5 frames
+    guard holds("player") else { return }
     log fact "pickup_ended_by" ended_by
     log fact "pickup_fire" MR::isPlayerElementMode(2)
     log fact "pickup_current_none" form.current() == none

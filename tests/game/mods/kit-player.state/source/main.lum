@@ -111,7 +111,7 @@ on frame {
     if frames == 700 {
         log fact "cue" 8
     }
-    let ground = MR::isOnGroundPlayer()
+    let ground = holds("player") and MR::isOnGroundPlayer()
     // double_jump: the harness jumps at 120; at the top the move is entered, a second entry in the same air refused.
     if frames == 140 {
         let first = jump2.enter()

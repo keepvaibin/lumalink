@@ -125,6 +125,27 @@ int32_t lumart_call_other(lumart_fn f, void* const* argv, void* out) {
     return (int32_t)status;
 }
 
+uint8_t lumart_can_call(const LumaFunction* f) {
+#if defined(LUMA_CAN_CALL)
+    if (f != 0 && luma_rt_core != 0 && luma_rt_core->size >= offsetof(LumaCore, can_call) + sizeof(luma_rt_core->can_call) &&
+        luma_rt_core->can_call != 0) {
+        return (uint8_t)(luma_rt_core->can_call(f) == 1);
+    }
+#endif
+    (void)f;
+    return 0;
+}
+
+int32_t lumart_holds(const char* name) {
+#if defined(LUMA_CAN_CALL)
+    if (luma_rt_core != 0 && luma_rt_core->size >= offsetof(LumaCore, holds) + sizeof(luma_rt_core->holds) && luma_rt_core->holds != 0) {
+        return luma_rt_core->holds(name);
+    }
+#endif
+    (void)name;
+    return -1;
+}
+
 int32_t lumart_raise(const char* file, uint32_t line, uint32_t code, uint32_t argc, const char* const* args) {
     if (luma_rt_core == 0) return 1;
     if (lumart_caller.mod != 0) {

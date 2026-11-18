@@ -72,7 +72,13 @@ fn hold_world(asked: bool) {
         time.hold()
         holding = true
     }
-    if not held and holding {
+    if not held {
+        let_world_go()
+    }
+}
+
+fn let_world_go() {
+    if holding {
         time.release()
         holding = false
     }
@@ -85,20 +91,23 @@ fn put_back(mine: u32) {
     }
     playing = 0
     scene_owner = 0
-    hold_world(false)
+    let_world_go()
     if let c = control {
         camera.end(c)
     }
     control = none
-    if letterboxed {
-        MR::tryFrameToScreenCinemaFrame()
-        letterboxed = false
+    // A stage that ended took its letterbox and its player with it.
+    if holds("player") {
+        if letterboxed {
+            MR::tryFrameToScreenCinemaFrame()
+        }
+        MR::onPlayerControl(true)
     }
+    letterboxed = false
     if music_on {
         audio.music_restore(500)
         music_on = false
     }
-    MR::onPlayerControl(true)
 }
 
 // The scene numbered `mine` still plays and was not skipped this frame.
@@ -131,9 +140,12 @@ fn aim(e: view.Eye) {
     }
 }
 
-// The scene played for the calling mod. true: it ran to its end; false: it was skipped, a newer scene began, or its
-// mod stopped.
+// The scene played for the calling mod. true: it ran to its end; false: it was skipped, a newer scene began, its
+// mod stopped, or its stage ended (the player fell, the stage changed); none plays outside a stage with its player.
 pub task play(s: Scene) -> bool {
+    if not holds("player") {
+        return false
+    }
     next_scene += 1
     let mine = next_scene
     // A scene playing before ends: what it holds passes to this one, put back once at this one's end.
@@ -168,13 +180,16 @@ pub task play(s: Scene) -> bool {
     }
     var now_eye = start_eye
     for shot in s.shots {
-        if not goes_on(mine, s.skippable) {
+        if not holds("player") or not goes_on(mine, s.skippable) {
             return false
         }
         match shot {
             Shot.Look(at, from_offset, frames) => {
                 var f: u32 = 0
                 while f < frames {
+                    if not holds("player") {
+                        return false
+                    }
                     hold_world(s.holds_world)
                     // Gone: no longer there, or killed (a killed actor stays in the scene, dead).
                     guard let a = at.get() else {
@@ -194,8 +209,15 @@ pub task play(s: Scene) -> bool {
                 }
             }
             Shot.Move(from, to, frames) => {
+                if frames == 0 {
+                    now_eye = to
+                    aim(now_eye)
+                }
                 var f: u32 = 0
                 while f < frames {
+                    if not holds("player") {
+                        return false
+                    }
                     hold_world(s.holds_world)
                     now_eye = between(from, to, (f as f32 + 1.0) / (frames as f32))
                     aim(now_eye)
@@ -204,10 +226,6 @@ pub task play(s: Scene) -> bool {
                         return false
                     }
                     f += 1
-                }
-                if frames == 0 {
-                    now_eye = to
-                    aim(now_eye)
                 }
             }
             Shot.Line(speaker, line) => {
@@ -234,6 +252,9 @@ pub task play(s: Scene) -> bool {
                         // action that loops never ends by itself).
                         var f: u32 = 0
                         while f < 600 {
+                            if not holds("player") {
+                                return false
+                            }
                             guard let live = who.get() else {
                                 break
                             }
@@ -252,6 +273,9 @@ pub task play(s: Scene) -> bool {
             Shot.Wait(frames) => {
                 var f: u32 = 0
                 while f < frames {
+                    if not holds("player") {
+                        return false
+                    }
                     hold_world(s.holds_world)
                     wait 1 frames
                     if not goes_on(mine, s.skippable) {

@@ -1,0 +1,86 @@
+{
+  "harness": 1,
+  "name": "k12-sets",
+  "about": "LumaScript on stage ready, on stage \"NAME\", on player ready, on play and on stage ended (N-2024): in EggStarGalaxy, again after the player falls and the stage starts over, and in HoneyBeeKingdomGalaxy, each runs once a stage in the order ready, player, ended (on play every frame of play between; each stage plays 40 frames before the next step), counted from the first EggStarGalaxy; the calls in them that need their set (MR::getCamPos: CameraContext; MR::getPlayerPos and MR::isPlayerDead: MarioActor) are made, with real values, and none is refused at run time",
+  "proves": [
+    "script.build",
+    "script.needs"
+  ],
+  "mods": [
+    "../../mods/k12-sets"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.k12-sets.settled",
+        "is": "RP"
+      },
+      "timeout": 1200,
+      "call": "MR::forceKillPlayerByAbyss",
+      "signature": "void()",
+      "args": []
+    },
+    {
+      "after": {
+        "fact": "mod.k12-sets.settled",
+        "is": "RPERP"
+      },
+      "timeout": 3000,
+      "stage": {
+        "name": "HoneyBeeKingdomGalaxy",
+        "scenario": 1
+      }
+    },
+    {
+      "after": {
+        "fact": "mod.k12-sets.settled",
+        "is": "RPERPERP"
+      },
+      "timeout": 3000,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.k12-sets.order",
+      "is": "RPERPERP",
+      "when": "last"
+    },
+    {
+      "fact": "mod.k12-sets.eggs",
+      "is": 2,
+      "when": "last"
+    },
+    {
+      "fact": "mod.k12-sets.cams",
+      "is": 3,
+      "when": "last"
+    },
+    {
+      "fact": "mod.k12-sets.places",
+      "is": 3,
+      "when": "last"
+    },
+    {
+      "fact": "mod.k12-sets.alive",
+      "is": 3,
+      "when": "last"
+    },
+    {
+      "fact": "mod.k12-sets.least_plays",
+      "at_least": 40,
+      "when": "last"
+    },
+    {
+      "fact": "mod.k12-sets.play_at_zero",
+      "absent": true
+    },
+    {
+      "no_log": "k12-sets: .* was not called"
+    }
+  ]
+}

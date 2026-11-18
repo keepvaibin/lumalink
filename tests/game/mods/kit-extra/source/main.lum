@@ -38,6 +38,7 @@ task run() {
     wait 300 frames
     let extra = pc.second_player(pc.Second { pad: 1 })
     wait 30 frames
+    guard holds("player") else { return }
     log fact "extra_alive" pc.second_alive(extra)
 
     // area: player 1 in orderCube for 20 frames.
@@ -48,6 +49,7 @@ task run() {
     inside_calls = 0
     inside_other = 0
     wait 20 frames
+    guard holds("player") else { return }
     log fact "area_enter" entered
     log fact "area_inside" inside_calls
     log fact "area_inside_extra" inside_other
@@ -67,6 +69,7 @@ task run() {
     let glow = form.define(form.Form { id: "glow" })
     form.set(glow)
     wait 5 frames
+    guard holds("player") else { return }
     if let v = pc.second_view(extra) {
         v.setPlayerMode(2, true)
     }

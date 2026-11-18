@@ -77,6 +77,7 @@ task run() {
     wait 300 frames
     log fact "ready_point" true
     wait 10 frames
+    guard holds("player") else { return }
     log fact "screen_in" pointer.screen() != none
     if let hit = pointer.world() {
         log fact "world_found" true
@@ -89,10 +90,12 @@ task run() {
     let throw = pointer.set_throw(pointer.Throw { shot: coin_shot, cost: pointer.Cost.Coins(1) })
     MR::incCoin(5)
     wait 2 frames
+    guard holds("stage") else { return }
     let coins = MR::getCoinNum()
     let bits = MR::getStarPieceNum()
     log fact "ready_throw" true
     wait 30 frames
+    guard holds("stage") else { return }
     log fact "shots" shots
     log fact "coins_taken" coins - MR::getCoinNum()
     log fact "bits_same" MR::getStarPieceNum() == bits
@@ -102,6 +105,7 @@ task run() {
     no_piece_sound = false
     log fact "ready_empty" true
     wait 30 frames
+    guard holds("player") else { return }
     log fact "shots_empty" shots
     log fact "no_piece_sound" no_piece_sound
 

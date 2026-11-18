@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "k12-sets",
+  "version": "1.0.0",
+  "name": "k12-sets",
+  "summary": "k12-sets (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

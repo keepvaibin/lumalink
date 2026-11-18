@@ -989,6 +989,13 @@ impl<'a> Gen<'a> {
                 self.call_game(fx, e, receiver, &name, &signature, args, t)
             }
             Some(Resolved::Std("is_state")) => self.is_state_value(fx, e, args),
+            // `can(F)`: LumaCore.can_call of each of F's rows (lumart_can_call), all of them.
+            Some(Resolved::Can { name, signatures }) => {
+                let tests: Vec<String> = signatures.iter().map(|s| format!("lumart_can_call({})", self.slot(&name, s))).collect();
+                Ok(format!("((uint8_t)({}))", tests.join(" && ")))
+            }
+            // `holds("SET")`: LumaCore.holds (lumart_holds); a kernel without it (-1) holds nothing. The name is a-z and _.
+            Some(Resolved::Holds { set }) => Ok(format!("((uint8_t)(lumart_holds(\"{set}\") == 1))")),
             Some(Resolved::Std(s)) => self.call_std(fx, e, s, args, t),
             Some(Resolved::Table { write, name, offset, indexes, leaf }) => self.table_place(fx, e, args, write, &name, offset, &indexes, &leaf, t),
             Some(Resolved::Method(name)) => match &callee.kind {

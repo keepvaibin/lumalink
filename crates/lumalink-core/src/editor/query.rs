@@ -377,6 +377,11 @@ impl Analysis {
             Target::R(Resolved::ServiceField { service, record, field }) => h.code = format!("svc.{service}.{record}.{field}"),
             Target::R(Resolved::StreamCase { service, kind, number }) => h.code = format!("svc.{service}.Event.{kind} = {number}"),
             Target::R(Resolved::ServiceGiven(s)) => h.code = format!("use optional svc.{s}"),
+            Target::R(Resolved::Holds { set }) => h.code = format!("holds(\"{set}\")"),
+            Target::R(Resolved::Can { name, signatures }) => {
+                h.code = signatures.iter().map(|s| format!("can({name}{})", s.find('(').map_or("", |k| &s[k..]))).collect::<Vec<_>>().join("
+");
+            }
         }
         if let Some(ty) = ty {
             h.code.push_str(&format!("\n: {ty}"));
@@ -921,6 +926,12 @@ pub(super) fn game_ty_text(g: &GameTy) -> String {
 }
 
 fn on_text(e: &ast::OnEvent) -> String {
+    match e {
+        ast::OnEvent::StageReady => return "stage ready".into(),
+        ast::OnEvent::StageEnded => return "stage ended".into(),
+        ast::OnEvent::PlayerReady => return "player ready".into(),
+        _ => {}
+    }
     let full = format!("{e:?}");
     let word: String = full.chars().take_while(|c| c.is_alphanumeric()).collect();
     word.to_lowercase()

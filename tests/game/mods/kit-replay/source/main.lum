@@ -106,6 +106,7 @@ task run() {
         replay.remove(p)
     }
     wait 2 frames
+    guard holds("player") else { return }
     var left: u32 = 0
     for p in made {
         if replay.alive(p) {
