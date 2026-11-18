@@ -56,7 +56,7 @@ use crate::check::{Checked, ItemRef, Library, LocalId, Owner, Resolved, Source, 
 use crate::ctype::{self, CType};
 use crate::diag::{code, Arg, Diagnostic};
 use crate::game::{Game, GameTy, Scalar, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 
 /// lumart's two files, written beside the generated C.
@@ -206,6 +206,8 @@ fn emit_in(
         diags: Vec::new(),
         fn_slots: BTreeMap::new(),
         method_slots: BTreeMap::new(),
+        plain_slots: BTreeSet::new(),
+        optional_next: None,
         fields: BTreeMap::new(),
         game_globals: BTreeMap::new(),
         classes: BTreeMap::new(),
@@ -349,6 +351,11 @@ struct Gen<'a> {
     fn_slots: BTreeMap<(String, String), String>,
     /// Each virtual called on an object (docs/modding/language/objects.md): (row name, signature) to its slot (`lm_vm_<n>`, kind 8).
     method_slots: BTreeMap<(String, String), String>,
+    /// The function and method slots a call uses with no test that the game has it: their rows are required. A slot
+    /// only `optional` calls use is a LUMA_OPTIONAL row, left empty by a game without the function.
+    plain_slots: BTreeSet<String>,
+    /// The slot the next game call of it is an `optional` call's own (set by optional_game, taken by `used`).
+    optional_next: Option<String>,
     /// Each game field used: ("<record>.<field>", its type text) to its offset slot (`lm_off_<n>`, kind 1).
     fields: BTreeMap<(String, String), String>,
     /// Each game global used: (name, type text) to its address slot (`lm_gl_<n>`, kind 7).
@@ -1013,16 +1020,39 @@ impl<'a> Gen<'a> {
         self.members_of(item).cases.first(case)
     }
 
+    /// The slot of game function `name` (`signature`), used by a call that needs it: its row required, unless this is
+    /// the `optional` call the slot was tested for (optional_next).
     fn slot(&mut self, name: &str, signature: &str) -> String {
+        let s = self.slot_of(name, signature);
+        self.used(&s);
+        s
+    }
+
+    fn slot_of(&mut self, name: &str, signature: &str) -> String {
         let n = self.fn_slots.len();
         self.fn_slots.entry((name.to_string(), signature.to_string())).or_insert_with(|| format!("lm_fn_{n}")).clone()
     }
 
     /// The kind 8 slot of virtual `name` (`signature`): LumaCore.method's function, which runs the object's own class's
-    /// function (docs/modding/language/objects.md).
+    /// function (docs/modding/language/objects.md). Required as [`Gen::slot`] is.
     fn method_slot(&mut self, name: &str, signature: &str) -> String {
+        let s = self.method_slot_of(name, signature);
+        self.used(&s);
+        s
+    }
+
+    fn method_slot_of(&mut self, name: &str, signature: &str) -> String {
         let n = self.method_slots.len();
         self.method_slots.entry((name.to_string(), signature.to_string())).or_insert_with(|| format!("lm_vm_{n}")).clone()
+    }
+
+    /// A use of slot `s`: the `optional` call it was tested for takes the mark; any other makes its row required.
+    fn used(&mut self, s: &str) {
+        if self.optional_next.as_deref() == Some(s) {
+            self.optional_next = None;
+        } else {
+            self.plain_slots.insert(s.to_string());
+        }
     }
 
     fn inside_flag(&mut self, name: &str, signature: &str) -> String {
@@ -1902,12 +1932,23 @@ impl<'a> Gen<'a> {
         }
         // The rows sorted (name, signature, kind): docs/modding/language/compiled-form.md, section 3, the same list for the same script.
         let mut table: Vec<(String, String, u32, String)> = Vec::new();
+        // A row only `optional` calls use is LUMA_OPTIONAL: the loader leaves its slot empty when the game lacks it.
         for ((name, sig), slot) in &self.fn_slots {
-            table.push((name.clone(), sig.clone(), 100, format!("LUMA_FUNCTION({slot}, {}, {})", c_string(name), c_string(sig))));
+            let row = if self.plain_slots.contains(slot) {
+                format!("LUMA_FUNCTION({slot}, {}, {})", c_string(name), c_string(sig))
+            } else {
+                format!("{{LUMA_IMPORT_FUNCTION, LUMA_OPTIONAL, {}, {}, &{slot}, 0, 0, 0}}", c_string(name), c_string(sig))
+            };
+            table.push((name.clone(), sig.clone(), 100, row));
             imports.push((name.clone(), sig.clone(), "function"));
         }
         for ((name, sig), slot) in &self.method_slots {
-            table.push((name.clone(), sig.clone(), 108, format!("LUMA_METHOD({slot}, {}, {})", c_string(name), c_string(sig))));
+            let row = if self.plain_slots.contains(slot) {
+                format!("LUMA_METHOD({slot}, {}, {})", c_string(name), c_string(sig))
+            } else {
+                format!("{{LUMA_IMPORT_METHOD, LUMA_OPTIONAL, {}, {}, &{slot}, 0, 0, 0}}", c_string(name), c_string(sig))
+            };
+            table.push((name.clone(), sig.clone(), 108, row));
             imports.push((name.clone(), sig.clone(), "method"));
         }
         for ((name, sig), slot) in &self.mod_fns {

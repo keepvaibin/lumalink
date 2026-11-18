@@ -1353,6 +1353,13 @@ impl<'a> Parser<'a> {
             let e = self.postfix(nostruct)?;
             return Ok(Expr { id: self.new_id(), at, kind: ExprKind::Start(Box::new(e)) });
         }
+        // `optional MR::f(..)`, `optional self.f(..)`: a word here only, before what starts an operand on its line (a
+        // name `optional` is followed by an operator or the line's end).
+        if self.at_word("optional") && (matches!(self.peek(1).kind, Kind::Id | Kind::Game | Kind::Num | Kind::Str) || self.peek(1).is("self")) {
+            self.take();
+            let e = self.nested(at, |p| p.postfix(nostruct))?;
+            return Ok(Expr { id: self.new_id(), at, kind: ExprKind::Optional(Box::new(e)) });
+        }
         let mut e = self.postfix(nostruct)?;
         while self.at("as") {
             let word = self.take().at;

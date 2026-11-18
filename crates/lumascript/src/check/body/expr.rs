@@ -515,6 +515,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 self.expr(inner, Want::Ty(&Ty::Bool));
                 Ty::Bool
             }
+            ExprKind::Optional(inner) => self.optional_game_call(e, inner),
             ExprKind::Binary { op, left, right } => self.binary(e, *op, left, right, want),
             // The amount is read once, before the wait; `until`'s condition on each frame after it starts.
             ExprKind::Wait { amount, unit } => {
@@ -1498,6 +1499,25 @@ impl<'w, 'a> Walk<'w, 'a> {
                 self.unknown_name(e.at, name);
                 Ty::Error
             }
+        }
+    }
+
+    /// `optional <game call>`: the call's result as an option, none when the game lacks the function; for a function
+    /// with no result, whether it ran. An option it gives already stays one.
+    fn optional_game_call(&mut self, e: &'a Expr, inner: &'a Expr) -> Ty {
+        // Its own value is this one's: a call of no result is no value missing here.
+        let t = self.expr(inner, Want::Drop);
+        if t == Ty::Error {
+            return Ty::Error;
+        }
+        if !matches!(inner.kind, ExprKind::Call { .. }) || !matches!(self.res.get(&inner.id), Some(Resolved::GameFn { .. })) {
+            self.say(Diagnostic::new(code::OPTIONAL_NOT_GAME_CALL, e.at));
+            return Ty::Error;
+        }
+        match t {
+            Ty::Unit => Ty::Bool,
+            Ty::Opt(_) | Ty::Never => t,
+            other => Ty::Opt(Box::new(other)),
         }
     }
 

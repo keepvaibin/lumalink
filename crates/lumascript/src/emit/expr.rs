@@ -295,6 +295,7 @@ impl<'a> Gen<'a> {
                 let v = self.expr(fx, x)?;
                 Ok(format!("((uint8_t)!({v}))"))
             }
+            ExprKind::Optional(call) => self.optional_game(fx, call, &t),
             ExprKind::Binary { op: op @ (BinOp::And | BinOp::Or), left, right } => {
                 // Short-circuit: the right side's reads and errors happen only when it is read.
                 let is_and = *op == BinOp::And;
@@ -1044,6 +1045,49 @@ impl<'a> Gen<'a> {
             _ if matches!(self.ty(m, callee), Ty::Fn(..)) => self.call_fn_value(fx, e, callee, args),
             _ => self.not_yet(fx, e, ny!("CallKind")),
         }
+    }
+
+    /// `optional <game call>`: the slot the call goes through tested first (the loader leaves an optional row's slot
+    /// empty when the game lacks the function); when it is empty nothing of the call runs, its arguments included, and
+    /// the result is none (false for a function with no result).
+    fn optional_game(&mut self, fx: &mut Fx, call: &Expr, t: &Ty) -> Ex {
+        let m = fx.module;
+        let ExprKind::Call { callee, .. } = &call.kind else { return Err(lost()) };
+        let Some(Resolved::GameFn { name, signature }) = self.resolved(m, call).cloned() else { return Err(lost()) };
+        // call_game's slot: a member call the facts mark virtual goes through its kind 8 row.
+        let member = matches!(callee.kind, ExprKind::Member { .. });
+        let slot = if member && self.game.dispatched(&name, &signature).is_some() { self.method_slot_of(&name, &signature) } else { self.slot_of(&name, &signature) };
+        let it = self.ty(m, call);
+        let ct = self.c_type(t).ok_or_else(lost)?;
+        let none = match t {
+            Ty::Opt(y) if !is_view(y) => format!("({ct}){{0}}"),
+            _ => "0".to_string(),
+        };
+        let r = fx.temp(&ct, &none);
+        fx.emit(format!("if ({slot} != 0) {{"));
+        fx.depth += 1;
+        // The mark of an `optional` call this one is an argument of comes back after it: that call is still to take it.
+        let outer = self.optional_next.replace(slot);
+        let v = self.expr(fx, call);
+        self.optional_next = outer;
+        let v = match v {
+            Ok(v) => v,
+            Err(n) => {
+                fx.depth -= 1;
+                fx.emit("}".into());
+                return Err(n);
+            }
+        };
+        if it == Ty::Unit {
+            fx.set(&r, "1", &ct);
+        } else if it == *t || matches!(t, Ty::Opt(y) if is_view(y)) {
+            fx.set(&r, &v, &ct);
+        } else {
+            fx.set(&r, &format!("({ct}){{1, {v}}}"), &ct);
+        }
+        fx.depth -= 1;
+        fx.emit("}".into());
+        Ok(r)
     }
 
     /// `a?.f(...)`: `a` read once; when it is none nothing is called and the result is none; else `f` is
@@ -3355,6 +3399,7 @@ pub(super) fn expr_name(e: &ExprKind) -> Ny {
         ExprKind::Unwrap(_) => ny!("Bang"),
         ExprKind::Neg(_) => ny!("Minus"),
         ExprKind::Not(_) => ny!("Not"),
+        ExprKind::Optional(_) => ny!("Optional"),
         ExprKind::Binary { .. } => ny!("Operator"),
         ExprKind::Wait { .. } | ExprKind::WaitUntil(_) => ny!("Wait"),
         ExprKind::Start(_) => ny!("Start"),
@@ -3409,6 +3454,7 @@ pub(super) fn expr_text(e: &Expr) -> String {
         ExprKind::False => "false".into(),
         ExprKind::None => "none".into(),
         ExprKind::Not(x) => format!("not {}", expr_text(x)),
+        ExprKind::Optional(x) => format!("optional {}", expr_text(x)),
         ExprKind::Result => "result".into(),
         ExprKind::SelfValue => "self".into(),
         ExprKind::As { value, .. } => format!("{} as ...", expr_text(value)),

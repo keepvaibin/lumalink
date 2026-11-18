@@ -362,6 +362,9 @@ pub mod code {
     /// A task's `var` parameter (`task f(var n: i32)`): the task runs on after the call, when the caller's place may be
     /// gone, so nothing it writes could reach it; the task gives the value back as its result (11.1a).
     pub const TASK_VAR_PARAM: u16 = 161;
+    /// `optional` before what is not a call of a game function (`optional MR::f(..)`, `optional obj.f(..)`): only a
+    /// game function's row can be missing from a game.
+    pub const OPTIONAL_NOT_GAME_CALL: u16 = 162;
     /// The back end does not write `{what}` yet; the build stops here rather than guess.
     pub const BACKEND_NOT_YET: u16 = 800;
 
@@ -524,6 +527,7 @@ pub mod code {
         OPTIONAL_SVC_UNTESTED,
         MATCH_TOO_LARGE,
         TASK_VAR_PARAM,
+        OPTIONAL_NOT_GAME_CALL,
         BACKEND_NOT_YET,
     ];
 
@@ -879,6 +883,7 @@ pub const NOT_YET: &[(&str, &[&str])] = &[
     ("Script.NotYet.OnEvent", &["event"]),
     ("Script.NotYet.OnLayers", &[]),
     ("Script.NotYet.Operator", &[]),
+    ("Script.NotYet.Optional", &[]),
     ("Script.NotYet.OptChain", &[]),
     ("Script.NotYet.OptOnCall", &[]),
     ("Script.NotYet.OptOnType", &[]),

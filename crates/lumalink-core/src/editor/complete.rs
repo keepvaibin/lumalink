@@ -775,7 +775,7 @@ fn scope_ranges(module: &ast::Module) -> Vec<(Pos, Pos)> {
                 expr(callee, out);
                 args.iter().for_each(|a| expr(&a.value, out));
             }
-            ExprKind::Paren(x) | ExprKind::Unwrap(x) | ExprKind::Neg(x) | ExprKind::Not(x) | ExprKind::WaitUntil(x) | ExprKind::Start(x) => expr(x, out),
+            ExprKind::Paren(x) | ExprKind::Unwrap(x) | ExprKind::Neg(x) | ExprKind::Not(x) | ExprKind::WaitUntil(x) | ExprKind::Start(x) | ExprKind::Optional(x) => expr(x, out),
             ExprKind::Binary { left, right, .. } => {
                 expr(left, out);
                 expr(right, out);

@@ -406,7 +406,7 @@ fn first_read(e: &Expr) -> &Expr {
     let mut inner = e;
     loop {
         inner = match &inner.kind {
-            ExprKind::Paren(x) | ExprKind::Unwrap(x) | ExprKind::Neg(x) | ExprKind::Not(x) => x,
+            ExprKind::Paren(x) | ExprKind::Unwrap(x) | ExprKind::Neg(x) | ExprKind::Not(x) | ExprKind::Optional(x) => x,
             ExprKind::Binary { left, .. } => left,
             ExprKind::Member { base, .. } | ExprKind::Index { base, .. } => base,
             ExprKind::As { value, .. } => value,

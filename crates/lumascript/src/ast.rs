@@ -404,6 +404,9 @@ pub enum ExprKind {
     Unwrap(Box<Expr>),
     Neg(Box<Expr>),
     Not(Box<Expr>),
+    /// `optional <game call>`: the call when the game has the function (its row LUMA_OPTIONAL unless a plain call
+    /// of it needs it anyway); its result as an option, none when the game lacks it (true or false for no result).
+    Optional(Box<Expr>),
     Binary { op: BinOp, left: Box<Expr>, right: Box<Expr> },
     /// `wait n [frames|seconds]`.
     Wait { amount: Box<Expr>, unit: Option<WaitUnit> },

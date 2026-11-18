@@ -596,7 +596,7 @@ fn walk_expr(e: &ast::Expr, out: &mut Vec<(ExprId, Pos)>) {
             walk_params(params, out);
             walk_block(body, out);
         }
-        ExprKind::Paren(x) | ExprKind::Unwrap(x) | ExprKind::Neg(x) | ExprKind::Not(x) | ExprKind::WaitUntil(x) | ExprKind::Start(x) => walk_expr(x, out),
+        ExprKind::Paren(x) | ExprKind::Unwrap(x) | ExprKind::Neg(x) | ExprKind::Not(x) | ExprKind::WaitUntil(x) | ExprKind::Start(x) | ExprKind::Optional(x) => walk_expr(x, out),
         ExprKind::Tuple(xs) | ExprKind::List(xs) => xs.iter().for_each(|x| walk_expr(x, out)),
         ExprKind::Braces(kvs) => {
             for (k, v) in kvs {
