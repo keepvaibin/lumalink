@@ -417,9 +417,9 @@ fn every_sdk_header_reads() {
         assert!(matches!(&assets.function("cook").unwrap().shape, Shape::Callable { gives: Gives::Request { kind, .. }, .. } if kind == "cooked"), "{:?}", assets.function("cook").unwrap().shape);
     }
     assert!(errors.is_empty(), "{}", errors.iter().map(|e| e.0.clone()).collect::<Vec<_>>().join("\n"));
-    // 33 with player (luma_player.h, svc.player 1.0).
-    assert_eq!(s.faces.len(), 33, "{:?}", s.faces.keys().collect::<Vec<_>>());
-    assert!(s.faces.contains_key("player"), "{:?}", s.faces.keys().collect::<Vec<_>>());
+    // 34 with player (luma_player.h) and events (luma_events.h).
+    assert_eq!(s.faces.len(), 34, "{:?}", s.faces.keys().collect::<Vec<_>>());
+    assert!(s.faces.contains_key("player") && s.faces.contains_key("events"), "{:?}", s.faces.keys().collect::<Vec<_>>());
 }
 
 /// A `#define`'s block comment may go on over lines (luma_assets.h's event kind); its value is still the number, and
