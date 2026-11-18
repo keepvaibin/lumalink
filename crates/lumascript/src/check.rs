@@ -397,11 +397,13 @@ struct Checker<'a> {
     game_values: HashMap<String, body::GameValue>,
     /// Part (g): the calls whose needs are proved where they are, said after every body.
     needs: body::Needs,
+    /// What is left of [`NEAR_BUDGET`] for this check's unknown names.
+    near_budget: usize,
 }
 
 /// Checks a mod's modules (part b) against its libraries and facts.
 pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> Checked {
-    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default() };
+    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET };
     c.out.option_index = c.facts.options.iter().enumerate().map(|(i, o)| (o.key.clone(), i as u32)).collect();
     if let Some(content) = c.facts.content {
         if let Some(models) = content.names.get("model") {
@@ -574,11 +576,27 @@ pub fn type_text(t: &ast::Type) -> String {
     s
 }
 
+/// How many known names one check compares unknown names with, in all, for their nearest (N-4027). A file of thousands
+/// of mistakes among thousands of names would otherwise compare each with each; past this, a mistake is said without
+/// the nearest names. A real module's mistakes never come near it.
+pub const NEAR_BUDGET: usize = 1_000_000;
+
 /// The names nearest `name` among `known` (within a third of its length in edits, at least one and at most three), at
-/// most three, closest first.
-pub fn nearest<'k>(name: &str, known: impl Iterator<Item = &'k str>) -> Vec<&'k str> {
+/// most three, closest first. Each known name looked at takes one from `budget`; none left, none are found.
+pub fn nearest<'k>(name: &str, known: impl Iterator<Item = &'k str>, budget: &mut usize) -> Vec<&'k str> {
     let limit = (name.chars().count() / 3).clamp(1, 3);
-    let mut found: Vec<(usize, &str)> = known.filter(|k| *k != name).filter_map(|k| Some((edits(name, k, limit)?, k))).collect();
+    let mut found: Vec<(usize, &str)> = Vec::new();
+    for k in known {
+        if *budget == 0 {
+            return Vec::new();
+        }
+        *budget -= 1;
+        if k != name {
+            if let Some(d) = edits(name, k, limit) {
+                found.push((d, k));
+            }
+        }
+    }
     found.sort();
     found.dedup();
     found.into_iter().take(3).map(|(_, k)| k).collect()
@@ -801,7 +819,11 @@ impl Checker<'_> {
         let n = edges.len();
         // 0 unseen, 1 on the path, 2 done.
         let mut state = vec![0u8; n];
-        let mut said = std::collections::BTreeSet::new();
+        // Where each module on the path stands in it.
+        let mut on_path = vec![0usize; n];
+        // A cycle is the path from the `use`'s target to its module: one per pair (two `use`s of one module close the
+        // same cycle). Each module is on a path once, so no pair comes back from another walk.
+        let mut said = std::collections::HashSet::new();
         for start in 0..n {
             if state[start] != 0 {
                 continue;
@@ -809,6 +831,7 @@ impl Checker<'_> {
             let mut stack: Vec<(usize, usize)> = vec![(start, 0)];
             let mut path: Vec<usize> = vec![start];
             state[start] = 1;
+            on_path[start] = 0;
             while let Some((node, next)) = stack.last_mut() {
                 let node = *node;
                 if *next < edges[node].len() {
@@ -817,21 +840,15 @@ impl Checker<'_> {
                     match state[to] {
                         0 => {
                             state[to] = 1;
+                            on_path[to] = path.len();
                             stack.push((to, 0));
                             path.push(to);
                         }
-                        1 => {
-                            let from = path.iter().position(|p| *p == to).unwrap_or(0);
-                            let mut ring: Vec<usize> = path[from..].to_vec();
-                            // One message per cycle, whichever module the walk entered it by.
-                            let low = ring.iter().enumerate().min_by_key(|(_, p)| **p).map(|(i, _)| i).unwrap_or(0);
-                            ring.rotate_left(low);
-                            if said.insert(ring.clone()) {
-                                let mut chain: Vec<&str> = path[from..].iter().map(|p| self.modules[*p].path.as_str()).collect();
-                                chain.push(&self.modules[to].path);
-                                let d = Diagnostic::new(code::MODULE_CYCLE, at).with("chain", Arg::Text(chain.join(" -> ")));
-                                self.say(ModRef::of_mod(node), d);
-                            }
+                        1 if said.insert((to, node)) => {
+                            let ring = &path[on_path[to]..];
+                            let chain = chain_text(ring.len() + 1, |k| self.modules[ring.get(k).copied().unwrap_or(to)].path.clone());
+                            let d = Diagnostic::new(code::MODULE_CYCLE, at).with("chain", Arg::Text(chain));
+                            self.say(ModRef::of_mod(node), d);
                         }
                         _ => {}
                     }
@@ -922,8 +939,8 @@ impl Checker<'_> {
     }
 
     fn unknown_type(&mut self, m: ModRef, at: Pos, written: &str) -> Ty {
-        let known = self.type_names(m);
-        let near = nearest(written, known.iter().map(String::as_str));
+        let known = if self.near_budget > 0 { self.type_names(m) } else { Vec::new() };
+        let near = nearest(written, known.iter().map(String::as_str), &mut self.near_budget);
         let d = if near.is_empty() {
             Diagnostic::new(code::UNKNOWN_TYPE, at).with("found", Arg::Text(written.to_string()))
         } else {
@@ -1074,7 +1091,9 @@ impl Checker<'_> {
         }
         // 0 unseen, 1 on the path, 2 done; as `cycles`.
         let mut state: HashMap<ItemRef, u8> = HashMap::new();
-        let mut said = std::collections::BTreeSet::new();
+        let mut on_path: HashMap<ItemRef, usize> = HashMap::new();
+        // One message per pair (target, holder), as `cycles` (two fields of one struct close the same cycle).
+        let mut said = std::collections::HashSet::new();
         for start in nodes {
             if state.get(&start).copied().unwrap_or(0) != 0 {
                 continue;
@@ -1082,6 +1101,7 @@ impl Checker<'_> {
             let mut stack: Vec<(ItemRef, usize)> = vec![(start, 0)];
             let mut path: Vec<ItemRef> = vec![start];
             state.insert(start, 1);
+            on_path.insert(start, 0);
             while let Some((node, next)) = stack.last_mut() {
                 let node = *node;
                 let list = edges.get(&node).map(Vec::as_slice).unwrap_or(&[]);
@@ -1091,20 +1111,15 @@ impl Checker<'_> {
                     match state.get(&to).copied().unwrap_or(0) {
                         0 => {
                             state.insert(to, 1);
+                            on_path.insert(to, path.len());
                             stack.push((to, 0));
                             path.push(to);
                         }
-                        1 => {
-                            let from = path.iter().position(|p| *p == to).unwrap_or(0);
-                            let mut ring: Vec<ItemRef> = path[from..].to_vec();
-                            let low = ring.iter().enumerate().min_by_key(|(_, p)| **p).map(|(i, _)| i).unwrap_or(0);
-                            ring.rotate_left(low);
-                            if said.insert(ring) {
-                                let mut chain: Vec<String> = path[from..].iter().map(|p| self.item_name(*p)).collect();
-                                chain.push(self.item_name(to));
-                                let d = Diagnostic::new(code::VALUE_CYCLE, at).with("chain", Arg::Text(chain.join(" -> ")));
-                                self.say(node.module_ref(), d);
-                            }
+                        1 if said.insert((to, node)) => {
+                            let ring = &path[on_path[&to]..];
+                            let chain = chain_text(ring.len() + 1, |k| self.item_name(ring.get(k).copied().unwrap_or(to)));
+                            let d = Diagnostic::new(code::VALUE_CYCLE, at).with("chain", Arg::Text(chain));
+                            self.say(node.module_ref(), d);
                         }
                         _ => {}
                     }
@@ -1482,6 +1497,21 @@ fn held_by_value(ty: &Ty, out: &mut Vec<ItemRef>) {
         Ty::Opt(t) => held_by_value(t, out),
         _ => {}
     }
+}
+
+/// The most names a cycle's chain shows; a longer one shows its start and its end around `...` (a message of every
+/// name of every cycle grows with the square of a long chain: M13).
+const CHAIN_SHOWN: usize = 16;
+
+/// A cycle's chain, `a -> b -> a`: its `len` names by their index, the last the first again.
+fn chain_text(len: usize, name: impl Fn(usize) -> String) -> String {
+    let half = CHAIN_SHOWN / 2;
+    let shown: Vec<String> = if len <= CHAIN_SHOWN {
+        (0..len).map(&name).collect()
+    } else {
+        (0..half).map(&name).chain(std::iter::once("...".to_string())).chain((len - half..len).map(&name)).collect()
+    };
+    shown.join(" -> ")
 }
 
 fn name_at(n: &Name) -> Pos {

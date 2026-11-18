@@ -32,6 +32,9 @@ const GAME: &str = r#"{
       {"name": "b", "type": "u8", "offset": 2, "count": 1, "extents": null, "access": "public", "bits": null}, {"name": "a", "type": "u8", "offset": 3, "count": 1, "extents": null, "access": "public", "bits": null}]},
     {"kind": "struct", "name": "Vec3<f32>", "size": 12, "align": 4, "polymorphic": false, "abstract": false, "trivial_copy": true, "trivial_destroy": true, "no_copy": false, "bases": [], "reachable": [], "fields": [
       {"name": "x", "type": "f32", "offset": 0, "count": 1, "extents": null, "access": "public", "bits": null}, {"name": "y", "type": "f32", "offset": 4, "count": 1, "extents": null, "access": "public", "bits": null}, {"name": "z", "type": "f32", "offset": 8, "count": 1, "extents": null, "access": "public", "bits": null}]},
+    {"kind": "struct", "name": "Proj", "size": 64, "align": 4, "polymorphic": false, "abstract": false, "trivial_copy": true, "trivial_destroy": true, "no_copy": false, "bases": [], "reachable": [], "fields": [
+      {"name": "mMtx", "type": "Mtx44", "offset": 0, "count": 1, "extents": null, "access": "public", "bits": null}]},
+    {"kind": "alias", "name": "Mtx44", "of": "f32[4][4]", "record": null},
     {"kind": "alias", "name": "Vec3f", "of": "Vec3<f32>", "record": "Vec3<f32>"},
     {"kind": "alias", "name": "s16", "of": "short", "record": null},
     {"kind": "alias", "name": "s32", "of": "int", "record": null},
@@ -60,6 +63,8 @@ fn game() -> Game {
         ("T.cpp#cNames".to_string(), table("const char *", 2, 16)),
         ("T.cpp#cModes".to_string(), table("Mode", 2, 8)),
         ("T.cpp#cUps".to_string(), table("Vec3f", 2, 24)),
+        ("T.cpp#cProj".to_string(), table("Proj", 1, 64)),
+        ("T.cpp#cMtxs".to_string(), table("Mtx44", 2, 128)),
     ]));
     game
 }
@@ -179,6 +184,24 @@ fn set_table_writes_each_place_by_its_offset() {
 
 /// table reads a place back as `T?`: none when the game has no such table; an enum as its storage, a colour from
 /// its four bytes.
+/// A typedef of an array that is no 3x4 matrix (the game's `Mtx44`, `Mtx33`, `Mtx23`) is that array: each element
+/// written by its indices, as a field and as a table's element (N-4028: refused as no type a table holds).
+#[test]
+fn set_table_follows_a_typedef_of_an_array() {
+    let c = build(
+        "on start {
+    let a = set_table(\"T.cpp#cProj\", \"mMtx\", 1, 2, 3.0)
+    let b = set_table(\"T.cpp#cMtxs\", 1, 2, 3, 0.5)
+    log \"{a} {b}\"
+}
+",
+    );
+    for want in ["lumart_set_table(\"T.cpp#cProj\", ", "(uint32_t)(24ull)", "lumart_set_table(\"T.cpp#cMtxs\", ", "(uint32_t)(108ull)"] {
+        assert!(c.contains(want), "no {want} in:
+{c}");
+    }
+}
+
 #[test]
 fn table_reads_a_place_as_an_option() {
     let c = build(

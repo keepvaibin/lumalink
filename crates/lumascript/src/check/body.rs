@@ -667,8 +667,9 @@ impl<'w, 'a> Walk<'w, 'a> {
     }
 
     fn unknown_name(&mut self, at: Pos, name: &str) {
-        let known = self.known_names();
-        let near = nearest(name, known.iter().map(String::as_str));
+        // The names in scope are listed only while the check's budget for them lasts (N-4027).
+        let known = if self.c.near_budget > 0 { self.known_names() } else { Vec::new() };
+        let near = nearest(name, known.iter().map(String::as_str), &mut self.c.near_budget);
         let d = if near.is_empty() {
             Diagnostic::new(code::UNKNOWN_NAME, at).with("found", Arg::Text(name.to_string()))
         } else {

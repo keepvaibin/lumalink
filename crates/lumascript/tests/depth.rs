@@ -107,6 +107,101 @@ fn blank_lines_stay_linear() {
     assert!(took < std::time::Duration::from_secs(5), "took {took:?}");
 }
 
+/// Many unknown names in a module of many items: each is said with its nearest known names, found in time that does
+/// not grow with the product of the two (each one listed, sorted and compared with every known name took minutes).
+#[test]
+fn unknown_names_stay_linear() {
+    use lumascript::check::{check, ModFacts, Source};
+    const N: usize = 20_000;
+    let mut src = String::new();
+    for i in 0..N {
+        src.push_str(&format!("fn known_{i}() {{ }}\n"));
+    }
+    src.push_str("on start {\n");
+    for i in 0..N {
+        src.push_str(&format!("    unknown_{i}()\n"));
+    }
+    src.push_str("}\n");
+    let (module, parsed) = parse_module(&src);
+    assert!(parsed.is_empty(), "{parsed:?}");
+    let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+    let game = lumascript::game::Game::new(Default::default(), None);
+    let start = std::time::Instant::now();
+    let said = lumascript::on_compiler_stack(|| check(&sources, &[], ModFacts::of_game(&game)).diags.len()).unwrap();
+    let took = start.elapsed();
+    assert_eq!(said, N);
+    assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
+}
+
+/// A long chain of structs, each also holding the first by value: every cycle is said, each with a chain of bounded
+/// length, in linear time (each cycle kept whole to be said once, and said with every name, took memory and time with
+/// the square of the chain: N-4029).
+#[test]
+fn value_cycles_stay_linear() {
+    use lumascript::check::{check, ModFacts, Source};
+    const N: usize = 10_000;
+    let mut src = String::new();
+    for i in 0..N - 1 {
+        src.push_str(&format!("struct S{i} {{\n    n: S{}\n    z: S0\n}}\n", i + 1));
+    }
+    src.push_str(&format!("struct S{} {{\n    z: S0\n}}\n", N - 1));
+    let (module, parsed) = parse_module(&src);
+    assert!(parsed.is_empty(), "{parsed:?}");
+    let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+    let game = lumascript::game::Game::new(Default::default(), None);
+    let start = std::time::Instant::now();
+    let diags = lumascript::on_compiler_stack(|| check(&sources, &[], ModFacts::of_game(&game)).diags).unwrap();
+    let took = start.elapsed();
+    let cycles: Vec<&Diagnostic> = diags.iter().map(|(_, d)| d).filter(|d| d.code == code::VALUE_CYCLE).collect();
+    // S0's own `z` closes S0 -> S0; each S{i}.z closes S0 -> ... -> S{i} -> S0.
+    assert_eq!(cycles.len(), N);
+    let longest = cycles.iter().flat_map(|d| d.args.iter()).map(|(_, a)| format!("{a:?}").len()).max().unwrap_or(0);
+    assert!(longest < 400, "a chain of {longest} characters");
+    let last = cycles.iter().find(|d| format!("{:?}", d.args).contains(&format!("S{}", N - 1))).expect("the longest cycle");
+    assert_eq!(last.args, [("chain", lumascript::Arg::Text(format!("S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6 -> S7 -> ... -> S{} -> S{} -> S{} -> S{} -> S{} -> S{} -> S{} -> S0", N - 7, N - 6, N - 5, N - 4, N - 3, N - 2, N - 1)))]);
+    assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
+}
+
+/// A large module with no mistake: `n` structs and functions that call each other, with locals, loops, branches and
+/// struct literals.
+fn large_module(n: usize) -> String {
+    let mut src = String::from("fn f0(x: i32, s: S0) -> i32 {\n    return x + s.a\n}\nstruct S0 {\n    a: i32\n    b: vec3\n}\n");
+    for i in 1..n {
+        let p = i - 1;
+        src.push_str(&format!(
+            "struct S{i} {{\n    a: i32\n    b: vec3\n}}\nfn f{i}(x: i32, s: S{i}) -> i32 {{\n    var t = x + s.a\n    for k in 0..3 {{\n        t += k\n    }}\n    if t > 3 {{\n        return t\n    }} else {{\n        return f{p}(t, S{p} {{ a: 1, b: vec3(0.0, 0.0, 0.0) }})\n    }}\n}}\n"
+        ));
+    }
+    src.push_str(&format!("on start {{\n    log f{}(1, S{} {{ a: 2, b: vec3(1.0, 2.0, 3.0) }})\n}}\n", n - 1, n - 1));
+    src
+}
+
+/// A large module is checked and built in time that grows with it, not with its square (M13: N-4026 and N-4027 were
+/// two such places; this holds the rest).
+#[test]
+fn a_large_module_checks_and_builds_in_linear_time() {
+    use lumascript::check::{check, ModFacts, Source};
+    let game = lumascript::game::Game::new(Default::default(), None);
+    let mut took = Vec::new();
+    for n in [2_000usize, 8_000] {
+        let (module, parsed) = parse_module(&large_module(n));
+        assert!(parsed.is_empty(), "{parsed:?}");
+        let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+        let start = std::time::Instant::now();
+        let built = lumascript::on_compiler_stack(|| {
+            let checked = check(&sources, &[], ModFacts::of_game(&game));
+            assert!(checked.diags.iter().all(|(_, d)| lumascript::diag::is_note(d.code)), "{:?}", checked.diags);
+            lumascript::emit::emit("large", &sources, &checked, &game).is_ok()
+        })
+        .unwrap();
+        took.push(start.elapsed());
+        assert!(built);
+    }
+    eprintln!("2000: {:?}, 8000: {:?}", took[0], took[1]);
+    // Four times the module: linear is about four times the time; a square, sixteen.
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
+
 /// The tree given back is held to the limit too, so dropping it (or walking it) on a small stack is safe.
 #[test]
 fn the_tree_given_back_is_no_deeper_than_the_limit() {

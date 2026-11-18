@@ -1091,9 +1091,17 @@ impl Game {
     /// A type text's part of a table: a record, an array of a part, or a number, enum or value; a pointer and anything
     /// else is no place `set_table` writes.
     fn table_part(&self, t: &CType) -> Result<TablePart, &'static str> {
+        self.table_part_at(t, 0)
+    }
+
+    /// [`Game::table_part`]; `depth` counts typedefs followed.
+    fn table_part_at(&self, t: &CType, depth: u32) -> Result<TablePart, &'static str> {
+        if depth > MAX_TYPEDEF_DEPTH {
+            return Err("Script.Table.Type");
+        }
         match t {
             CType::Array { of, len: Some(n) } if !is_matrix(self, t) => {
-                let inner = self.table_part(of)?;
+                let inner = self.table_part_at(of, depth)?;
                 Ok(match inner {
                     TablePart::Array { of, mut extents } => {
                         extents.insert(0, *n);
@@ -1103,12 +1111,19 @@ impl Game {
                 })
             }
             CType::Ptr { .. } | CType::MemberPtr { .. } | CType::Ref(_) | CType::RRef(_) | CType::Func(_) => Err("Script.Table.Pointer"),
-            CType::Named { name, .. } => {
+            CType::Named { name, konst, volatile, .. } => {
                 if let Some((row, record)) = self.types().and_then(|ty| ty.record(name)) {
                     if let Some(v) = self.values.get(row) {
                         return Ok(TablePart::Leaf(TableLeaf::Value(*v)));
                     }
                     return Ok(TablePart::Record { name: row.to_string(), size: record.size });
+                }
+                // A typedef is followed to what it names, so a typedef of an array (`Mtx44`, `f32[4][4]`) is that
+                // array's part; `map` gives no part for an array (N-4028).
+                if !*volatile {
+                    if let Ok(Named::Typedef(of)) = self.named(name) {
+                        return self.table_part_at(&with_const(of, *konst), depth + 1);
+                    }
                 }
                 match self.map(t, Place::Field, 0) {
                     Ok(GameTy::Scalar(s)) => Ok(TablePart::Leaf(TableLeaf::Scalar(s))),
