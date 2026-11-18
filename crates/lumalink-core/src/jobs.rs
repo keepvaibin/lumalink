@@ -764,6 +764,15 @@ fn manifest_error(path: &Path, line: u32, column: u32, what: &'static str, detai
     anyhow::anyhow!(luma_validate::message(&shown, text::language()))
 }
 
+/// A luma.json id `build` refuses ([`crate::build::BuildError::BadId`]), in the words `check` says it with (L206).
+fn id_error(path: &Path, id: String) -> anyhow::Error {
+    use luma_validate::Arg;
+    let folder = path.parent().unwrap_or(path).display().to_string();
+    let code = 206;
+    let shown = Finding { code, level: luma_validate::level_of(code), mod_id: None, file: folder, line: None, column: None, pointer: None, args: vec![("found", Arg::Text(id))] };
+    anyhow::anyhow!(luma_validate::message(&shown, text::language()))
+}
+
 /// What a validator code means: its number, level and template with its parameter names in braces.
 pub fn explain(code: &str) -> Result<(u16, Level, String)> {
     let Ok(number) = code.trim_start_matches(['L', 'l']).parse::<u16>() else {
@@ -1221,6 +1230,25 @@ fn test_name(test: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// An id `build` refuses is said as check says it (L206), naming the mod's folder and the id.
+    #[test]
+    fn a_refused_id_is_said_in_checks_words() {
+        let folder = Path::new("mods").join("moon");
+        let said = id_error(&folder.join("luma.json"), "../../x".into()).to_string();
+        let shown = Finding {
+            code: 206,
+            level: luma_validate::level_of(206),
+            mod_id: None,
+            file: folder.display().to_string(),
+            line: None,
+            column: None,
+            pointer: None,
+            args: vec![("found", luma_validate::Arg::Text("../../x".into()))],
+        };
+        assert_eq!(said, luma_validate::message(&shown, text::language()));
+        assert!(said.contains("\"../../x\"") && said.contains(&folder.display().to_string()), "{said}");
+    }
+
     /// The character report goes beside the mod folder however the folder is named, `.` and `..` too: never into it.
     #[test]
     fn character_report_is_beside_the_folder() {
@@ -1271,7 +1299,7 @@ mod tests {
         let record = |platforms: &[&str]| record_build_in(data, &m, &from, platforms);
         assert!(!out(&m), "no source");
         std::fs::create_dir_all(m.join("source")).unwrap();
-        std::fs::write(m.join("luma.json"), "{\"id\": \"m\", \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
+        std::fs::write(m.join("luma.json"), "{\"id\": \"moo\", \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
         std::fs::write(m.join("source/main.lum"), "fn a() {}").unwrap();
         assert!(out(&m), "never built");
         assert!(code_out_of_date_in(None, &m, &from), "no data folder: no record");
@@ -1279,7 +1307,7 @@ mod tests {
         for (one, file) in [("in-folder", "source/kit/a.lum"), ("cxx", "source/a.cpp")] {
             let other = dir.path().join(one);
             std::fs::create_dir_all(other.join(file).parent().unwrap()).unwrap();
-            std::fs::write(other.join("luma.json"), "{\"id\": \"o\", \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
+            std::fs::write(other.join("luma.json"), "{\"id\": \"own\", \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
             std::fs::write(other.join(file), "").unwrap();
             assert!(out(&other), "{file}");
         }
@@ -1298,13 +1326,13 @@ mod tests {
         assert!(out(&m), "the SDK changed");
         record(&["windows-x64"]);
         assert!(!out(&m));
-        std::fs::write(m.join("luma.json"), "{\"id\": \"m\", \"code\": {\"platforms\": [\"windows-x64\", \"linux-x64\"]}}").unwrap();
+        std::fs::write(m.join("luma.json"), "{\"id\": \"moo\", \"code\": {\"platforms\": [\"windows-x64\", \"linux-x64\"]}}").unwrap();
         record(&["windows-x64"]);
         assert!(out(&m), "luma.json lists a platform the build did not make");
         record(&["windows-x64", "linux-x64"]);
         assert!(!out(&m));
         // A needed mod's interface changes.
-        std::fs::write(m.join("luma.json"), "{\"id\": \"m\", \"needs\": [{\"id\": \"lib\", \"version\": \"*\"}], \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
+        std::fs::write(m.join("luma.json"), "{\"id\": \"moo\", \"needs\": [{\"id\": \"lib\", \"version\": \"*\"}], \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
         record(&["windows-x64"]);
         assert!(!out(&m));
         std::fs::write(dir.path().join("mods/lib/code/lib.lumi"), "two").unwrap();
@@ -2008,6 +2036,7 @@ pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Optio
         Err(BuildError::Read(path, e)) => return Err(anyhow::Error::new(e).context(say!("LumaLink.CannotRead", path = path.display()))),
         Err(BuildError::Write(path, e)) => return Err(anyhow::Error::new(e).context(say!("LumaLink.Build.CannotWrite", path = path.display()))),
         Err(BuildError::NoId(path)) => bail!(say!("LumaLink.Build.NoId", path = path.display())),
+        Err(BuildError::BadId { path, id }) => return Err(id_error(&path, id)),
         Err(BuildError::Manifest { path, line, column, what, detail }) => return Err(manifest_error(&path, line, column, what, detail)),
         Err(BuildError::NoScripts(folder)) => bail!(say!("LumaLink.Build.NoScripts", folder = folder.display())),
         Err(BuildError::NoSdk(folder)) => bail!(say!("LumaLink.Build.NoSdk", folder = folder.display())),

@@ -51,6 +51,8 @@ pub enum BuildError {
     Read(PathBuf, std::io::Error),
     Write(PathBuf, std::io::Error),
     NoId(PathBuf),
+    /// luma.json's id is not a mod id (rule L206), said in check's words.
+    BadId { path: PathBuf, id: String },
     /// luma.json is not JSON as luma-format reads it (rule L201: no UTF-8, a byte order mark, a broken value), at
     /// `line` and `column`; `what` is the validator's phrase, `detail` what it found.
     Manifest { path: PathBuf, line: u32, column: u32, what: &'static str, detail: String },
@@ -228,18 +230,39 @@ fn manifest(folder: &Path) -> Result<Manifest, BuildError> {
         return Err(BuildError::Manifest { path, line: e.pos.line, column: e.pos.column, what: e.what, detail: e.detail });
     }
     let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| BuildError::NoId(path.clone()))?;
-    let id = json.get("id").and_then(|v| v.as_str()).map(str::to_string).ok_or(BuildError::NoId(path))?;
+    let id = json.get("id").and_then(|v| v.as_str()).map(str::to_string).ok_or(BuildError::NoId(path.clone()))?;
+    // The id names a file the build writes (`code/<id>.lumi`): one check refuses (L206: `../../x`, `C:/x`) would put it
+    // outside the mod's folder, so it is refused here, before anything is written, as check says it.
+    if !id_ok(&id) {
+        return Err(BuildError::BadId { path, id });
+    }
     let version = json.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    // luma-format: `needs` is a list of {id, version}; check says what is wrong with any other form.
+    // luma-format: `needs` is a list of {id, version}; check says what is wrong with any other form. An id that is no
+    // mod's (L206's rule) names no folder or file to look in, as a path out of the mod's place would.
     let needs = json
         .get("needs")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|n| n.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect())
+        .map(|a| a.iter().filter_map(|n| n.get("id").and_then(|i| i.as_str()).filter(|i| id_ok(i)).map(str::to_string)).collect())
         .unwrap_or_default();
     // luma-format: `options` is a list of {key, kind, default, ...}; `option` declarations are checked against it.
     // An entry check refuses (no key, a kind of no five) is left out here: check says what is wrong with it.
     let options = json.get("options").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(option_spec).collect()).unwrap_or_default();
     Ok(Manifest { id, version, needs, options })
+}
+
+/// A mod id as luma-format has it (docs/modding/format/luma.md, section 4; the validator's L206): 3 to 64 characters,
+/// lowercase letters, digits, `-` and `.`, starting with a letter, no `..`, not ending in `.`, its part before the
+/// first `.` no name Windows keeps. The test `the_build_refuses_the_ids_check_refuses` holds it to the validator's.
+pub(crate) fn id_ok(id: &str) -> bool {
+    let first = id.split('.').next().unwrap_or(id).to_ascii_lowercase();
+    let kept = matches!(first.as_str(), "con" | "prn" | "aux" | "nul")
+        || (first.len() == 4 && (first.starts_with("com") || first.starts_with("lpt")) && (b'1'..=b'9').contains(&first.as_bytes()[3]));
+    (3..=64).contains(&id.len())
+        && id.starts_with(|c: char| c.is_ascii_lowercase())
+        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
+        && !id.contains("..")
+        && !id.ends_with('.')
+        && !kept
 }
 
 /// One `options` entry as the checker reads it: its key and kind; a number is whole when its default and the min, max
@@ -1444,6 +1467,48 @@ mod tests {
         }
         std::fs::write(dir.path().join("luma.json"), "{\"id\": \"m\",}").unwrap();
         assert!(matches!(manifest(dir.path()), Err(BuildError::Manifest { line: 1, .. })));
+    }
+
+    /// A library mod's interface is written as `code/<id>.lumi`: an id check refuses (L206) is refused before anything
+    /// is written, so `../../../escaped` puts no file outside the mod's folder (N-4074).
+    #[test]
+    fn a_mod_id_that_leaves_the_mod_folder_writes_nothing_outside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("work").join("moon");
+        std::fs::create_dir_all(folder.join("source")).unwrap();
+        std::fs::write(folder.join("luma.json"), r#"{"format": 1, "id": "../../../escaped", "version": "1.0.0", "name": "Moon"}"#).unwrap();
+        std::fs::write(folder.join("source/hud.lum"), "pub fn ping() -> i32 {\n    return 1\n}\n").unwrap();
+        let game = lumascript::game::Game::default();
+        let result = generate(&folder, &game, &dir.path().join("out"));
+        assert!(!dir.path().join("escaped.lumi").exists(), "written outside the mod's folder");
+        match result {
+            Err(BuildError::BadId { id, .. }) => assert_eq!(id, "../../../escaped"),
+            other => panic!("{:?}", other.map(|_| ())),
+        }
+        // A need whose id is no mod's names no place to look in.
+        std::fs::write(folder.join("luma.json"), r#"{"format": 1, "id": "moon", "version": "1.0.0", "name": "Moon", "needs": [{"id": "../../.."}, {"id": "kit"}]}"#).unwrap();
+        assert_eq!(manifest(&folder).unwrap().needs, ["kit"]);
+    }
+
+    /// The build's rule for an id is the validator's (L206), id for id.
+    #[test]
+    fn the_build_refuses_the_ids_check_refuses() {
+        let long = "a".repeat(64);
+        let longer = "a".repeat(65);
+        let ids = [
+            "moon", "ab", "abc", long.as_str(), longer.as_str(), "Moon", "1moon", "-moon", "moon.kit", "moon..kit", "moon.", "moon-", "m-1.2",
+            "../../x", "..", "C:/x", "c:x", "a/b", "a\\b", "mo on", "m_n", "\u{3a9}moon", "con", "CON", "con.kit", "com1.x", "com0", "lpt9",
+            "lpt10", "nul-x", "aux.", "kit.con",
+        ];
+        for id in ids {
+            let dir = tempfile::tempdir().unwrap();
+            let text = serde_json::json!({"format": 1, "id": id, "version": "1.0.0", "name": "Moon", "summary": "s", "authors": ["a"], "game": {"id": "RMG"}});
+            std::fs::write(dir.path().join("luma.json"), text.to_string()).unwrap();
+            let report = luma_validate::validate(&luma_validate::Input { source: luma_validate::Source::Folder(dir.path()), game: None, installed: &[], platforms: &[], options: None, position: None });
+            let refused = report.findings.iter().any(|f| f.code == 206);
+            assert_eq!(super::id_ok(id), !refused, "{id:?}");
+            assert_eq!(matches!(manifest(dir.path()), Err(BuildError::BadId { .. })), refused, "{id:?}");
+        }
     }
 
     /// The platform is recorded by a whole write: luma.json changed, nothing else left in the folder (M-148).
