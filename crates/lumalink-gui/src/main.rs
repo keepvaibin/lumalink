@@ -347,8 +347,8 @@ fn run(job: Job, path: &Path, inputs: &Inputs, installed: Option<&Installed>, mo
     })
 }
 
-/// A mod id from a name: its letters and digits in lowercase, others as `-`, after `prefix`; at least 3 long and
-/// starting with a letter.
+/// A mod id from a name: its letters and digits in lowercase, others as `-`, after `prefix`; at least 3 long,
+/// starting with a letter, and never a name Windows keeps (`con`, `com1`: `-mod` after it), so the build takes it.
 fn id_from(prefix: &str, name: &str) -> String {
     let mut body = String::new();
     for c in name.chars().map(|c| c.to_ascii_lowercase()) {
@@ -359,9 +359,11 @@ fn id_from(prefix: &str, name: &str) -> String {
         }
     }
     let body = body.trim_start_matches(|c: char| !c.is_ascii_lowercase()).trim_end_matches('-');
+    let kept = |b: &str| matches!(b, "con" | "prn" | "aux" | "nul") || (b.len() == 4 && (b.starts_with("com") || b.starts_with("lpt")) && (b'1'..=b'9').contains(&b.as_bytes()[3]));
     let body = match body.len() {
         0 => "mod".to_string(),
         1 | 2 => format!("{body}-mod"),
+        _ if prefix.is_empty() && kept(body) => format!("{body}-mod"),
         _ => body.to_string(),
     };
     format!("{prefix}{body}").chars().take(64).collect::<String>().trim_end_matches('-').to_string()
@@ -914,6 +916,23 @@ mod tests {
     /// N-4061: the window's new mod is made in one folder of the place chosen, whatever its name: a name with characters
     /// no system's file names take (a colon, a slash), dots or spaces at its end, or a Windows device's name. Before, the
     /// folder was the name as typed: "Galaxy: Remix" failed with the system's words, "A/B" made two folders.
+    /// The id the New mod form makes from a name is one the build takes (build.rs id_ok, L206): a name Windows
+    /// keeps (`Con`, `COM1`) gets `-mod` after it.
+    #[test]
+    fn a_new_mods_id_from_its_name_is_always_one_the_build_takes() {
+        assert_eq!(id_from("", "Con"), "con-mod");
+        assert_eq!(id_from("", "COM1"), "com1-mod");
+        assert_eq!(id_from("", "Lpt9 Port"), "lpt9-port");
+        assert_eq!(id_from("", "Coin Rush"), "coin-rush");
+        assert_eq!(id_from("character.", "Con"), "character.con");
+        for name in ["Con", "aux", "nul", "com1", "LPT3", "x", "", "..", "a.b."] {
+            let id = id_from("", name);
+            let first = id.split('.').next().unwrap_or("");
+            let kept = matches!(first, "con" | "prn" | "aux" | "nul") || (first.len() == 4 && (first.starts_with("com") || first.starts_with("lpt")) && first.as_bytes()[3].is_ascii_digit());
+            assert!(!kept && id.len() >= 3 && !id.contains("..") && !id.ends_with('.'), "{name:?} -> {id:?}");
+        }
+    }
+
     #[test]
     fn a_new_mods_folder_is_one_folder_whatever_its_name() {
         let cases = [

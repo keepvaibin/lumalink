@@ -107,7 +107,7 @@ enum Command {
     New {
         /// The folder to make; it must not exist.
         folder: PathBuf,
-        /// The mod's id: 3 to 64 of a-z, 0-9, '-' and '.', starting with a letter.
+        /// The mod's id: 3 to 64 of a-z, 0-9, '-' and '.', starting with a letter, with no '..' and not ending in '.'.
         #[arg(long)]
         id: String,
         /// The mod's name, as players see it.
