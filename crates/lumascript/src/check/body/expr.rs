@@ -1382,7 +1382,8 @@ impl<'w, 'a> Walk<'w, 'a> {
         self.equatable_in(t, &mut Vec::new())
     }
 
-    /// `seen`: the structs and enums being looked into (a `list<Self>` field leads back to one, which holds then).
+    /// `seen`: the structs and enums being looked into or already found to compare (a `list<Self>` field leads back to
+    /// one, which holds then).
     fn equatable_in(&self, t: &Ty, seen: &mut Vec<ItemRef>) -> bool {
         match t {
             // A service's enum and `svc.Answer`; its struct when each field is. Handles and requests: `same`.
@@ -1409,9 +1410,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                     ast::ItemKind::Enum(e) => e.cases.iter().flat_map(|c| c.fields.iter().map(move |f| format!("{}.{}", c.name.name, f.name.name))).collect(),
                     _ => Vec::new(),
                 };
-                let ok = keys.iter().all(|k| self.equatable_in(&self.declared(*item, k), seen));
-                seen.pop();
-                ok
+                // Kept in `seen` after: every part is joined by "and", so a struct found not to compare makes the
+                // whole answer no, and one found to compare is not looked into again on another way down to it.
+                keys.iter().all(|k| self.equatable_in(&self.declared(*item, k), seen))
             }
             _ => true,
         }

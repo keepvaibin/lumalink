@@ -2840,6 +2840,53 @@ impl<'a> Gen<'a> {
                 }
                 if all.is_empty() { "1".into() } else { format!("({})", all.join(" && ")) }
             }
+            // A struct or enum with values by its own function, made once (N-4050: written in place, a struct holding
+            // another twice wrote that one's comparison twice, 2 to the depth times).
+            Ty::Struct(_) | Ty::Enum(_) => {
+                let f = self.eq_fn(t)?;
+                format!("{f}(&{l}, &{r})")
+            }
+            _ => return None,
+        })
+    }
+
+    /// The C function comparing two values of struct or enum `t` (`uint8_t f(const T* a, const T* b)`), written into
+    /// lm.h once per type after the functions of the types it holds; None for a type the back end cannot compare.
+    fn eq_fn(&mut self, t: &Ty) -> Option<String> {
+        let key = format!("{t:?}");
+        if let Some(f) = self.eq_fns.get(&key) {
+            return f.clone();
+        }
+        let ct = self.c_type(t)?;
+        let name = format!("lm_eq_{}", self.eq_fns.len());
+        // Taken before the parts are written: a part reaching this type again (through a list) calls it.
+        self.eq_fns.insert(key.clone(), Some(name.clone()));
+        let head = format!("static uint8_t {name}(const {ct}* a, const {ct}* b)");
+        let proto = self.typedefs.len();
+        self.typedefs.push(format!("{head};"));
+        match self.eq_parts("(*a)", "(*b)", t) {
+            Some(x) => {
+                self.typedefs.push(format!("{head} {{\n    return (uint8_t)({x});\n}}"));
+                Some(name)
+            }
+            None => {
+                self.eq_fns.insert(key, None);
+                // A list's descriptor made while the parts were written may call it: a body is then given that no
+                // `==` reaches (the checker refuses `==` on the type and on what holds it); else the line goes.
+                let call = format!("{name}(");
+                if self.typedefs[proto + 1..].iter().any(|d| d.contains(&call)) {
+                    self.typedefs.push(format!("{head} {{\n    (void)a;\n    (void)b;\n    return 0;\n}}"));
+                } else {
+                    self.typedefs[proto].clear();
+                }
+                None
+            }
+        }
+    }
+
+    /// Whether struct or enum places `l` and `r` are equal, part by part, as a C expression.
+    fn eq_parts(&mut self, l: &str, r: &str, t: &Ty) -> Option<String> {
+        Some(match t {
             Ty::Struct(item) => {
                 let item = *item;
                 let ItemKind::Struct(s) = &self.item(item).kind else { return None };

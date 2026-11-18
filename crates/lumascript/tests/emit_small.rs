@@ -2799,3 +2799,81 @@ fn machines_and_module_writes_stay_linear() {
     // Four times the module: linear is about four times the time; a square, sixteen.
     assert!(took[1] < took[0] * 8, "{took:?}");
 }
+
+
+/// Structs `S0` to `S{n}`, each holding the next (`twice`: in two fields), the last an `int`; `f` compares one and
+/// writes it as json.
+fn struct_chain(n: usize, twice: bool) -> String {
+    let mut src = String::new();
+    for i in 0..n {
+        let next = i + 1;
+        if twice {
+            src.push_str(&format!("struct S{i} {{\n    a: S{next}\n    b: S{next}\n}}\n"));
+        } else {
+            src.push_str(&format!("struct S{i} {{\n    a: S{next}\n}}\n"));
+        }
+    }
+    src.push_str(&format!("struct S{n} {{\n    x: int\n}}\n"));
+    src.push_str("fn f(s: S0) -> bool {\n    log json.encode(s)\n    return s == s\n}\n");
+    src
+}
+
+/// The checker's errors of `src` (codes and lines) and, when there are none, the size of the C written for it.
+fn chain_built(src: &str) -> Result<usize, Vec<(u16, u32)>> {
+    let game = game();
+    let (module, parsed) = lumascript::parse_module(src);
+    assert!(parsed.is_empty(), "{parsed:?}");
+    let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+    lumascript::on_compiler_stack(|| {
+        let checked = check::check(&sources, &[], ModFacts::of_game(&game));
+        let errors: Vec<_> = checked.diags.iter().filter(|(_, d)| !lumascript::diag::is_note(d.code)).map(|(_, d)| (d.code, d.at.line)).collect();
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+        let out = emit::emit("chain", &sources, &checked, &game).unwrap_or_else(|d| panic!("{:?}", &d[..d.len().min(3)]));
+        Ok(out.files.iter().map(|(_, c)| c.len()).sum())
+    })
+    .unwrap()
+}
+
+/// N-4050: `==` on a struct holding another twice is one C function per struct, each calling the next; written in
+/// place, the comparison of the held struct was written twice in its holder's, 2 to the depth times (depth 20: 107 MB
+/// of C in 4 seconds).
+#[test]
+fn structs_held_twice_compare_by_one_function() {
+    let mut took = Vec::new();
+    let mut size = Vec::new();
+    for n in [5usize, 20] {
+        let src = struct_chain(n, true);
+        let start = std::time::Instant::now();
+        size.push(chain_built(&src).unwrap());
+        took.push(start.elapsed());
+    }
+    eprintln!("5: {:?} {} bytes, 20: {:?} {} bytes", took[0], size[0], took[1], size[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+    assert!(size[1] < size[0] * 2, "{size:?}");
+    let c = build(&struct_chain(3, true)).unwrap();
+    assert!(c.contains("lm_eq_"), "{c}");
+    // A struct that does not compare (a function field), reached through a list's descriptor while its own
+    // function was being written: the descriptor's call has a body, and nothing compares it.
+    let held = "struct X {\n    more: list<X>\n    f: fn()\n}\nstruct T {\n    x: X\n}\non start {\n    var ts: list<T> = []\n    ts.push(T { x: X { more: [], f: fn() { } } })\n    log \"{ts.len()}\"\n}\n";
+    let h = build_file(held, "lum/lm.h").unwrap();
+    assert!(h.contains("(void)a;"), "{h}");
+}
+
+/// N-4051: structs nest through their fields as deep as anything written (MAX_DEPTH, S0022): a chain of 510 is 512
+/// deep and builds; one more is refused once, at the struct that starts it; 100 000 is refused, never a crash (it
+/// overflowed the compiler's stack in the back end at 5 000). Structs that reach each other through lists count the
+/// sum of their depths.
+#[test]
+fn struct_chains_are_held_to_the_depth_limit() {
+    assert!(chain_built(&struct_chain(510, false)).is_ok());
+    assert_eq!(chain_built(&struct_chain(511, false)), Err(vec![(code::TOO_DEEP, 1)]));
+    assert_eq!(chain_built(&struct_chain(100_000, false)), Err(vec![(code::TOO_DEEP, 1)]));
+    // A ring of 600 through lists, held by `Top`: said once, at `Top`.
+    let mut ring = String::from("struct Top {\n    r: R0\n}\n");
+    for i in 0..600 {
+        ring.push_str(&format!("struct R{i} {{\n    next: list<R{}>\n}}\n", (i + 1) % 600));
+    }
+    assert_eq!(chain_built(&ring), Err(vec![(code::TOO_DEEP, 1)]));
+}

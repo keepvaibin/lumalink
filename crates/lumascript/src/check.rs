@@ -487,6 +487,7 @@ pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> 
         }
     }
     c.value_cycles();
+    c.type_depths();
     // Pass 4: bodies (part c).
     body::bodies(&mut c);
     c.out.diags.sort_by_key(|d| (module_order(modules, &d.0), d.1.at));
@@ -1250,6 +1251,136 @@ impl Checker<'_> {
         }
     }
 
+    /// How deep each struct and enum nests through its fields' types and theirs (N-4051). Each later pass walks a
+    /// type by recursion, into the types a struct holds, on [`crate::COMPILER_STACK`]; nesting written out is held to
+    /// [`crate::MAX_DEPTH`] by the parser, and nesting through declarations is held to it here. A struct's depth is one
+    /// more than its deepest field's type (`list<T>` one more than T); structs that reach each other (through a list)
+    /// count the sum of theirs, the most a walk through them can take. Past the limit it is S0022, once at each
+    /// struct or enum of the mod that no other one past the limit holds; the field types of each one past it are not
+    /// kept (an error said), so no pass walks deeper. Every step here is a loop.
+    fn type_depths(&mut self) {
+        let mut nodes: Vec<ItemRef> = Vec::new();
+        let mut keys: Vec<Vec<String>> = Vec::new();
+        let mods = self.modules.iter().enumerate().map(|(m, s)| (Owner::Mod, m, &s.module));
+        let libs = self.libraries.iter().enumerate().flat_map(|(l, lib)| lib.modules.iter().enumerate().map(move |(m, s)| (Owner::Library(l), m, &s.module)));
+        for (owner, m, module) in mods.chain(libs) {
+            for (i, item) in module.items.iter().enumerate() {
+                let k: Vec<String> = match &item.kind {
+                    ItemKind::Struct(s) => s.fields.iter().map(|f| format!(".{}", f.name.name)).collect(),
+                    ItemKind::Enum(e) => e.cases.iter().flat_map(|c| c.fields.iter().map(move |f| format!("{}.{}", c.name.name, f.name.name))).collect(),
+                    _ => continue,
+                };
+                nodes.push(ItemRef { owner, module: m, item: i });
+                keys.push(k);
+            }
+        }
+        let index: HashMap<ItemRef, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+        let types = |v: usize| keys[v].iter().filter_map(|k| self.out.types.get(&(nodes[v], k.clone()))).collect::<Vec<&Ty>>();
+        let adj: Vec<Vec<usize>> = (0..nodes.len())
+            .map(|v| {
+                let mut held = Vec::new();
+                for t in types(v) {
+                    items_in(t, &mut held);
+                }
+                held.iter().filter_map(|i| index.get(i).copied()).collect()
+            })
+            .collect();
+        // Strongly connected parts (Tarjan's, by a loop): each part comes after every part it reaches.
+        let n = nodes.len();
+        let (mut order, mut low, mut on_stack) = (vec![usize::MAX; n], vec![0; n], vec![false; n]);
+        let (mut comp, mut comps, mut stack, mut next) = (vec![usize::MAX; n], Vec::<Vec<usize>>::new(), Vec::new(), 0);
+        for s in 0..n {
+            if order[s] != usize::MAX {
+                continue;
+            }
+            let mut calls: Vec<(usize, usize)> = vec![(s, 0)];
+            (order[s], low[s], on_stack[s]) = (next, next, true);
+            next += 1;
+            stack.push(s);
+            while let Some(&(v, e)) = calls.last() {
+                if let Some(&w) = adj[v].get(e) {
+                    calls.last_mut().expect("a call").1 += 1;
+                    if order[w] == usize::MAX {
+                        (order[w], low[w], on_stack[w]) = (next, next, true);
+                        next += 1;
+                        stack.push(w);
+                        calls.push((w, 0));
+                    } else if on_stack[w] {
+                        low[v] = low[v].min(order[w]);
+                    }
+                    continue;
+                }
+                calls.pop();
+                if let Some(&(u, _)) = calls.last() {
+                    low[u] = low[u].min(low[v]);
+                }
+                if low[v] == order[v] {
+                    let mut part = Vec::new();
+                    while let Some(w) = stack.pop() {
+                        on_stack[w] = false;
+                        comp[w] = comps.len();
+                        part.push(w);
+                        if w == v {
+                            break;
+                        }
+                    }
+                    comps.push(part);
+                }
+            }
+        }
+        let mut depth = vec![0u64; comps.len()];
+        for (c, part) in comps.iter().enumerate() {
+            let cyclic = part.len() > 1 || adj[part[0]].contains(&part[0]);
+            let held = |i: &ItemRef| index.get(i).map_or(0, |&w| if comp[w] == c { 0 } else { depth[comp[w]] });
+            let mut d = 0u64;
+            for &v in part {
+                let own = 1 + types(v).iter().map(|t| levels(t, &held)).max().unwrap_or(0);
+                d = if cyclic { d.saturating_add(own) } else { own };
+            }
+            depth[c] = d;
+        }
+        let limit = u64::from(crate::MAX_DEPTH);
+        let deep = |c: usize| depth[c] > limit;
+        let mut held_by_deep = vec![false; comps.len()];
+        for v in 0..n {
+            for &w in &adj[v] {
+                if comp[w] != comp[v] && deep(comp[v]) {
+                    held_by_deep[comp[w]] = true;
+                }
+            }
+        }
+        for (c, part) in comps.iter().enumerate() {
+            if !deep(c) {
+                continue;
+            }
+            let mut mine: Vec<ItemRef> = part.iter().map(|&v| nodes[v]).filter(|i| i.owner == Owner::Mod).collect();
+            mine.sort();
+            if let (false, Some(&first)) = (held_by_deep[c], mine.first()) {
+                let at = self.item_name_at(first);
+                self.say(first.module_ref(), Diagnostic::too_deep(at));
+            }
+            for item in mine {
+                let v = index[&item];
+                for k in &keys[v] {
+                    self.out.types.insert((item, k.clone()), Ty::Error);
+                }
+            }
+        }
+    }
+
+    /// Where a struct's or enum's name is written.
+    fn item_name_at(&self, item: ItemRef) -> Pos {
+        let module = match item.owner {
+            Owner::Mod => &self.modules[item.module].module,
+            Owner::Library(l) => &self.libraries[l].modules[item.module].module,
+        };
+        match &module.items[item.item].kind {
+            ItemKind::Struct(s) => s.name.at,
+            ItemKind::Enum(e) => e.name.at,
+            _ => Pos { line: 1, col: 1 },
+        }
+    }
+
     /// An item's name as written.
     fn item_name(&self, item: ItemRef) -> String {
         let module = match item.owner {
@@ -1614,6 +1745,37 @@ fn held_by_value(ty: &Ty, out: &mut Vec<ItemRef>) {
         Ty::Tuple(items) => items.iter().for_each(|t| held_by_value(t, out)),
         Ty::Opt(t) => held_by_value(t, out),
         _ => {}
+    }
+}
+
+/// The structs and enums a type names anywhere in it (by value or not).
+fn items_in(ty: &Ty, out: &mut Vec<ItemRef>) {
+    match ty {
+        Ty::Struct(i) | Ty::Enum(i) => out.push(*i),
+        Ty::List(t) | Ty::Set(t) | Ty::Opt(t) | Ty::Ref(t) | Ty::Pending(t) | Ty::Range(t) => items_in(t, out),
+        Ty::Map(k, v) => {
+            items_in(k, out);
+            items_in(v, out);
+        }
+        Ty::Tuple(ts) => ts.iter().for_each(|t| items_in(t, out)),
+        Ty::Fn(ps, r) => {
+            ps.iter().for_each(|t| items_in(t, out));
+            items_in(r, out);
+        }
+        _ => {}
+    }
+}
+
+/// How many levels a walk into `ty` takes: one for each type around another, a struct or enum its `held` depth.
+fn levels(ty: &Ty, held: &dyn Fn(&ItemRef) -> u64) -> u64 {
+    let inner = |ts: &mut dyn Iterator<Item = &Ty>| 1 + ts.map(|t| levels(t, held)).max().unwrap_or(0);
+    match ty {
+        Ty::Struct(i) | Ty::Enum(i) => held(i),
+        Ty::List(t) | Ty::Set(t) | Ty::Opt(t) | Ty::Ref(t) | Ty::Pending(t) | Ty::Range(t) => inner(&mut std::iter::once(&**t)),
+        Ty::Map(k, v) => inner(&mut [&**k, &**v].into_iter()),
+        Ty::Tuple(ts) => inner(&mut ts.iter()),
+        Ty::Fn(ps, r) => inner(&mut ps.iter().chain(std::iter::once(&**r))),
+        _ => 1,
     }
 }
 

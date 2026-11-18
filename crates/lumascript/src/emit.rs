@@ -182,6 +182,7 @@ pub fn emit_with(
         sizes: BTreeMap::new(),
         machine_index: std::cell::OnceCell::new(),
         descs: HashMap::new(),
+        eq_fns: HashMap::new(),
         closures: String::new(),
         closure_n: 0,
         fn_values: HashSet::new(),
@@ -330,6 +331,9 @@ struct Gen<'a> {
     kept: Vec<(String, u32, String)>,
     /// Each element C type's descriptor in lm.h (lumart_desc): its name.
     descs: HashMap<String, String>,
+    /// `==` of each struct and enum with values (its debug form) to its C function in lm.h (`lm_eq_<n>`), none for one
+    /// the back end cannot compare.
+    eq_fns: HashMap<String, Option<String>>,
     /// Function values' C (closure.rs): each closure's function and block, and each mod function's value wrapper,
     /// written into the module being written.
     closures: String,

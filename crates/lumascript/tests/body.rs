@@ -1116,6 +1116,27 @@ fn make_by_a_class_name_stays_linear() {
     assert!(took[1] < took[0] * 8, "{took:?}");
 }
 
+/// Structs each holding the next one twice: whether one compares or is json data is found once per struct, not once
+/// per way down to it (N-4049: both walks looked into a struct again on each path to it, 2 to the depth times).
+#[test]
+fn structs_held_twice_are_judged_once() {
+    let mut took = Vec::new();
+    for n in [5usize, 20] {
+        let mut text = String::new();
+        for i in 0..n {
+            text.push_str(&format!("struct S{i} {{\n    a: S{}\n    b: S{}\n}}\n", i + 1, i + 1));
+        }
+        text.push_str(&format!("struct S{n} {{\n    x: int\n}}\n"));
+        text.push_str("fn f(s: S0) {\n    let same = s == s\n    let j = json.encode(s)\n}\n");
+        let start = std::time::Instant::now();
+        let said: Said = full_in(&small_game(), &text).into_iter().filter(|d| d.0 != code::NOT_DESCRIBED).collect();
+        took.push(start.elapsed());
+        assert_eq!(said, vec![]);
+    }
+    eprintln!("5: {:?}, 20: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
+
 #[test]
 fn nullable_where_nothing_else_crosses_takes_none() {
     // A kept address, and a `void *`, marked nullable: the script leaves it out.
