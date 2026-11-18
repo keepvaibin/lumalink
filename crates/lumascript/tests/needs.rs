@@ -226,6 +226,14 @@ fn a_hook_and_an_override_prove_what_their_function_needs() {
 }
 
 #[test]
+fn a_class_s_machine_proves_what_its_control_and_the_stage_need_through_its_waits() {
+    // Its states run inside the object's control, each part and each resumption after a wait: the set `stage` and
+    // the control row's needs stand all through, waits too; not the player's.
+    let machine = "class Mine : LiveActor { }\n\nstates Phases for Mine {\n    state Fly {\n        enter { MR::useScene(); log MR::getStageThing() }\n        update { log MR::getStageThing() }\n    }\n    state Burst {\n        enter { log MR::getStageThing() }\n        wait 30 frames\n        log MR::getStageThing()\n        log MR::getPlayerNum()\n    }\n    start Fly\n}\n";
+    assert_eq!(needs_said(machine), vec![refused(12, "MR::getPlayerNum", "MarioActor", "Player")]);
+}
+
+#[test]
 fn a_mod_function_s_needs_are_its_callers() {
     let helper = "fn helper() -> s32 {\n    return MR::getStageThing()\n}\n";
     assert_eq!(needs_said(&format!("{helper}on frame {{\n    log helper()\n}}\n")), vec![refused(5, "helper", "StageSwitchContainer, scene", "Stage")]);

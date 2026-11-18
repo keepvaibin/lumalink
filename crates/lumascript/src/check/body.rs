@@ -239,6 +239,9 @@ struct Frame {
     /// Part (g): the needs proved here, each with its tick, and where each open scope's start them.
     proved: Vec<(String, u32)>,
     proved_marks: Vec<usize>,
+    /// Part (g): the needs proved for the whole body, which no `wait` ends: a class's state machine runs only inside
+    /// its object's `control`, each part and each resumption after a wait alike (needs.rs, `prove_machine`).
+    lasting: Vec<String>,
     /// Part (g): the function of the mod this body is (or runs at once inside), when its callers prove its needs.
     fn_key: Option<needs::FnKey>,
 }
@@ -274,6 +277,7 @@ impl Frame {
             override_of: None,
             proved: Vec::new(),
             proved_marks: Vec::new(),
+            lasting: Vec::new(),
             fn_key: None,
         }
     }
@@ -1945,6 +1949,9 @@ impl<'w, 'a> Walk<'w, 'a> {
             frame.members = class.map(Members::Mod);
             frame.machine = Some(me);
             self.frames.push(frame);
+            if let Some(c) = class {
+                self.prove_machine(c);
+            }
             // `enter`, `update` and `exit` once a state (S0129).
             let mut seen: HashMap<&'static str, Pos> = HashMap::new();
             for part in &state.parts {

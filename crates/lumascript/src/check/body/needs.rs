@@ -6,7 +6,8 @@
 //!    `on stage "NAME"` the set `stage`; `on play`, `on player ready` the set `player`; `on stage ended` `system`;
 //! 2. a hook's body proves what its game function needs (every override's, with `every override of`), and an
 //!    `override fn`'s what the virtual it replaces needs: the game is calling it; an `override fn` also proves the
-//!    set `stage`'s needs (an object of a mod's class lives only while they are there, [`Walk::prove_object`]);
+//!    set `stage`'s needs (an object of a mod's class lives only while they are there, [`Walk::prove_object`]); a
+//!    state machine of a mod's class proves both through all its states' bodies, waits too ([`Walk::prove_machine`]);
 //! 3. `if can(F)` (and `guard`, `while`, `&&`; `if !can(F)` whose block leaves) proves F's needs;
 //! 4. `if let x = G()` proves what G's result is null without (`null_when`);
 //! 5. a function of the mod (a module's `fn`, a struct's or class's own) proves nothing of its own: what its body
@@ -116,9 +117,30 @@ impl<'w, 'a> Walk<'w, 'a> {
         self.prove(needs);
     }
 
-    /// The proofs that stand here: made in a scope still open, with no `wait` after them on any path to here.
+    /// A state's body of a machine of a mod's class (`states M for <class>`): the class's code runs the machine from its
+    /// object's `control` (emit/class.rs), every part of a state and each resumption after a `wait` alike, so what the
+    /// game's `control` row of the base needs and the set `stage`'s needs ([`Walk::prove_object`]) are there all
+    /// through the body: a `wait` does not end them.
+    pub(super) fn prove_machine(&mut self, class: ItemRef) {
+        let mut needs = self.set_needs("stage");
+        let row = self.class_base(class).and_then(|b| self.game().virtual_of(&b, "control", Some(0)));
+        if let Some((n, s)) = row {
+            for need in self.row_needs(&n, &s) {
+                if !needs.contains(&need) {
+                    needs.push(need);
+                }
+            }
+        }
+        self.frame_mut().lasting = needs;
+    }
+
+    /// The proofs that stand here: made in a scope still open, with no `wait` after them on any path to here, and the
+    /// body's lasting ones (tick `u32::MAX`, which no loop's start takes back).
     fn proved_now(&self) -> Vec<(String, u32)> {
-        self.frame().proved.iter().filter(|(_, t)| self.waited_from(*t).is_none()).cloned().collect()
+        let frame = self.frame();
+        let mut out: Vec<(String, u32)> = frame.proved.iter().filter(|(_, t)| self.waited_from(*t).is_none()).cloned().collect();
+        out.extend(frame.lasting.iter().map(|n| (n.clone(), u32::MAX)));
+        out
     }
 
     /// A closure that runs at once inside its statement (a built-in's closure argument): the proofs and the function
@@ -133,8 +155,10 @@ impl<'w, 'a> Walk<'w, 'a> {
             outer.proved.iter().filter(|(_, t)| outer.path.waits.iter().all(|(w, _)| *w < *t)).cloned().collect::<Vec<_>>()
         };
         let key = self.frames[n - 2].fn_key.clone();
+        let lasting = self.frames[n - 2].lasting.clone();
         let inner = &mut self.frames[n - 1];
         inner.proved = proved;
+        inner.lasting = lasting;
         inner.fn_key = key;
     }
 
