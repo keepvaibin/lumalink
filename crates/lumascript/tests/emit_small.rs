@@ -2758,3 +2758,44 @@ fn an_extern_that_disagrees_with_its_header_is_said_at_the_script_line() {
     assert!(!out.status.success(), "{said}");
     assert!(said.contains("main.lum:3:") && said.contains("conflicting types for 'c_odd'"), "{said}");
 }
+
+/// A class of many machines, a `go` into each from an override of the class and from the machine's own `update`, and many
+/// writes of module `var`s: checked and built in time that grows with it, not with its square (N-4044: each `go`
+/// looked through every item of every module for the class's machines, in the checker and in the back end, and each
+/// write of a module value through every name of its module).
+#[test]
+fn machines_and_module_writes_stay_linear() {
+    let game = game();
+    let mut took = Vec::new();
+    for n in [400usize, 1_600] {
+        let mut src = String::from("class Ball : Actor {\n    var hits = 0\n    override fn control() {\n");
+        for i in 0..n {
+            src.push_str(&format!("        if hits == {i} {{ go M{i}.B }}\n"));
+        }
+        src.push_str("    }\n}\n");
+        for i in 0..n {
+            src.push_str(&format!("states M{i} for Ball {{\n    state A {{\n        update {{ go B }}\n    }}\n    state B {{\n        stop\n    }}\n    start A\n}}\nvar v{i} = 0\n"));
+        }
+        src.push_str("on start {\n");
+        for i in 0..n {
+            src.push_str(&format!("    v{i} = {i}\n"));
+        }
+        src.push_str("}\n");
+        let (module, parsed) = lumascript::parse_module(&src);
+        assert!(parsed.is_empty(), "{parsed:?}");
+        let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+        let start = std::time::Instant::now();
+        let built = lumascript::on_compiler_stack(|| {
+            let checked = check::check(&sources, &[], ModFacts::of_game(&game));
+            let errors: Vec<_> = checked.diags.iter().filter(|(_, d)| !lumascript::diag::is_note(d.code)).take(3).collect();
+            assert!(errors.is_empty(), "{errors:?}");
+            emit::emit("machines", &sources, &checked, &game).map(|_| ()).map_err(|d| format!("{:?}", &d[..d.len().min(3)]))
+        })
+        .unwrap();
+        took.push(start.elapsed());
+        assert_eq!(built, Ok(()));
+    }
+    eprintln!("400: {:?}, 1600: {:?}", took[0], took[1]);
+    // Four times the module: linear is about four times the time; a square, sixteen.
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}

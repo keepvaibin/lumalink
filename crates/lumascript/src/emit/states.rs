@@ -16,6 +16,7 @@
 use super::{c_string, counted, Fx, Gen, HookFx};
 use crate::ast::{self, HookKind, ItemKind, Pos};
 use crate::check::{ItemRef, Owner, Resolved};
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 /// The most state changes one run of a machine makes; the rest are made on the next frame.
@@ -30,7 +31,40 @@ pub(super) struct Machine {
     pub(super) field: String,
 }
 
+/// Each machine's class and place among its class's machines (its field `lm_mach_<k>`), and each state's number: a `go`
+/// or `is_state` finds them in constant time, where a scan of every item of every module, and of the machine's states,
+/// made each cost the mod's size (N-4044).
+#[derive(Debug, Default)]
+pub(super) struct MachineIndex {
+    place: HashMap<ItemRef, (ItemRef, usize)>,
+    states: HashMap<(ItemRef, String), usize>,
+}
+
 impl Gen<'_> {
+    /// The machines' places and states ([`MachineIndex`]), found the first time one is asked, as [`Gen::machines_of`]
+    /// numbers them.
+    fn machine_index(&self) -> &MachineIndex {
+        self.machine_index.get_or_init(|| {
+            let mut out = MachineIndex::default();
+            let mut count: HashMap<ItemRef, usize> = HashMap::new();
+            for (m, source) in self.sources.iter().enumerate() {
+                for (i, item) in source.module.items.iter().enumerate() {
+                    let ItemKind::States(s) = &item.kind else { continue };
+                    let me = ItemRef { owner: Owner::Mod, module: m, item: i };
+                    for (n, st) in s.states.iter().enumerate() {
+                        out.states.entry((me, st.name.name.clone())).or_insert(n);
+                    }
+                    if let Some(Resolved::Item(class)) = self.checked.named.get(&(m, s.class.at)) {
+                        let k = count.entry(*class).or_insert(0);
+                        out.place.insert(me, (*class, *k));
+                        *k += 1;
+                    }
+                }
+            }
+            out
+        })
+    }
+
     /// The machines (`states M for K`) of class `class`, in module and item order, each with its field in K's data.
     pub(super) fn machines_of(&self, class: ItemRef) -> Vec<Machine> {
         let mut out = Vec::new();
@@ -223,13 +257,15 @@ impl Gen<'_> {
             }
         }
         let class = fx.class_data?;
-        self.machines_of(class).into_iter().find(|mach| mach.item == machine).map(|mach| format!("(&lm_d->{})", mach.field))
+        match self.machine_index().place.get(&machine) {
+            Some((of, k)) if *of == class => Some(format!("(&lm_d->lm_mach_{k})")),
+            _ => None,
+        }
     }
 
     /// A state's number in its machine.
     pub(super) fn state_number(&self, machine: ItemRef, state: &str) -> Option<usize> {
-        let ItemKind::States(s) = &self.item(machine).kind else { return None };
-        s.states.iter().position(|st| st.name.name == state)
+        self.machine_index().states.get(&(machine, state.to_string())).copied()
     }
 
     /// `go S` / `go M.S`.

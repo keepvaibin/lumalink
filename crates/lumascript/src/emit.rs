@@ -180,6 +180,7 @@ pub fn emit_with(
         game_globals: BTreeMap::new(),
         classes: BTreeMap::new(),
         sizes: BTreeMap::new(),
+        machine_index: std::cell::OnceCell::new(),
         descs: HashMap::new(),
         closures: String::new(),
         closure_n: 0,
@@ -323,6 +324,9 @@ struct Gen<'a> {
     /// Each game record whose size a place needs (an array's element): its row name to its size slot (`lm_size_<n>`,
     /// kind 2).
     sizes: BTreeMap<String, String>,
+    /// The machines' places in their classes' data and their states' numbers, found the first time a `go` asks
+    /// ([`states::MachineIndex`]).
+    machine_index: std::cell::OnceCell<states::MachineIndex>,
     kept: Vec<(String, u32, String)>,
     /// Each element C type's descriptor in lm.h (lumart_desc): its name.
     descs: HashMap<String, String>,

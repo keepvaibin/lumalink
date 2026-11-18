@@ -30,7 +30,7 @@ pub(crate) use needs::Needs;
 pub(crate) use service::{answer_ty, event_name, form_of as service_form, sty as service_sty, wait_form_of as service_wait_form};
 pub(crate) use call::{builtins_of, STD_NAMES};
 
-use super::{nearest, Checker, ItemRef, ModRef, Name, Owner, Sort, Ty};
+use super::{nearest, Checker, ItemRef, ModRef, Name, Owner, Ty};
 use crate::ast::{self, AssignOp, Block, ClassMember, Expr, ExprId, ExprKind, ItemKind, Pos, Stmt, StmtKind};
 use crate::diag::{code, Arg, Diagnostic};
 use crate::game::{GameTy, Scalar, Value};
@@ -1852,20 +1852,30 @@ impl<'w, 'a> Walk<'w, 'a> {
         Ty::Unit
     }
 
-    /// The `states` machines of a mod class, over the mod's modules: their items.
-    fn machines_of(&self, class: ItemRef) -> Vec<ItemRef> {
-        let mut out = Vec::new();
-        for (k, source) in self.c.modules.iter().enumerate() {
-            let m = ModRef::of_mod(k);
-            for (i, item) in source.module.items.iter().enumerate() {
-                if let ItemKind::States(s) = &item.kind {
-                    if self.c.scope_type(m, &s.class.name) == Some(Ty::Class(class)) {
-                        out.push(m.item(i));
+    /// The mod's `states` machines by class, name and state ([`super::Machines`]), found the first time one is asked.
+    fn machines(&self) -> &super::Machines {
+        let c: &Checker<'a> = self.c;
+        c.machines.get_or_init(|| {
+            let mut out = super::Machines::default();
+            for (k, source) in c.modules.iter().enumerate() {
+                let m = ModRef::of_mod(k);
+                for (i, item) in source.module.items.iter().enumerate() {
+                    let ItemKind::States(s) = &item.kind else { continue };
+                    let me = m.item(i);
+                    out.states.insert(me, s.states.iter().map(|st| st.name.name.clone()).collect());
+                    if let Some(Ty::Class(class)) = c.scope_type(m, &s.class.name) {
+                        out.of_class.entry(class).or_default().push(me);
+                        out.by_name.entry((class, s.name.name.clone())).or_insert(me);
                     }
                 }
             }
-        }
-        out
+            out
+        })
+    }
+
+    /// The `states` machines of a mod class, over the mod's modules: their items.
+    fn machines_of(&self, class: ItemRef) -> &[ItemRef] {
+        self.machines().of_class.get(&class).map_or(&[], Vec::as_slice)
     }
 
     fn machine_of(&self, item: ItemRef) -> Option<&'a ast::States> {
@@ -1975,15 +1985,19 @@ impl<'w, 'a> Walk<'w, 'a> {
             self.say(here());
             return;
         }
-        let machines: Vec<ItemRef> = match class {
-            Some(c) => self.machines_of(c),
-            None => own.into_iter().collect(),
+        // The machines named in a message: the class's, else this one.
+        let machines = |w: &Self| -> Vec<ItemRef> {
+            match class {
+                Some(c) => w.machines_of(c).to_vec(),
+                None => own.into_iter().collect(),
+            }
         };
         let names = |w: &Self, list: &[ItemRef]| list.iter().filter_map(|m| w.machine_of(*m)).map(|s| s.name.name.clone()).collect::<Vec<_>>().join(", ");
         let (machine, state) = match path {
             [s] => match own {
                 Some(m) => (m, s),
                 None => {
+                    let machines = machines(self);
                     let listed = names(self, &machines);
                     if machines.is_empty() {
                         self.say(here());
@@ -1994,28 +2008,37 @@ impl<'w, 'a> Walk<'w, 'a> {
                     return;
                 }
             },
-            [m, s] => match machines.iter().find(|x| self.machine_of(**x).is_some_and(|st| st.name.name == m.name)) {
-                Some(x) => (*x, s),
+            [m, s] => match self.machine_named(class, own, &m.name) {
+                Some(x) => (x, s),
                 None => {
-                    let listed = names(self, &machines);
+                    let listed = names(self, &machines(self));
                     self.say(Diagnostic::new(code::GO_UNKNOWN, m.at).with("found", Arg::Text(m.name.clone())).with("machine", Arg::Text(listed)));
                     return;
                 }
             },
             _ => {
                 let written = path.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(".");
-                let listed = names(self, &machines);
+                let listed = names(self, &machines(self));
                 self.say(Diagnostic::new(code::GO_UNKNOWN, at).with("found", Arg::Text(written)).with("machine", Arg::Text(listed)));
                 return;
             }
         };
         let state: &ast::Ident = state;
         let Some(st) = self.machine_of(machine) else { return };
-        if st.states.iter().any(|x| x.name.name == state.name) {
+        if self.machines().states.get(&machine).is_some_and(|names| names.contains(&state.name)) {
             self.named.insert(state.at, Resolved::State { machine, state: state.name.clone() });
         } else {
             let mname = st.name.name.clone();
             self.say(Diagnostic::new(code::GO_UNKNOWN, state.at).with("found", Arg::Text(state.name.clone())).with("machine", Arg::Text(mname)));
+        }
+    }
+
+    /// The machine `M` of `go M.S` names: the class's machine of that name, else (no class) this machine when it is
+    /// named so.
+    fn machine_named(&self, class: Option<ItemRef>, own: Option<ItemRef>, name: &str) -> Option<ItemRef> {
+        match class {
+            Some(c) => self.machines().by_name.get(&(c, name.to_string())).copied(),
+            None => own.filter(|m| self.machine_of(*m).is_some_and(|st| st.name.name == name)),
         }
     }
 
@@ -2674,13 +2697,11 @@ impl<'w, 'a> Walk<'w, 'a> {
                         Err("Script.Place.Let")
                     }
                 }
-                Some(Resolved::Item(item)) => match self.c.scope(item.module_ref()).names.values().find_map(|n| match n {
-                    Name::Item { item: i, sort, .. } if *i == item.item => Some(*sort),
-                    _ => None,
-                }) {
-                    Some(Sort::Var) => Ok(()),
-                    Some(Sort::Option) => Err("Script.Place.Option"),
-                    Some(Sort::Let) => Err("Script.Place.Let"),
+                // By the item itself: a scan of its module's names made each write cost the module's size (N-4044).
+                Some(Resolved::Item(item)) => match &self.item_of(*item).kind {
+                    ItemKind::Binding(b) if b.var => Ok(()),
+                    ItemKind::Binding(_) => Err("Script.Place.Let"),
+                    ItemKind::Option { .. } => Err("Script.Place.Option"),
                     _ => Err("Script.Place.Value"),
                 },
                 Some(Resolved::Member { .. }) => Ok(()),

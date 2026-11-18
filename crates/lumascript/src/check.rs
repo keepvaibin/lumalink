@@ -409,11 +409,25 @@ struct Checker<'a> {
     overriders: std::cell::OnceCell<HashMap<(String, String), Vec<(String, String)>>>,
     /// Each item's members by name, made the first time a use asks ([`MemberIndex`]).
     member_index: MemberIndexes,
+    /// The mod's state machines by class and name, made the first time a `go` or `is_state` asks ([`Machines`]).
+    machines: std::cell::OnceCell<Machines>,
+}
+
+/// The mod's `states` items, found once a check: each `go` and `is_state` finds its machine and state in constant time,
+/// where a scan of every item of every module made each cost the mod's size (N-4044).
+#[derive(Debug, Default)]
+pub(crate) struct Machines {
+    /// Each class's machines, in module and item order.
+    pub(crate) of_class: HashMap<ItemRef, Vec<ItemRef>>,
+    /// A class's machine by its name (the first of the name).
+    pub(crate) by_name: HashMap<(ItemRef, String), ItemRef>,
+    /// Each machine's states by name.
+    pub(crate) states: HashMap<ItemRef, std::collections::HashSet<String>>,
 }
 
 /// Checks a mod's modules (part b) against its libraries and facts.
 pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> Checked {
-    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default(), member_index: Default::default() };
+    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default(), member_index: Default::default(), machines: Default::default() };
     c.out.option_index = c.facts.options.iter().enumerate().map(|(i, o)| (o.key.clone(), i as u32)).collect();
     if let Some(content) = c.facts.content {
         if let Some(models) = content.names.get("model") {
