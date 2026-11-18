@@ -35,6 +35,7 @@ use crate::ast::{self, AssignOp, Block, ClassMember, Expr, ExprId, ExprKind, Ite
 use crate::diag::{code, Arg, Diagnostic};
 use crate::game::{GameTy, Scalar, Value};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// A local's index in [`super::Checked::locals`].
 pub type LocalId = u32;
@@ -135,8 +136,8 @@ struct HookCx {
 /// A branch that leaves takes its path with it; the paths of branches that go on are joined.
 #[derive(Clone, Debug)]
 pub(super) struct Path {
-    /// The waits on some path, their tick and place, in tick order (S0104).
-    waits: Vec<(u32, Pos)>,
+    /// The waits on some path, their tick and place (S0104).
+    waits: Waits,
     /// A `proceed()` on some path: the first one's place (S0122).
     proceeded: Option<Pos>,
     /// On every path the hooked function's result is given: `proceed()` ran or `result` was set (S0123, S0124).
@@ -145,7 +146,7 @@ pub(super) struct Path {
 
 impl Path {
     fn new() -> Path {
-        Path { waits: Vec::new(), proceeded: None, given: true }
+        Path { waits: Waits::default(), proceeded: None, given: true }
     }
 
     /// `from` joined into `into` (None: no path yet, so `from` itself).
@@ -153,7 +154,7 @@ impl Path {
         match into {
             None => *into = Some(from.clone()),
             Some(p) => {
-                join_waits(&mut p.waits, &from.waits);
+                p.waits = Waits::join(&p.waits, &from.waits);
                 p.proceeded = p.proceeded.or(from.proceeded);
                 p.given &= from.given;
             }
@@ -299,14 +300,104 @@ struct LoopMark {
     sites: usize,
 }
 
-/// Adds the waits of `from` that `into` lacks, keeping tick order.
-fn join_waits(into: &mut Vec<(u32, Pos)>, from: &[(u32, Pos)]) {
-    for w in from {
-        if !into.iter().any(|x| x.0 == w.0) {
-            into.push(*w);
+/// The waits on some path to a place, newest first. A branch's path is its base's with what the branch added in front,
+/// and shares the base's list: a copy costs nothing and a join costs what the branches added, not every wait before
+/// them (each wait compared with each, in every join, was a cube of the waits: N-4030). A wait's tick is its own, and
+/// is above every tick before it.
+#[derive(Clone, Default)]
+pub(super) struct Waits(Option<Rc<WaitNode>>);
+
+struct WaitNode {
+    tick: u32,
+    at: Pos,
+    next: Waits,
+}
+
+impl Waits {
+    /// A wait after every one here.
+    fn push(&mut self, tick: u32, at: Pos) {
+        debug_assert!(self.last().is_none_or(|t| t < tick), "a wait's tick is above every one before it");
+        let next = std::mem::take(self);
+        self.0 = Some(Rc::new(WaitNode { tick, at, next }));
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// The newest wait's tick.
+    fn last(&self) -> Option<u32> {
+        self.0.as_ref().map(|n| n.tick)
+    }
+
+    /// The place of the first wait with a tick of `from` or later.
+    fn first_from(&self, from: u32) -> Option<Pos> {
+        let mut found = None;
+        let mut at = &self.0;
+        while let Some(n) = at {
+            if n.tick < from {
+                break;
+            }
+            found = Some(n.at);
+            at = &n.next.0;
+        }
+        found
+    }
+
+    /// The waits of both, each once, newest first; the tail both share (or the rest of one when the other ends) is
+    /// kept as it is.
+    fn join(a: &Waits, b: &Waits) -> Waits {
+        let mut head: Vec<(u32, Pos)> = Vec::new();
+        let (mut x, mut y) = (&a.0, &b.0);
+        let tail = loop {
+            match (x, y) {
+                (Some(p), Some(q)) if Rc::ptr_eq(p, q) => break x,
+                (Some(p), Some(q)) => {
+                    let newer = if p.tick >= q.tick { p } else { q };
+                    head.push((newer.tick, newer.at));
+                    let (pt, qt) = (p.tick, q.tick);
+                    if pt >= qt {
+                        x = &p.next.0;
+                    }
+                    if qt >= pt {
+                        y = &q.next.0;
+                    }
+                }
+                (_, None) => break x,
+                (None, _) => break y,
+            }
+        };
+        let mut out = Waits(tail.clone());
+        for (tick, at) in head.into_iter().rev() {
+            out.push(tick, at);
+        }
+        out
+    }
+}
+
+/// Dropped node by node: a long list dropped by recursion would end the compiler's stack.
+impl Drop for Waits {
+    fn drop(&mut self) {
+        let mut at = self.0.take();
+        while let Some(node) = at {
+            match Rc::try_unwrap(node) {
+                Ok(mut n) => at = n.next.0.take(),
+                Err(_) => break,
+            }
         }
     }
-    into.sort_by_key(|w| w.0);
+}
+
+impl std::fmt::Debug for Waits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut list = f.debug_list();
+        let mut at = &self.0;
+        while let Some(n) = at {
+            list.entry(&(n.tick, n.at));
+            at = &n.next.0;
+        }
+        list.finish()
+    }
 }
 
 /// What a value reads first: through `( )`, `!`, `-`, `not`, a binary's left, a member's or index's base, `as`, a
@@ -373,6 +464,8 @@ pub(super) struct Walk<'w, 'a> {
     /// Part (d): a counter of binds, loop starts and waits, in walk order, and each local's tick when bound.
     tick: u32,
     bound_tick: HashMap<LocalId, u32>,
+    /// The frame that holds each local (its index in `frames`, which stays while the local is in scope).
+    holder: HashMap<LocalId, usize>,
     /// Locals already said by S0104 (once each).
     across_said: std::collections::HashSet<LocalId>,
     /// The next closure walked is a built-in's closure argument (call.rs sets it just before).
@@ -478,6 +571,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             folding: false,
             tick: 0,
             bound_tick: HashMap::new(),
+            holder: HashMap::new(),
             across_said: Default::default(),
             next_runs_now: false,
             whole_wait: None,
@@ -613,6 +707,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         list.push(local);
         let tick = self.next_tick();
         self.bound_tick.insert(id, tick);
+        self.holder.insert(id, self.frames.len() - 1);
         self.frame_mut().scopes.last_mut().expect("a frame has a scope").insert(name.name.clone(), id);
         self.named.insert(name.at, Resolved::Local(id));
         id
@@ -742,8 +837,8 @@ impl<'w, 'a> Walk<'w, 'a> {
         // Any local read after a `wait` it was bound before, in the body that binds it (part e: a task's field).
         if self.record && !captured {
             let bound = self.bound_tick.get(&id).copied().unwrap_or(0);
-            let holder = self.frames.iter().rposition(|f| f.scopes.iter().any(|s| s.values().any(|v| *v == id)));
-            if holder.is_some_and(|h| self.frames[h].path.waits.iter().any(|(t, _)| *t > bound)) {
+            let holder = self.holder.get(&id).and_then(|h| self.frames.get(*h));
+            if holder.is_some_and(|h| h.path.waits.last().is_some_and(|t| t > bound)) {
                 self.c.out.across_wait.insert(id);
             }
         }
@@ -756,21 +851,21 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
         // A built-in's closure argument runs where it is written: its read of a local around it is a read in the body
         // that holds the local, against that body's waits and loops (A42D-1).
-        let holder = self.frames.iter().rposition(|f| f.scopes.iter().any(|s| s.values().any(|v| *v == id))).unwrap_or(self.frames.len() - 1);
+        let holder = self.holder.get(&id).copied().filter(|h| *h < self.frames.len()).unwrap_or(self.frames.len() - 1);
         let bound = self.bound_tick.get(&id).copied().unwrap_or(0);
         let frame = &mut self.frames[holder];
         if frame.later_from.is_some_and(|since| bound < since) {
             self.kept(&ty, &name, at, "Script.Keep.State");
             return;
         }
-        let crossed = frame.path.waits.iter().find(|(t, _)| *t > bound).map(|(_, p)| *p);
-        match crossed {
-            Some(w) => self.across(id, &name, at, w),
-            None => {
-                if let Some(mark) = frame.loop_marks.last_mut() {
-                    mark.uses.push((id, at));
-                }
+        if frame.path.waits.last().is_some_and(|t| t > bound) {
+            // Said once a local: the wait it crossed is looked for only the first time.
+            if !self.across_said.contains(&id) {
+                let w = frame.path.waits.first_from(bound + 1).expect("a wait after it");
+                self.across(id, &name, at, w);
             }
+        } else if let Some(mark) = frame.loop_marks.last_mut() {
+            mark.uses.push((id, at));
         }
     }
 
@@ -821,7 +916,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             let end = self.frame().path.clone();
             Path::join(&mut round, &end);
         }
-        let first_wait = round.as_ref().and_then(|r| r.waits.iter().find(|(t, _)| *t > mark.start).map(|(_, p)| *p));
+        let first_wait = round.as_ref().and_then(|r| r.waits.first_from(mark.start + 1));
         // Part (g): what was proved before the loop does not stand the next time round.
         if first_wait.is_some() {
             self.loop_waited(mark.sites, mark.start);
@@ -855,7 +950,7 @@ impl<'w, 'a> Walk<'w, 'a> {
 
     /// The waits on this path from tick `from` on.
     fn waited_from(&self, from: u32) -> Option<Pos> {
-        self.frame().path.waits.iter().find(|(t, _)| *t >= from).map(|(_, p)| *p)
+        self.frame().path.waits.first_from(from)
     }
 
     /// Branches (an `if`'s arms, a `match`'s): each starts from `base`; what follows has the waits of the arms that go
@@ -890,7 +985,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
         if ok {
             let t = self.next_tick();
-            self.frame_mut().path.waits.push((t, e.at));
+            self.frame_mut().path.waits.push(t, e.at);
         }
     }
 
@@ -2115,7 +2210,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 let before = self.path_waits();
                 if let Some(w) = conds.iter().map(|c| first_read(&c.value)).find(|x| matches!(x.kind, ExprKind::Wait { .. } | ExprKind::WaitUntil(_))) {
                     let t = self.next_tick();
-                    self.frame_mut().path.waits.push((t, w.at));
+                    self.frame_mut().path.waits.push(t, w.at);
                 }
                 if self.block(otherwise, Want::Drop) != Ty::Never {
                     self.say(Diagnostic::new(code::GUARD_STAYS, otherwise.at));

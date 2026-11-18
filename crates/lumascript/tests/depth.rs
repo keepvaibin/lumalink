@@ -162,6 +162,55 @@ fn value_cycles_stay_linear() {
     assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
 }
 
+/// Checks a body and gives the time and the mistakes (notes left out).
+fn check_timed(src: &str) -> (std::time::Duration, Vec<Diagnostic>) {
+    use lumascript::check::{check, ModFacts, Source};
+    let (module, parsed) = parse_module(src);
+    assert!(parsed.is_empty(), "{parsed:?}");
+    let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+    let game = lumascript::game::Game::new(Default::default(), None);
+    let start = std::time::Instant::now();
+    let diags = lumascript::on_compiler_stack(|| check(&sources, &[], ModFacts::of_game(&game)).diags).unwrap();
+    let took = start.elapsed();
+    (took, diags.into_iter().map(|(_, d)| d).filter(|d| !lumascript::diag::is_note(d.code)).collect())
+}
+
+/// A body of many branches that wait, and of many locals each read: checked in time that grows with it (the waits of
+/// two branches were joined by comparing each with each, and each read looked through every local in scope for the
+/// body that holds it: N-4030).
+#[test]
+fn bodies_stay_linear() {
+    let mut took = Vec::new();
+    for n in [1_000usize, 4_000] {
+        let mut src = String::from("var c = true\n\ntask waits() {\n");
+        for _ in 0..n {
+            src.push_str("    if c {\n        wait 1 frames\n    } else {\n        wait 2 frames\n    }\n");
+        }
+        src.push_str("}\n\ntask reads() {\n");
+        for i in 0..n {
+            src.push_str(&format!("    let x{i} = {i}\n"));
+        }
+        for i in 0..n {
+            src.push_str(&format!("    log x{i}\n"));
+        }
+        src.push_str("}\n\non start {\n    waits()\n    reads()\n}\n");
+        let (t, said) = check_timed(&src);
+        assert!(said.is_empty(), "{said:?}");
+        took.push(t);
+    }
+    eprintln!("1000: {:?}, 4000: {:?}", took[0], took[1]);
+    // Four times the body: linear is about four times the time; a square, sixteen; a cube, sixty-four.
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
+
+/// A body of 200,000 waits: its list of waits is let go of one by one, not by a recursion as deep as the list.
+#[test]
+fn a_long_list_of_waits_is_let_go_of() {
+    let src = format!("task waits() {{\n{}}}\n\non start {{\n    waits()\n}}\n", "    wait 1 frames\n".repeat(200_000));
+    let (_, said) = check_timed(&src);
+    assert!(said.is_empty(), "{said:?}");
+}
+
 /// A large module with no mistake: `n` structs and functions that call each other, with locals, loops, branches and
 /// struct literals.
 fn large_module(n: usize) -> String {

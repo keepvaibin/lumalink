@@ -152,7 +152,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
         let proved = {
             let outer = &self.frames[n - 2];
-            outer.proved.iter().filter(|(_, t)| outer.path.waits.iter().all(|(w, _)| *w < *t)).cloned().collect::<Vec<_>>()
+            outer.proved.iter().filter(|(_, t)| outer.path.waits.last().is_none_or(|w| w < *t)).cloned().collect::<Vec<_>>()
         };
         let key = self.frames[n - 2].fn_key.clone();
         let lasting = self.frames[n - 2].lasting.clone();
