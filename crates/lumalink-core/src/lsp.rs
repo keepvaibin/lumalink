@@ -49,9 +49,16 @@ pub fn write_message(output: &mut impl Write, message: &Value) -> std::io::Resul
     output.flush()
 }
 
-/// A `file:` URI's path (percent-decoded; `file:///C:/x` is `C:/x` on Windows).
+/// A `file:` URI's path (percent-decoded; `file:///C:/x` is `C:/x` on Windows). A host other than `localhost` is a
+/// share's server: `file://server/share/x` is `//server/share/x`, as editors on Windows name a file on a network share
+/// (N-4040).
 pub fn uri_path(uri: &str) -> Option<PathBuf> {
-    let rest = uri.strip_prefix("file://")?;
+    let after = uri.strip_prefix("file://")?;
+    let rest = match after.strip_prefix("localhost/") {
+        Some(local) => format!("/{local}"),
+        None if after.starts_with('/') => after.to_string(),
+        None => format!("//{after}"),
+    };
     let mut bytes = Vec::with_capacity(rest.len());
     let raw = rest.as_bytes();
     let mut i = 0;
@@ -72,10 +79,13 @@ pub fn uri_path(uri: &str) -> Option<PathBuf> {
     Some(PathBuf::from(text))
 }
 
-/// A path as a `file:` URI.
+/// A path as a `file:` URI; a share's (`//server/share/x`) has its server as the host (`file://server/share/x`).
 pub fn path_uri(path: &Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
-    let mut out = String::from(if text.starts_with('/') { "file://" } else { "file:///" });
+    let (mut out, text) = match text.strip_prefix("//") {
+        Some(share) => (String::from("file://"), share.to_string()),
+        None => (String::from(if text.starts_with('/') { "file://" } else { "file:///" }), text),
+    };
     for b in text.bytes() {
         if b.is_ascii_alphanumeric() || b"/-_.~:".contains(&b) {
             out.push(b as char);
@@ -606,6 +616,12 @@ mod tests {
     fn uris_and_paths_go_both_ways() {
         assert_eq!(uri_path("file:///C:/mods/a%20b/main.lum"), Some(PathBuf::from("C:/mods/a b/main.lum")));
         assert_eq!(uri_path("file:///home/x/main.lum"), Some(PathBuf::from("/home/x/main.lum")));
+        // N-4040: a file on a network share, both ways (fails before: `server/share/m.lum`, a path from the current
+        // folder, and `file:////server/...`, a URI no editor gives).
+        assert_eq!(uri_path("file://server/share/mods/m.lum"), Some(PathBuf::from("//server/share/mods/m.lum")));
+        assert_eq!(path_uri(Path::new("//server/share/mods/m.lum")), "file://server/share/mods/m.lum");
+        assert_eq!(uri_path(&path_uri(Path::new("//server/share/a b.lum"))), Some(PathBuf::from("//server/share/a b.lum")));
+        assert_eq!(uri_path("file://localhost/home/x/main.lum"), Some(PathBuf::from("/home/x/main.lum")));
         assert_eq!(path_uri(Path::new("/home/x/a b.lum")), "file:///home/x/a%20b.lum");
     }
 
