@@ -384,10 +384,13 @@ pub fn extract(path: &Path, names: &[String], into: &Path) -> Result<Vec<String>
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).with_context(|| say!("LumaLink.CannotMake", path = parent.display()))?;
         }
-        if target.exists() {
-            bail!(say!("LumaLink.AlreadyThere", path = target.display()));
-        }
-        fs::write(&target, &data).with_context(|| say!("LumaLink.CannotWrite", path = target.display()))?;
+        // A new file or nothing: never over one, nor through a link left where the entry goes (N-4038).
+        let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => bail!(say!("LumaLink.AlreadyThere", path = target.display())),
+            Err(e) => return Err(e).with_context(|| say!("LumaLink.CannotWrite", path = target.display())),
+        };
+        file.write_all(&data).with_context(|| say!("LumaLink.CannotWrite", path = target.display()))?;
         done.push(name.to_string());
     }
     Ok(done)
@@ -438,6 +441,23 @@ mod tests {
         assert_eq!(fs::read(into.join("layers/base/files/a.txt")).unwrap(), text.as_bytes());
         assert!(extract(&one, &["layers".to_string()], &into).is_err(), "never writes over a file");
         assert!(extract(&one, &["nothing".to_string()], &into).is_err());
+    }
+
+    /// N-4038: an entry is written as a new file, never through a link left where it goes (fails before: the link's
+    /// target outside the folder was written).
+    #[cfg(unix)]
+    #[test]
+    fn extract_never_writes_through_a_link() {
+        let dir = folder(&[("luma.json", b"{}"), ("layers/base/files/a.txt", b"mod")]);
+        let out = tempfile::tempdir().unwrap();
+        let path = out.path().join("m.luma");
+        write(&folder_files(dir.path()).unwrap(), &path).unwrap();
+        let into = out.path().join("open");
+        fs::create_dir_all(into.join("layers/base/files")).unwrap();
+        let outside = out.path().join("outside.txt");
+        std::os::unix::fs::symlink(&outside, into.join("layers/base/files/a.txt")).unwrap();
+        assert!(extract(&path, &["layers".to_string()], &into).is_err());
+        assert!(!outside.exists(), "nothing written through the link");
     }
 
     #[test]

@@ -433,7 +433,7 @@ impl<'a> Places<'a> {
 /// 3. the `.luma` the game comes with in `places.shipped` ([`Game::shipped_mods`]), for a game not started since it
 ///    was installed or updated.
 ///
-/// A `.luma` is unpacked once into LumaLink's folder in the system's temporary folder. None when none has it.
+/// A `.luma` is unpacked once into LumaLink's own folder ([`shipped_cache`]). None when none has it.
 pub fn needed_folder(folder: &Path, id: &str, places: Places<'_>) -> Option<PathBuf> {
     let shipped = || unpacked(&shipped_mod(places.shipped?, id)?);
     if let Some(mods) = places.mods {
@@ -476,27 +476,44 @@ fn shipped_mod(shipped: &Path, id: &str) -> Option<PathBuf> {
     files.into_iter().find(|p| has_id(p))
 }
 
-/// The folder a `.luma` the game comes with is unpacked into: `lumalink-shipped/<name>-<size>-<time>` in the system's
-/// temporary folder, named by the file's size and time so a changed file is unpacked again. Unpacked whole into a
-/// folder of its own first and then named, so two builds at once never read half of one. None when it cannot be
-/// unpacked, or an entry's name is not a plain relative path.
+/// Where the `.luma` files the game comes with are unpacked: `shipped` in LumaLink's own folder
+/// ([`crate::update::data_folder`]), which only its user writes; with none (no home folder), a folder of this run's own
+/// in the system's temporary folder, made new with a random name. Never a fixed name in the temporary folder: on Linux
+/// it is every user's, and another user could make the folder first with a mod of their own in it (N-4037).
+/// The tests never write in the person's own folder: they take the run's own.
+fn shipped_cache() -> Option<PathBuf> {
+    shipped_cache_of(if cfg!(test) { None } else { crate::update::data_folder() })
+}
+
+fn shipped_cache_of(data: Option<PathBuf>) -> Option<PathBuf> {
+    static OWN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    if let Some(data) = data {
+        return Some(data.join("shipped"));
+    }
+    OWN.get_or_init(|| tempfile::Builder::new().prefix("lumalink-shipped-").tempdir().ok().map(tempfile::TempDir::keep)).clone()
+}
+
+/// A `.luma` the game comes with, unpacked ([`unpacked_in`] the [`shipped_cache`]).
 fn unpacked(luma: &Path) -> Option<PathBuf> {
+    unpacked_in(&shipped_cache()?, luma)
+}
+
+/// The folder a `.luma` is unpacked into under `root`: `<name>-<size>-<time>`, named by the file's size and time so a
+/// changed file is unpacked again. Unpacked whole into a folder of its own first and then named, so two builds at once
+/// never read half of one. None when it cannot be unpacked, or the validator's container rules refuse it (L100 to
+/// L199: every name one that every system stores as written, as the game holds a `.luma` to; N-4038).
+fn unpacked_in(root: &Path, luma: &Path) -> Option<PathBuf> {
     let meta = std::fs::metadata(luma).ok()?;
     let time = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
     let stem = luma.file_stem()?.to_string_lossy();
-    let root = std::env::temp_dir().join("lumalink-shipped");
     let folder = root.join(format!("{stem}-{}-{time}", meta.len()));
     if folder.join("luma.json").is_file() {
         return Some(folder);
     }
-    let plain = |name: &str| !name.is_empty() && !name.starts_with('/') && !name.contains(['\\', ':']) && name.split('/').all(|p| !p.is_empty() && p != "." && p != "..");
-    if !crate::luma_file::list(luma).ok()?.iter().all(|e| plain(&e.name)) {
-        return None;
-    }
     let part = root.join(format!("{stem}-{}-{time}.part-{}", meta.len(), std::process::id()));
     let _ = std::fs::remove_dir_all(&part);
     std::fs::create_dir_all(&part).ok()?;
-    if crate::luma_file::extract(luma, &[], &part).is_err() {
+    if !matches!(crate::jobs::extract_luma(luma, &[], &part), Ok(Ok(_))) {
         let _ = std::fs::remove_dir_all(&part);
         return None;
     }
@@ -1119,7 +1136,7 @@ fn skip_value(b: &[u8], i: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_names, default_platforms, generate, installed_mod, interface_of, manifest, mod_info_has_layout, needed_folder, option_spec, record_platform, targets, with_platform, BuildError, Places, TARGETS};
+    use super::{content_names, default_platforms, generate, installed_mod, interface_of, manifest, mod_info_has_layout, needed_folder, option_spec, record_platform, shipped_cache_of, targets, unpacked_in, with_platform, BuildError, Places, TARGETS};
     use lumascript::check::{OptionKind, OptionSpec};
 
     /// luma.json's options as `option` declarations are checked: a number is whole when every number given is;
@@ -1213,6 +1230,62 @@ mod tests {
         // Read again: the same unpacked folder.
         assert_eq!(interface_of(&gold, &id, places), Some(lumi.clone()));
         let _ = std::fs::remove_dir_all(lumi.parent().unwrap().parent().unwrap());
+    }
+
+    /// N-4037: the `.luma` files the game comes with are unpacked in LumaLink's own folder, never under a fixed name in
+    /// the system's temporary folder, which on Linux is every user's: a folder another user made there first, named as
+    /// the cache names it, held a mod of theirs that the build read as the game's (fails before: the planted interface
+    /// was read).
+    #[test]
+    fn a_shipped_mod_is_unpacked_where_only_its_user_writes() {
+        let data = std::path::PathBuf::from("/home/someone/.config/lumalink");
+        assert_eq!(shipped_cache_of(Some(data.clone())), Some(data.join("shipped")));
+        let own = shipped_cache_of(None).expect("the run's own folder");
+        let again = shipped_cache_of(None).expect("the run's own folder");
+        assert_eq!(own, again, "one for the run");
+        assert!(own.is_dir() && own != std::env::temp_dir().join("lumalink-shipped"), "{}", own.display());
+        assert!(own.file_name().unwrap().to_string_lossy().len() > "lumalink-shipped-".len(), "a random name");
+        let dir = tempfile::tempdir().unwrap();
+        let kit = dir.path().join("kit");
+        std::fs::create_dir_all(kit.join("code")).unwrap();
+        std::fs::write(kit.join("luma.json"), r#"{"id": "kit"}"#).unwrap();
+        std::fs::write(kit.join("code/kit.lumi"), "the game's").unwrap();
+        let luma = dir.path().join("kit.luma");
+        crate::luma_file::write(&crate::luma_file::folder_files(&kit).unwrap(), &luma).unwrap();
+        // Another user's folder in the shared temporary folder, named as the old cache named it.
+        let meta = std::fs::metadata(&luma).unwrap();
+        let time = meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let planted = std::env::temp_dir().join("lumalink-shipped").join(format!("kit-{}-{time}", meta.len()));
+        std::fs::create_dir_all(planted.join("code")).unwrap();
+        std::fs::write(planted.join("luma.json"), r#"{"id": "kit"}"#).unwrap();
+        std::fs::write(planted.join("code/kit.lumi"), "another user's").unwrap();
+        let root = dir.path().join("cache");
+        let got = unpacked_in(&root, &luma).expect("unpacked");
+        assert!(got.starts_with(&root));
+        assert_eq!(std::fs::read_to_string(got.join("code/kit.lumi")).unwrap(), "the game's");
+        let _ = std::fs::remove_dir_all(&planted);
+    }
+
+    /// N-4038: a shipped `.luma` is unpacked only when the validator's container rules take it: an entry named as no
+    /// folder on Windows can hold (a device's name, a trailing dot) refuses the whole file, as the game refuses it (fails
+    /// before: the build's own name rule took both, so `a.` and `a` became one file).
+    #[test]
+    fn a_shipped_mod_is_unpacked_only_when_its_names_are_the_validators() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        std::fs::write(&data, b"x").unwrap();
+        let root = dir.path().join("cache");
+        for bad in ["layers/base/assets/aux.txt", "layers/base/assets/a.", "layers/base/assets/a "] {
+            let files = vec![
+                crate::luma_file::FolderFile { name: "luma.json".into(), path: { let j = dir.path().join("luma.json"); std::fs::write(&j, r#"{"id": "kit"}"#).unwrap(); j } },
+                crate::luma_file::FolderFile { name: bad.into(), path: data.clone() },
+            ];
+            let luma = dir.path().join("bad.luma");
+            let _ = std::fs::remove_file(&luma);
+            crate::luma_file::write(&files, &luma).unwrap();
+            assert_eq!(unpacked_in(&root, &luma), None, "{bad}");
+        }
+        assert!(std::fs::read_dir(&root).map_or(true, |mut d| d.next().is_none()), "nothing is left of a refused one");
     }
 
     /// With a mod folder named, a need is found there (a folder or a .luma) or in the mods the game comes with, and never
