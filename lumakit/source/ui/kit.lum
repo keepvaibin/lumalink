@@ -11,8 +11,8 @@
 //   player confirms).
 //   The pointer (the mouse, touch) on a stop focuses it; A with the pointer on a slider's track sets it there, on a
 //   colour's swatch takes that colour, on a wheel's entry takes it.
-// A panel that pauses holds the world (svc.time) while it is open. Callbacks run at the frame's start after the press
-//. Everything belongs to the mod that opened it: its panels close when it stops.
+// A panel that pauses holds the world (svc.time) while it is open. Callbacks run at the frame's start after the press.
+// Everything belongs to the mod that opened it: its panels close when it stops.
 // A ModelView shows its frame only, and touch_layout's buttons are drawn but press nothing.
 
 use svc.draw

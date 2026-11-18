@@ -77,6 +77,98 @@ fn take_data(face: &Face, kind: &str) -> Option<STy> {
     face.event_data(kind).map(|(d, _)| d)
 }
 
+/// A service function as a script calls it, `<alias>.<name>(<parameters>) -> <result>`, the alias the last part of
+/// the service's name as `use svc.<service>` binds it: the form the services' pages print, from the same reading the
+/// checker types a call with. A request's or a stream's closure is `fn(e: <record>)` (`?` when it may be left out),
+/// a callback `<name>: fn(<arguments>)`; a call that gives nothing has no `->`. None for a function a script does not
+/// call by name: a take, one set by `on`, one no script can call.
+pub(crate) fn form_of(face: &Face, f: &crate::svc::SFn) -> Option<String> {
+    let Shape::Callable { params, gives } = &f.shape else { return None };
+    let service = face.name.as_str();
+    let alias = service.rsplit('.').next().unwrap_or(service);
+    let params: Vec<String> = params
+        .iter()
+        .map(|p| match p {
+            SParam::Value { name, ty } => format!("{name}: {}", form_ty(alias, &sty(service, ty))),
+            SParam::Callback { name, args, .. } => {
+                format!("{name}: fn({})", args.iter().map(|a| form_ty(alias, &sty(service, a))).collect::<Vec<_>>().join(", "))
+            }
+            SParam::Closure { optional } => {
+                let record = match gives {
+                    Gives::Request { kind, .. } => event_name(kind),
+                    _ => "Event".to_string(),
+                };
+                format!("fn(e: {alias}.{record}){}", if *optional { "?" } else { "" })
+            }
+        })
+        .collect();
+    let result = match gives {
+        Gives::Outs(o) => outs(service, o),
+        Gives::Answered(o) if o.is_empty() => Ty::Bool,
+        Gives::Answered(o) => Ty::Opt(Box::new(outs(service, o))),
+        Gives::Number(c) => number_ty(c),
+        Gives::Request { handle, .. } | Gives::Stream { handle: Some(handle) } => Ty::Opt(Box::new(sty(service, handle))),
+        Gives::Stream { handle: None } if f.answers.is_empty() => Ty::Unit,
+        Gives::Stream { handle: None } => Ty::Bool,
+    };
+    let call = format!("{alias}.{}({})", f.name, params.join(", "));
+    Some(match result {
+        Ty::Unit => call,
+        r => format!("{call} -> {}", form_ty(alias, &r)),
+    })
+}
+
+/// A request closed after its one event, waited in a task: `wait <alias>.<name>(<parameters but the closure>) ->
+/// <its event's data>?` (u64 for an event with no data to take), as the checker types `wait` on it. None for any
+/// other function.
+pub(crate) fn wait_form_of(face: &Face, f: &crate::svc::SFn) -> Option<String> {
+    let Shape::Callable { params, gives: Gives::Request { waitable: true, kind, .. } } = &f.shape else { return None };
+    let service = face.name.as_str();
+    let alias = service.rsplit('.').next().unwrap_or(service);
+    let params: Vec<String> = params
+        .iter()
+        .filter_map(|p| match p {
+            SParam::Value { name, ty } => Some(format!("{name}: {}", form_ty(alias, &sty(service, ty)))),
+            SParam::Callback { name, args, .. } => {
+                Some(format!("{name}: fn({})", args.iter().map(|a| form_ty(alias, &sty(service, a))).collect::<Vec<_>>().join(", ")))
+            }
+            SParam::Closure { .. } => None,
+        })
+        .collect();
+    let data = take_data(face, kind).map_or(Ty::Int(Scalar::U64), |d| sty(service, &d));
+    Some(format!("wait {alias}.{}({}) -> {}?", f.name, params.join(", "), form_ty(alias, &data)))
+}
+
+/// A type of a service's form as a script writes it: a service's type through the last part of its name
+/// (`local.Request` after `use svc.net.local`), a struct of the shared header through the calling service's
+/// `alias` (`fx.Place` after `use svc.content.fx`).
+fn form_ty(alias: &str, t: &Ty) -> String {
+    match t {
+        Ty::Bool => "bool".into(),
+        Ty::Int(s) | Ty::Float(s) => super::scalar_text(*s).into(),
+        Ty::Value(v) => super::value_text(*v).into(),
+        Ty::Text => "text".into(),
+        Ty::Bytes => "bytes".into(),
+        Ty::List(e) => format!("list<{}>", form_ty(alias, e)),
+        Ty::Opt(e) => format!("{}?", form_ty(alias, e)),
+        Ty::Tuple(items) => format!("({})", items.iter().map(|i| form_ty(alias, i)).collect::<Vec<_>>().join(", ")),
+        Ty::Fn(ps, r) => {
+            let ps = ps.iter().map(|p| form_ty(alias, p)).collect::<Vec<_>>().join(", ");
+            match &**r {
+                Ty::Unit => format!("fn({ps})"),
+                r => format!("fn({ps}) -> {}", form_ty(alias, r)),
+            }
+        }
+        Ty::Service { service, name } if service == SHARED_SERVICE => format!("{alias}.{name}"),
+        Ty::Service { service, name } => format!("{}.{name}", service.rsplit('.').next().unwrap_or(service)),
+        Ty::Game(GameTy::View { record, .. }) => record.clone(),
+        Ty::Content(word) => word.clone(),
+        Ty::Unit => "()".into(),
+        // A service's reading gives no other.
+        _ => "_".into(),
+    }
+}
+
 /// The functions that open requests whose events are of `kind`, as a script names them.
 fn requests_of(face: &Face, kind: &str) -> Vec<String> {
     face.functions

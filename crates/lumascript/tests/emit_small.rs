@@ -859,6 +859,13 @@ fn a_library_knows_its_caller_and_hears_it_go() {
     let main = build(text).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(main.contains("lumart_caller.mod != 0 ? lumart_caller.mod : luma_rt_self"), "{main}");
     assert!(main.contains("(uint64_t lm_gone)"), "{main}");
+    // M-022: an export called off the game thread is the caller's script error (901) before it touches anything.
+    let all = build_file(text, "lum/exports.c").unwrap_or_else(|e| panic!("{e:?}"));
+    let wrapper = &all[all.find("int32_t lmx_").unwrap_or_else(|| panic!("no export wrapper:\n{all}"))..];
+    let check = wrapper.find("!luma_rt_core->game_thread()").unwrap_or_else(|| panic!("no thread check:\n{wrapper}"));
+    let enter = wrapper.find("lumart_as_enter(").unwrap();
+    assert!(check < enter, "the thread is checked before the call is entered:\n{wrapper}");
+    assert!(wrapper.contains("lm_caller != 0 ? lm_caller : luma_rt_self, lm_file, lm_line, 901,"), "{wrapper}");
 }
 
 /// Language 5.4: function values. A closure where a value goes is a counted block with copies of the locals it reads

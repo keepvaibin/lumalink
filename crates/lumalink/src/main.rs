@@ -391,6 +391,10 @@ enum Command {
         /// Only what scripts cannot reach.
         #[arg(long)]
         unreachable: bool,
+        /// Each function's form as a script calls it instead: `form`, the service, the function, then the form, or
+        /// `-` for one a script does not call by name; a `wait` line after it for a request a task may wait.
+        #[arg(long, conflicts_with = "unreachable")]
+        forms: bool,
     },
     /// Look for a newer LumaLink and install it (Windows); elsewhere, name its page.
     Update {
@@ -502,7 +506,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             convert(&from, &folder, game, name, authors, accept_losses)
         }
         Command::Lsp { names, sdk, no_installed } => lsp(names, sdk, no_installed),
-        Command::Services { sdk, unreachable } => services(sdk, unreachable),
+        Command::Services { sdk, unreachable, forms } => services(sdk, unreachable, forms),
         Command::Update { check, check_at_start } => update_lumalink(check, check_at_start.as_deref()),
         // parse prints the help and returns before run.
         Command::Help { .. } => Ok(ExitCode::SUCCESS),
@@ -1168,7 +1172,7 @@ fn format(paths: &[PathBuf], check: bool) -> Result<ExitCode> {
 /// `lumalink services`: what the SDK's services give scripts, a line a part, tab separated, for the services' pages
 /// (they generate from the headers and read whether each function is a script's from here). A header whose face
 /// cannot be read is said as `build` says it.
-fn services(sdk: Option<PathBuf>, unreachable: bool) -> Result<ExitCode> {
+fn services(sdk: Option<PathBuf>, unreachable: bool, forms: bool) -> Result<ExitCode> {
     let names = installed().and_then(|f| f.self_description());
     let Some(sdk) = sdk_folder(sdk, names.as_deref()) else {
         // No game is installed: the place it would have looked is LUMA_INCLUDE.
@@ -1182,9 +1186,18 @@ fn services(sdk: Option<PathBuf>, unreachable: bool) -> Result<ExitCode> {
     for e in &unread {
         eprintln!("{}", say!("LumaLink.Build.ServiceUnread", why = e));
     }
-    for (kind, name, reach) in services.reach() {
-        if !(unreachable && reach == "script") {
-            println!("{kind}	{name}	{reach}");
+    if forms {
+        for (service, function, form, wait) in lumascript::check::service_forms(&services) {
+            println!("form	{service}	{function}	{}", form.as_deref().unwrap_or("-"));
+            if let Some(wait) = wait {
+                println!("wait	{service}	{function}	{wait}");
+            }
+        }
+    } else {
+        for (kind, name, reach) in services.reach() {
+            if !(unreachable && reach == "script") {
+                println!("{kind}	{name}	{reach}");
+            }
         }
     }
     Ok(if unread.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })

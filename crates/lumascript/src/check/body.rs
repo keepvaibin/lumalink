@@ -27,7 +27,7 @@ mod service;
 
 pub(crate) use needs::Needs;
 
-pub(crate) use service::{answer_ty, event_name, sty as service_sty};
+pub(crate) use service::{answer_ty, event_name, form_of as service_form, sty as service_sty, wait_form_of as service_wait_form};
 pub(crate) use call::{builtins_of, STD_NAMES};
 
 use super::{nearest, Checker, ItemRef, ModRef, Name, Owner, Sort, Ty};

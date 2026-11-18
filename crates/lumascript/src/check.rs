@@ -326,6 +326,20 @@ pub fn service_type(services: &crate::svc::Services, service: &str, name: &str) 
     None
 }
 
+/// Every service function's form as a script calls it, by service and function in the faces' order: what
+/// `lumalink services --forms` prints for the services' pages. The form is None for a function a script does not
+/// call by name (a take, one set by `on`, one no script can call); the second, `wait ...`, is there for a request a
+/// task may wait.
+pub fn service_forms(services: &crate::svc::Services) -> Vec<(String, String, Option<String>, Option<String>)> {
+    let mut out = Vec::new();
+    for (name, face) in &services.faces {
+        for f in &face.functions {
+            out.push((name.clone(), f.name.clone(), body::service_form(face, f), body::service_wait_form(face, f)));
+        }
+    }
+    out
+}
+
 /// One module's scope after part (b).
 #[derive(Clone, Debug, Default)]
 pub struct Scope {

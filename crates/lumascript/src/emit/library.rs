@@ -448,6 +448,14 @@ impl Gen<'_> {
         // Its frame's link (lumart.h, calls in progress): what it changes of lumart_caller and the scratch, put back
         // on its return, or by lumart_cut when a fault in another mod's code ends the call without one.
         let _ = writeln!(body, "    lumart_as_link lm_link;\n    int32_t lm_r = 1;");
+        // A library's state is the game thread's (its lists, lumart_caller, the scratch): a call from another thread
+        // (a C mod's own thread) is the caller's script error, S0901, and runs nothing (M-022). A LumaScript caller is
+        // always on it: its hooks are skipped off the game thread.
+        let _ = writeln!(
+            body,
+            "    if (luma_rt_core != 0 && !luma_rt_core->game_thread()) {{\n        const char* lm_a[1] = {{{}}};\n        luma_rt_core->report(lm_caller != 0 ? lm_caller : luma_rt_self, lm_file, lm_line, 901, lm_a, 1);\n        return 2;\n    }}",
+            c_string(&format!("{}.{fname}", self.mod_id))
+        );
         for (i, c) in crossing.iter().enumerate() {
             match c {
                 Cross::Plain(_) => call.push(format!("p{i}")),
