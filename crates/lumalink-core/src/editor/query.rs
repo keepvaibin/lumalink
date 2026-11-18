@@ -233,9 +233,12 @@ impl Analysis {
                 out.push(def);
             }
         }
+        // The occurrences are one at each place (Analysis::new), so only the definition can be found twice: each place
+        // is held to it alone, not to every place before it (N-4063: 20,000 uses of a name made 200 million compares).
+        let def = out.first().cloned();
         for o in self.occurrences.iter().filter(|o| &o.target == target) {
             let place = Place { file: self.modules[o.module].file.clone(), at: o.at, end: Pos { line: o.at.line, col: o.at.col + o.len } };
-            if !out.contains(&place) {
+            if def.as_ref() != Some(&place) {
                 out.push(place);
             }
         }

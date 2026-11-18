@@ -634,9 +634,10 @@ mod tests {
         (dir, a)
     }
 
-    /// N-4063: a module read by the editor costs time in step with its size: each name's length is found on its own
-    /// line, not by reading the module from its start for every name. Two sizes four times apart; the larger may take
-    /// at most eight times the time (it took sixteen before).
+    /// N-4063: a module read by the editor, and every place of a name in it, cost time in step with its size: each
+    /// name's length is found on its own line, not by reading the module from its start for every name, and each
+    /// place of a name is held to its definition alone, not to every place before it. Two sizes four times apart; the
+    /// larger may take at most eight times the time (it took eighteen before).
     #[test]
     fn a_long_module_is_read_in_time_in_step_with_its_size() {
         let module = |lines: usize| {
@@ -653,9 +654,13 @@ mod tests {
                 let text = module(n);
                 let start = std::time::Instant::now();
                 let (_d, a) = analysis(&text);
+                // Every place of `total` (its `var`, three on each line, the `return`), as rename and references give them.
+                let game = GameView::default();
+                let target = a.at(0, Pos { line: 3, col: 5 }).expect("total");
+                let places = a.references(&target, &game);
                 let seconds = start.elapsed().as_secs_f64();
                 assert!(a.diags[0].is_empty(), "{:?}", &a.diags[0][..1]);
-                assert!(a.occurrences.len() > 3 * n);
+                assert_eq!(places.len(), 3 * n + 2);
                 seconds
             })
             .collect();
