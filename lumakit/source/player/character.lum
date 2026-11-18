@@ -1,7 +1,8 @@
 // kit.player.character: a playable character (name, icon, model, animations, voice, constants),
-// switched to mid-level and back. Built on the game's player by name: its animations through MarioActor::
-// changeAnimation (and the non-stop and upper-body forms), its voice through MarioActor::playSound, the game's Luigi
-// checks through MR::isPlayerLuigi, its constants through kit.player.state's tune.
+// switched to mid-level and back. Built on the game's player by name: its animations where every clip change of the
+// player's code ends (MarioAnimator::change, changeUpper, changeDefault, changeDefaultUpper), its voice where every
+// sound of the player's code goes (Mario::playSoundJ: its own sound, heard from that player, in the game's place), the
+// game's Luigi checks through MR::isPlayerLuigi, its constants through kit.player.state's tune.
 // The newest `play` holds; when its mod stops, or `mario()` is played by it, the one before holds again.
 // Characters and plays are recorded under caller(); `on mods.stopped` takes a stopped mod's away and the game's
 // own Mario (or the character played before) comes back.
@@ -15,6 +16,7 @@
 
 use ./player/state as pst
 use ./item
+use svc.audio
 use svc.content.model as cm
 use svc.draw
 use svc.mods
@@ -105,18 +107,22 @@ fn now() -> Character? {
     return character_at(holding())
 }
 
-// The character `m` plays: an extra player made here its own (none: the game's own), any other player 1's.
-fn character_of(m: MarioActor) -> Character? {
+// The character `m` plays (slot + 1; 0 the game's own): an extra player made here its own, any other player 1's.
+fn character_n_of(m: MarioActor) -> int {
     for k in 0..seconds.len() {
         if let r = seconds[k] {
             if let v = r.get() {
                 if same(v, m) {
-                    return character_at(second_chars[k])
+                    return second_chars[k]
                 }
             }
         }
     }
-    return now()
+    return holding()
+}
+
+fn character_of(m: MarioActor) -> Character? {
+    return character_at(character_n_of(m))
 }
 
 // The constants of the character holding now, and only those, tuned.
@@ -138,6 +144,8 @@ fn settle() {
 }
 
 // The look of the character holding now (`n`, slot + 1; 0 the game's own): the old one detached, the new attached.
+// With no player yet (a play at the start, before any scene) nothing is attached and look_for stays 0, so the
+// player's making attaches it (the hook after MarioActor::init2).
 fn settle_look(n: int) {
     if n == look_for {
         return
@@ -147,25 +155,24 @@ fn settle_look(n: int) {
     }
     look_model = none
     look_shown = false
+    look_for = 0
+    guard let p = player_one() else { return }
     look_for = n
     if let c = character_at(n) {
         if let m = c.look {
-            if let p = player_one() {
-                look_model = cm.attach(p, m, cm.Follow.Skeleton, none, none)
-                look_shown = look_model != none
-            }
+            look_model = cm.attach(p, m, cm.Follow.Skeleton, none, none)
+            look_shown = look_model != none
         }
     }
 }
 
 // A new scene builds the player anew and ends every attached model: the look of the character holding is attached
-// again to the new player. An extra player is made while player 1 stands (MarioActor::init2 names player 1 only after
-// initDrawAndModel, so player 1's own making finds no other player): it changes nothing here.
-hook after MarioActor::initDrawAndModel() {
-    if let p = player_one() {
-        if not same(p, self) {
-            return
-        }
+// again to the new player, once MarioActor::init2 has named it player 1 (MarioHolder::setMarioActor, after
+// initDrawAndModel). An extra player (svc.player) is never named so: it changes nothing here.
+hook after MarioActor::init2(pos, rot, anim) {
+    guard let p = player_one() else { return }
+    if not same(p, self) {
+        return
     }
     look_for = 0
     look_model = none
@@ -205,50 +212,73 @@ hook after MR::isPlayerLuigi() -> luigi {
     }
 }
 
-// The character's clip for each of the game's actions it names, and its voice for each voice; the game's own for the
-// others. A name written here reaches the call as the back end's kept copy (it lives past the call and the clip's load).
-wrap MarioActor::changeAnimation(name, next) {
-    if let c = character_of(self) {
+// The character's clip for each of the game's actions it names; the game's own for the others. Every clip change of
+// the player's code (MarioModule::changeAnimation and its forms, MarioActor's) ends in one of these four, each on the
+// player's animator (`mActor` its player). A name written here reaches the call as the back end's kept copy (it lives
+// past the call and the clip's load).
+fn clip_for(a: MarioActor?, name: text?) -> text? {
+    guard let m = a, let n = name, let c = character_of(m) else { return none }
+    return c.actions.get(n)
+}
+
+wrap MarioAnimator::change(name) {
+    if let clip = clip_for(self.mActor, name) {
+        name = clip
+    }
+    proceed()
+}
+
+wrap MarioAnimator::changeUpper(name) {
+    if let clip = clip_for(self.mActor, name) {
+        name = clip
+    }
+    proceed()
+}
+
+wrap MarioAnimator::changeDefault(name) {
+    if let clip = clip_for(self.mActor, name) {
+        name = clip
+    }
+    proceed()
+}
+
+wrap MarioAnimator::changeDefaultUpper(name) {
+    if let clip = clip_for(self.mActor, name) {
+        name = clip
+    }
+    proceed()
+}
+
+// The character's sound for each of the game's voices it names: every sound of the player's code reaches
+// Mario::playSoundJ by its name (MarioModule::playSound, MarioActor::playSound). The character's sound is its mod's
+// own (audio, heard from that player as the game's voice is), and the game's is then not played.
+wrap Mario::playSoundJ(name, timing) {
+    if let m = self.mActor {
         if let n = name {
-            if let clip = c.actions.get(n) {
-                name = clip
+            let k = character_n_of(m)
+            if let c = character_at(k) {
+                if let v = c.voice.get(n) {
+                    play_voice(m, owners[k - 1], v)
+                    return
+                }
             }
         }
     }
     proceed()
 }
 
-wrap MarioActor::changeAnimationNonStop(name) {
-    if let c = character_of(self) {
-        if let n = name {
-            if let clip = c.actions.get(n) {
-                name = clip
-            }
-        }
+// `path`, a sound of mod `owner`'s, heard from player `m`: player 1's place as it moves, an extra player's where it
+// stands.
+fn play_voice(m: MarioActor, owner: u64, path: text) {
+    var name = path
+    if let info = mods.of_mod(owner) {
+        name = "{info.id}:{path}"
     }
-    proceed()
-}
-
-wrap MarioActor::changeAnimationUpper(name) {
-    if let c = character_of(self) {
-        if let n = name {
-            if let clip = c.actions.get(n) {
-                name = clip
-            }
-        }
+    var at = audio.Place { follow: 1, pos: vec3(0.0, 0.0, 0.0) }
+    if not is_player_one(m) {
+        at = audio.Place { follow: 0, pos: m.mPosition }
     }
-    proceed()
-}
-
-wrap MarioActor::playSound(name, level) {
-    if let c = character_of(self) {
-        if let n = name {
-            if let v = c.voice.get(n) {
-                name = v
-            }
-        }
-    }
-    proceed()
+    audio.play_at(name, none, at, none)
 }
 
 pub fn define(c: Character) -> CharacterId {
