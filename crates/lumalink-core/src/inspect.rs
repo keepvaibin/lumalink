@@ -345,12 +345,12 @@ pub fn extract(store: &Path, path: &str, output: &Path, names: &ColumnNames) -> 
     use nebula_import::cook::store as game_store;
     let path = path.trim_matches('/');
     let items = match game_store::read_folder(store, path) {
-        Ok(items) if !items.is_empty() => items.into_iter().map(|(p, b)| (format!("{path}/{p}"), b)).collect(),
+        Ok(items) if !items.is_empty() => items.into_iter().map(|(p, b)| (place_in(path, &p), b)).collect(),
         _ => vec![(path.to_string(), game_store::read_file(store, path)?)],
     };
     let mut written = 0;
     for (place, bytes) in items {
-        let target = output.join(&place);
+        let target = output.join(extract_place(&place)?);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).with_context(|| say!("LumaLink.CannotMake", path = parent.display()))?;
         }
@@ -376,6 +376,21 @@ pub fn extract(store: &Path, path: &str, output: &Path, names: &ColumnNames) -> 
         written += 1;
     }
     Ok(written)
+}
+
+/// A file's place in the game: `item` of what reading `folder` found, where the whole game (an empty folder) adds no
+/// leading `/`.
+fn place_in(folder: &str, item: &str) -> String {
+    if folder.is_empty() {
+        item.to_string()
+    } else {
+        format!("{folder}/{item}")
+    }
+}
+
+/// Where a file of the game goes under the folder it is extracted into: always inside it (N-4042).
+fn extract_place(place: &str) -> Result<std::path::PathBuf> {
+    crate::source::safe_relative(place).ok_or_else(|| anyhow::anyhow!(say!("LumaLink.Source.LeavesFolder", path = place)))
 }
 
 /// The game's particles (ParticleData/Effect.arc/Particles.jpc) as a mod's `layers/<layer>/assets/effects.json` writes
@@ -459,6 +474,22 @@ pub const STAGE_RULES: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// N-4042: the whole game (`lumalink extract /`) is extracted inside the folder named, never at the root of the drive
+    /// or file system (fails before: each place began with `/`, and joined to the folder it replaced it).
+    #[test]
+    fn the_whole_game_is_extracted_inside_the_folder_named() {
+        let output = Path::new("out");
+        for (folder, item) in [("", "ObjectData/Kuribo.arc"), ("ObjectData", "Kuribo.arc")] {
+            let place = place_in(folder, item);
+            assert_eq!(place, "ObjectData/Kuribo.arc");
+            let target = output.join(extract_place(&place).unwrap());
+            assert!(target.starts_with(output), "{}", target.display());
+        }
+        for leaves in ["/ObjectData/Kuribo.arc", "../Kuribo.arc", "ObjectData/../../Kuribo.arc", "C:/Kuribo.arc"] {
+            assert!(extract_place(leaves).is_err(), "{leaves}");
+        }
+    }
 
     #[test]
     fn a_narrowed_model_listing_names_its_joints_materials_textures_and_animations() {
