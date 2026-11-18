@@ -97,10 +97,13 @@ pub fn patch_of(path: &str, game: &TableIr, mods: &TableIr, names: &ColumnNames)
     let key_json = |row: &[Cell]| -> Map<String, Value> { keys.iter().zip(&mk).zip(&gk).map(|((k, &mc), &gc)| (k.clone(), cell_json(&game.columns[gc], &row[mc]))).collect() };
     let (mut set, mut add, mut remove) = (Vec::new(), Vec::new(), Vec::new());
     let mut seen: HashMap<String, ()> = HashMap::new();
+    // Each key given more than once, named once (N-4055: looked for as written, kept as shown, so a key of two
+    // columns given three times was named twice).
+    let mut repeated = std::collections::HashSet::new();
     for row in &mods.rows {
         let row_id = id(mods, &mk, row);
         if seen.insert(row_id.clone(), ()).is_some() {
-            if !out.repeated.contains(&row_id) {
+            if repeated.insert(row_id.clone()) {
                 out.repeated.push(row_id.replace('\u{1f}', ", "));
             }
             continue;
@@ -202,6 +205,15 @@ mod tests {
         // No key column in the mod's table: said, not guessed.
         let keyless = table(r#"{"rows":[{"Kind":1}]}"#);
         assert!(patch_of(path, &game, &keyless, &names).unwrap_err().to_string().contains("MessageId"));
+    }
+
+    #[test]
+    fn a_key_of_two_columns_given_again_is_named_once() {
+        let path = "/ObjectData/LightData/LightAstroGalaxy.bcsv";
+        assert!(matches!(&rule_for(&nebula_import::cook::store::store_path(path.trim_start_matches('/'))).key, Key::Columns(k) if k.len() == 2));
+        let game = table(r#"{"rows":[{"AreaLightName":"A","LightID":1,"v":1}]}"#);
+        let mods = table(r#"{"rows":[{"AreaLightName":"A","LightID":1,"v":1},{"AreaLightName":"A","LightID":1,"v":2},{"AreaLightName":"A","LightID":1,"v":3}]}"#);
+        assert_eq!(patch_of(path, &game, &mods, &ColumnNames::none()).unwrap().repeated, ["A, 1"]);
     }
 
     #[test]

@@ -430,7 +430,7 @@ pub fn install(path: &Path, inputs: &Inputs, found: &Installed, game_args: &[OsS
 }
 
 /// The installed game started on `pak` with its own data folder and saves, then `game_args` (its command line,
-/// docs/COMMAND_LINE.md; a --data or --saves there is used instead of the found one). It runs on after LumaLink ends.
+/// docs/using-nebula/command-line-arguments.md; a --data or --saves there is used instead of the found one). It runs on after LumaLink ends.
 /// A LumaLink started hidden (a test's) starts it hidden, as the harness does. The program started.
 pub fn start(found: &Installed, pak: &Path, game_args: &[OsString]) -> Result<PathBuf> {
     start_game(found, pak, game_args).map(|(program, _)| program)
@@ -472,7 +472,7 @@ pub fn start_game(found: &Installed, pak: &Path, game_args: &[OsString]) -> Resu
     Ok((program, game))
 }
 
-/// The game's options that name its folders (docs/COMMAND_LINE.md), each with its value.
+/// The game's options that name its folders (docs/using-nebula/command-line-arguments.md), each with its value.
 const FOLDER_OPTIONS: [&str; 3] = ["--data", "--settings", "--crash-dumps"];
 
 /// The folder options of `game_args`, and `--data` the found data folder when they name none: given to the game's mod
@@ -999,7 +999,8 @@ pub fn has_code(folder: &Path) -> bool {
         let Ok(entries) = std::fs::read_dir(dir) else { return false };
         entries.flatten().any(|e| {
             let p = e.path();
-            if p.is_dir() {
+            // A folder as the build walks it: a link is not followed (a link to a folder above would never end).
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
                 any(&p)
             } else {
                 p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x.to_ascii_lowercase().as_str(), "lum" | "c" | "cpp" | "cc" | "cxx"))
@@ -1254,6 +1255,14 @@ mod tests {
         std::fs::write(m.join("source/main.lum"), "fn a() {}").unwrap();
         assert!(out(&m), "never built");
         assert!(code_out_of_date_in(None, &m, &from), "no data folder: no record");
+        // N-4056: code only in a folder of source/, or only C++, is code to build (never rebuilt before).
+        for (one, file) in [("in-folder", "source/kit/a.lum"), ("cxx", "source/a.cpp")] {
+            let other = dir.path().join(one);
+            std::fs::create_dir_all(other.join(file).parent().unwrap()).unwrap();
+            std::fs::write(other.join("luma.json"), "{\"id\": \"o\", \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
+            std::fs::write(other.join(file), "").unwrap();
+            assert!(out(&other), "{file}");
+        }
         record(&["windows-x64"]);
         assert!(!out(&m), "built from all of it");
         let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
@@ -1742,11 +1751,11 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
-/// Whether a mod folder has code to build: LumaScript or C under `source/`.
+/// Whether a mod folder has code to build: what the build compiles, anywhere under `source/` ([`has_code`]; N-4056:
+/// the top of `source/` only, and no C++, so code kept in a folder was never found out of date and an old library
+/// was packed).
 pub fn has_source(folder: &Path) -> bool {
-    std::fs::read_dir(folder.join("source")).is_ok_and(|entries| {
-        entries.filter_map(|e| e.ok()).any(|e| e.path().extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x, "lum" | "c" | "h")))
-    })
+    has_code(folder)
 }
 
 /// Where [`build_mod`] takes the mods a mod needs from ([`crate::build::needed_folder`]).
