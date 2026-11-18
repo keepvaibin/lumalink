@@ -66,6 +66,10 @@ pub const C_FLAGS: &[&str] = &[
     // Frame records on every target: on Linux, Android and macOS the guard follows them from a fault through each
     // mod's frames to name the mod a fault turns off (when-a-mod-fails.md); x86-64 Linux omits them by default.
     "-fno-omit-frame-pointer",
+    // Every multiply and add rounds once each, as in the game (Nebula native/CMakeLists.txt, A-10): clang's default
+    // fuses a*b+c of one expression on every arm64, so a mod gave other bits there than on an x86-64 PC
+    // (lumalink-core tests/same_float.rs).
+    "-ffp-contract=off",
 ];
 
 /// The generated files, by their path under the build's work folder.
