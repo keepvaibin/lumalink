@@ -479,7 +479,17 @@ pub(super) struct Walk<'w, 'a> {
     given_marks: Vec<usize>,
     /// The next body walked is this function of the mod's (part g).
     next_fn_key: Option<needs::FnKey>,
+    /// A quiet walk of a module value for the work list ([`Walk::infer_listed`]): the module values it reads that are
+    /// not found yet are noted here, not found.
+    probe: bool,
+    wanted: Vec<(ItemRef, Pos)>,
 }
+
+/// How many module values may be being found, one inside the walk of another, before the next is found by a work
+/// list ([`Walk::infer_listed`]) instead. Each holds a walk of its value, up to [`crate::MAX_DEPTH`] deep, on the
+/// compiler's stack, so one: a chain of values, each found from the next, ended the stack (N-4032: 100,000 plain ones,
+/// or 2,000 of 500 brackets each, past 32 deep).
+const INFER_DEPTH: usize = 1;
 
 /// Part (c) over the mod's modules. Libraries are read only where the mod uses them (a module `let`'s type).
 pub(super) fn bodies(c: &mut Checker<'_>) {
@@ -578,6 +588,8 @@ impl<'w, 'a> Walk<'w, 'a> {
             given: Vec::new(),
             given_marks: Vec::new(),
             next_fn_key: None,
+            probe: false,
+            wanted: Vec::new(),
         }
     }
 
@@ -763,7 +775,7 @@ impl<'w, 'a> Walk<'w, 'a> {
 
     fn unknown_name(&mut self, at: Pos, name: &str) {
         // The names in scope are listed only while the check's budget for them lasts (N-4027).
-        let known = if self.c.near_budget > 0 { self.known_names() } else { Vec::new() };
+        let known = if self.c.near_budget > 0 && self.c.quiet == 0 { self.known_names() } else { Vec::new() };
         let near = nearest(name, known.iter().map(String::as_str), &mut self.c.near_budget);
         let d = if near.is_empty() {
             Diagnostic::new(code::UNKNOWN_NAME, at).with("found", Arg::Text(name.to_string()))
@@ -1210,12 +1222,74 @@ impl<'w, 'a> Walk<'w, 'a> {
         if let Some(t) = self.c.inferred.get(&key) {
             return t.clone();
         }
-        if self.c.inferring.contains(&(item, "=".to_string())) {
+        if self.probe {
+            self.wanted.push((item, at));
+            return Ty::Error;
+        }
+        // Being found now, by the recursion or by the work list below this one: its value reads itself.
+        if self.c.inferring.contains(&(item, "=".to_string())) || self.c.listed.contains(&item) {
             self.say(Diagnostic::new(code::TYPE_NEEDS_WRITING, at).with("found", Arg::Text(name.to_string())));
             return Ty::Error;
         }
-        self.module_binding(item);
+        if self.c.inferring.len() < INFER_DEPTH {
+            self.module_binding(item);
+        } else {
+            self.infer_listed(item, at);
+        }
         self.c.inferred.get(&key).cloned().unwrap_or(Ty::Error)
+    }
+
+    /// Module values found by a work list, not inside one another: each value is walked quietly for the module values
+    /// it reads that are not found yet, those are found first, then it is found as [`Walk::module_binding`] finds it.
+    /// One read that is on the list below it is a cycle, said by its walk as the recursion would say it.
+    fn infer_listed(&mut self, start: ItemRef, at: Pos) {
+        let found = |c: &Checker<'_>, item: &ItemRef| c.inferred.contains_key(&(*item, "=".to_string()));
+        let mut list: Vec<(ItemRef, Pos)> = vec![(start, at)];
+        self.c.listed.insert(start);
+        while let Some(&(top, _)) = list.last() {
+            if found(self.c, &top) {
+                list.pop();
+                self.c.listed.remove(&top);
+                continue;
+            }
+            let mut more = false;
+            for (item, at) in self.reads_of_module_value(top) {
+                let busy = self.c.inferring.contains(&(item, "=".to_string()));
+                if !found(self.c, &item) && !busy && self.c.listed.insert(item) {
+                    list.push((item, at));
+                    more = true;
+                }
+            }
+            if !more {
+                self.c.listed.remove(&top);
+                self.module_binding(top);
+                list.pop();
+            }
+        }
+    }
+
+    /// The module values not found yet that a module value's value reads: a quiet walk of it, which says nothing.
+    fn reads_of_module_value(&mut self, item: ItemRef) -> Vec<(ItemRef, Pos)> {
+        let ItemKind::Binding(b) = &self.item_of(item).kind else { return Vec::new() };
+        let Some(value) = &b.value else { return Vec::new() };
+        let declared = self.c.out.types.get(&(item, String::new())).cloned();
+        self.c.quiet += 1;
+        let mut w = Walk::new(&mut *self.c, item.module_ref());
+        w.record = false;
+        w.probe = true;
+        w.frames.push(Frame::new(Kind::Init, None));
+        match &declared {
+            Some(t) => {
+                w.expr(value, Want::Ty(t));
+            }
+            None => {
+                w.expr(value, Want::Any);
+            }
+        }
+        let wanted = std::mem::take(&mut w.wanted);
+        drop(w);
+        self.c.quiet -= 1;
+        wanted
     }
 
     /// A class: its fields' values, functions, overrides and hooks, each with the class's members in reach.
@@ -1437,13 +1511,13 @@ impl<'w, 'a> Walk<'w, 'a> {
             facts = match self.game().facts.as_ref() {
                 Some(ff) => {
                     let f = ff.get(n, row).cloned();
-                    if f.is_none() && self.c.noted.insert(format!("{n}{row}")) {
+                    if f.is_none() && self.c.quiet == 0 && self.c.noted.insert(format!("{n}{row}")) {
                         self.say(Diagnostic::new(code::NOT_DESCRIBED, at).with("found", Arg::Text(format!("{n}{row}"))).with("what", Arg::Phrase("Script.What.FunctionKinds")));
                     }
                     f
                 }
                 None => {
-                    if self.c.noted.insert(n.clone()) {
+                    if self.c.quiet == 0 && self.c.noted.insert(n.clone()) {
                         self.say(Diagnostic::new(code::NOT_DESCRIBED, at).with("found", Arg::Text(n.clone())).with("what", Arg::Phrase("Script.What.FunctionKinds")));
                     }
                     None

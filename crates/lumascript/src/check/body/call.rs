@@ -1531,7 +1531,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         // value: a member), and said once per name.
         if let (Some((qualifier, _)), None) = (name.rsplit_once("::"), &self.game().facts) {
             let is_record = self.game().types.as_ref().is_some_and(|t| t.record(qualifier).is_some());
-            if is_record && self.c.noted.insert(name.to_string()) {
+            if is_record && self.c.quiet == 0 && self.c.noted.insert(name.to_string()) {
                 self.say(Diagnostic::new(code::NOT_DESCRIBED, at).with("found", Arg::Text(name.to_string())).with("what", Arg::Phrase("Script.What.FunctionKinds")));
             }
         }
@@ -1628,7 +1628,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 FnKind::Free | FnKind::Static => receiver = None,
                 _ => {}
             }
-        } else if self.game().facts.is_some() && self.c.noted.insert(format!("{name}{row}")) {
+        } else if self.game().facts.is_some() && self.c.quiet == 0 && self.c.noted.insert(format!("{name}{row}")) {
             // A row the facts file lacks (gen_types.py stops on one: a file from another build).
             self.say(Diagnostic::new(code::NOT_DESCRIBED, at).with("found", Arg::Text(format!("{name}{row}"))).with("what", Arg::Phrase("Script.What.FunctionKinds")));
         }

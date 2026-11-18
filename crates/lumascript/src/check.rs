@@ -399,11 +399,16 @@ struct Checker<'a> {
     needs: body::Needs,
     /// What is left of [`NEAR_BUDGET`] for this check's unknown names.
     near_budget: usize,
+    /// Module values the work list of [`body`] holds, not yet found: one read while another's value is walked closes a
+    /// cycle (N-4032).
+    listed: std::collections::HashSet<ItemRef>,
+    /// Walks that only look for what a value reads (part c's work list): while one runs nothing is said or marked said.
+    quiet: u32,
 }
 
 /// Checks a mod's modules (part b) against its libraries and facts.
 pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> Checked {
-    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET };
+    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0 };
     c.out.option_index = c.facts.options.iter().enumerate().map(|(i, o)| (o.key.clone(), i as u32)).collect();
     if let Some(content) = c.facts.content {
         if let Some(models) = content.names.get("model") {
@@ -634,7 +639,7 @@ fn pattern_names(p: &ast::Pattern, out: &mut Vec<ast::Ident>) {
 impl Checker<'_> {
     /// A diagnostic in a module of the mod; a library's are not said here (it is checked when it is built).
     fn say(&mut self, m: ModRef, d: Diagnostic) {
-        if m.owner == Owner::Mod {
+        if m.owner == Owner::Mod && self.quiet == 0 {
             self.out.diags.push((self.modules[m.module].path.clone(), d));
         }
     }
@@ -939,7 +944,7 @@ impl Checker<'_> {
     }
 
     fn unknown_type(&mut self, m: ModRef, at: Pos, written: &str) -> Ty {
-        let known = if self.near_budget > 0 { self.type_names(m) } else { Vec::new() };
+        let known = if self.near_budget > 0 && self.quiet == 0 { self.type_names(m) } else { Vec::new() };
         let near = nearest(written, known.iter().map(String::as_str), &mut self.near_budget);
         let d = if near.is_empty() {
             Diagnostic::new(code::UNKNOWN_TYPE, at).with("found", Arg::Text(written.to_string()))
@@ -1050,8 +1055,8 @@ impl Checker<'_> {
     /// A note when a name of the language or the mod hides a game type of that name: the game's
     /// is reached in backquotes. Once per name; none when both are the same type (`f32`).
     fn hides_game_type(&mut self, m: ModRef, at: Pos, name: &str, ours: &Ty) {
-        // A library's names were noted when it was built; the note is the mod's, once.
-        if m.owner != Owner::Mod {
+        // A library's names were noted when it was built; the note is the mod's, once (and not marked by a quiet walk).
+        if m.owner != Owner::Mod || self.quiet > 0 {
             return;
         }
         let Some(types) = self.facts.game.types.as_ref() else { return };

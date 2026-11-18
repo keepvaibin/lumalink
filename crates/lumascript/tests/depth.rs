@@ -211,6 +211,34 @@ fn a_long_list_of_waits_is_let_go_of() {
     assert!(said.is_empty(), "{said:?}");
 }
 
+/// A long chain of module values, each's type found from the next's: checked in linear time, not a crash of the
+/// compiler's stack (N-4032: each was found inside the walk of the one before).
+#[test]
+fn a_long_chain_of_module_values_is_checked() {
+    let mut took = Vec::new();
+    for (n, wrap) in [(25_000usize, 0usize), (100_000, 0), (2_000, 500)] {
+        let mut src = String::new();
+        for i in 0..n {
+            src.push_str(&format!("let a{i} = {}a{}{}
+", "(".repeat(wrap), i + 1, ")".repeat(wrap)));
+        }
+        src.push_str(&format!("let a{n} = 1
+on start {{
+    log a0
+}}
+"));
+        let (t, said) = check_timed(&src);
+        assert!(said.is_empty(), "{n}: {:?}", &said[..said.len().min(3)]);
+        took.push(t);
+    }
+    eprintln!("25000: {:?}, 100000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+    // A cycle met on the work list (b and c, found while a is) is said once, at the read that closes it, as the
+    // recursion said it.
+    let (_, said) = check_timed("let a = b\nlet b = c\nlet c = b\non start {\n    log a\n}\n");
+    assert_eq!(said.iter().map(|d| (d.code, d.at.line, d.args.clone())).collect::<Vec<_>>(), [(code::TYPE_NEEDS_WRITING, 3, vec![("found", lumascript::Arg::Text("b".into()))])]);
+}
+
 /// A large module with no mistake: `n` structs and functions that call each other, with locals, loops, branches and
 /// struct literals.
 fn large_module(n: usize) -> String {
