@@ -86,6 +86,7 @@ fn needs_said(text: &str) -> Vec<(u16, u32, String, String, String)> {
         d.args.iter().find(|(k, _)| *k == n).map_or(String::new(), |(_, a)| match a {
             Arg::Text(t) => t.clone(),
             Arg::Phrase(p) => (*p).to_string(),
+            Arg::Phrased(p, v) => format!("{p} {v:?}"),
         })
     };
     let other: Vec<_> = checked.diags.iter().filter(|(_, d)| ![code::NEEDS_NOT_PROVED, code::CAN_WHAT, code::HOLDS_WHAT].contains(&d.code)).map(|(_, d)| (d.code, d.at.line)).collect();

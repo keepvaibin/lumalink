@@ -2,6 +2,7 @@
 //! enum cases, options), calls of the mod's functions and the game's (docs/modding/language/compiled-form.md, section 5), the standard functions, and text
 //! and JSON as log and facts write them.
 
+use super::Ny;
 use super::{lost, counted, c_string, c_bytes, components, f32_c, f64_c, float_bounds, int_fits, is_view, limit_c, scalar_c, scalar_name, signed, unescape, value_c, Ex, Fx, Gen, NotWritten};
 use crate::ast::{self, BinOp, Expr, ExprKind, ItemKind, Pos, StrPart, StrPrefix};
 use crate::check::{ItemRef, Owner, Resolved, Ty};
@@ -11,12 +12,12 @@ use luma_validate::names::FunctionKind;
 use std::fmt::Write as _;
 
 impl<'a> Gen<'a> {
-    pub(super) fn not_yet<T>(&mut self, fx: &Fx, e: &Expr, what: &str) -> Result<T, NotWritten> {
+    pub(super) fn not_yet<T>(&mut self, fx: &Fx, e: &Expr, what: Ny) -> Result<T, NotWritten> {
         self.say(fx.module, e.at, what);
         Err(NotWritten)
     }
 
-    pub(super) fn say_at<T>(&mut self, fx: &Fx, at: Pos, what: &str) -> Result<T, NotWritten> {
+    pub(super) fn say_at<T>(&mut self, fx: &Fx, at: Pos, what: Ny) -> Result<T, NotWritten> {
         self.say(fx.module, at, what);
         Err(NotWritten)
     }
@@ -99,8 +100,8 @@ impl<'a> Gen<'a> {
                 Ok(fx.temp(&ct, &format!("({ct}){{{o} != 0, {copy}}}")))
             }
             _ => {
-                let what = format!("{} where {} goes", self.ty_text(from), self.ty_text(to));
-                self.say_at(fx, at, &what)
+                let what = ny!("WhereGoes", "from" => self.ty_text(from), "to" => self.ty_text(to));
+                self.say_at(fx, at, what)
             }
         }
     }
@@ -118,7 +119,7 @@ impl<'a> Gen<'a> {
         if let Ty::Game(GameTy::Struct(record)) = &t {
             if matches!(e.kind, ExprKind::Member { optional: false, .. } | ExprKind::Game(_) | ExprKind::Index { .. } | ExprKind::Name { .. }) {
                 if let Some(p) = self.game_place_of(fx, e) {
-                    let super::game::GamePlace::Address(a) = p? else { return self.not_yet(fx, e, "a copy of a game struct") };
+                    let super::game::GamePlace::Address(a) = p? else { return self.not_yet(fx, e, ny!("GameStructCopy")) };
                     let record = record.clone();
                     return Ok(self.record_copy(fx, e.at.line, &a, &record));
                 }
@@ -134,7 +135,7 @@ impl<'a> Gen<'a> {
             if let Some(p) = self.game_place_of(fx, e) {
                 let p = p?;
                 if let super::game::GamePlace::Array { .. } = p {
-                    return self.not_yet(fx, e, "a game array as a whole");
+                    return self.not_yet(fx, e, ny!("GameArrayWhole"));
                 }
                 let v = self.game_read(fx, p)?;
                 let ct = self.c_type(&t).ok_or_else(lost)?;
@@ -168,12 +169,12 @@ impl<'a> Gen<'a> {
                     let ct = self.c_type(&t).ok_or_else(lost)?;
                     Ok(fx.temp(&ct, &format!("({ct}){{0}}")))
                 }
-                _ => self.not_yet(fx, e, "none of this type"),
+                _ => self.not_yet(fx, e, ny!("NoneType")),
             },
             ExprKind::SelfValue => match (&fx.self_c, &fx.hook) {
                 (Some(c), _) => Ok(c.clone()),
                 (None, Some(_)) => Ok("call->args[0]".into()),
-                (None, None) => self.not_yet(fx, e, "self here"),
+                (None, None) => self.not_yet(fx, e, ny!("SelfHere")),
             },
             ExprKind::Name { .. } => match self.resolved(m, e) {
                 Some(Resolved::Local(id)) => Ok(fx.local(*id)),
@@ -192,18 +193,18 @@ impl<'a> Gen<'a> {
                 }
                 Some(Resolved::GameEnumValue { number, .. }) => Ok(format!("((int32_t){number})")),
                 Some(Resolved::Limit { ty, max }) => Ok(limit_c(*ty, *max)),
-                _ => self.not_yet(fx, e, "this name as a value"),
+                _ => self.not_yet(fx, e, ny!("NameAsValue")),
             },
             ExprKind::Result => match fx.hook.as_ref().and_then(|h| h.result_c.clone()) {
                 Some(_) => {
                     let t = self.ty(m, e);
                     self.result_value(fx, &t, e.at.line)
                 }
-                None => self.not_yet(fx, e, "result"),
+                None => self.not_yet(fx, e, ny!("Result")),
             },
             ExprKind::Member { base, optional: false, .. } => match self.resolved(m, e) {
                 Some(Resolved::Component(i)) => {
-                    let Ty::Value(v) = self.ty(m, base) else { return self.not_yet(fx, e, "a component of this value") };
+                    let Ty::Value(v) = self.ty(m, base) else { return self.not_yet(fx, e, ny!("ComponentOf")) };
                     let b = self.expr(fx, base)?;
                     Ok(format!("{b}.{}", components(v)[*i]))
                 }
@@ -228,20 +229,20 @@ impl<'a> Gen<'a> {
                 Some(Resolved::ServiceField { service, record, field }) => {
                     let (service, record, field) = (service.clone(), record.clone(), field.clone());
                     let bt = self.ty(m, base);
-                    let Some(ct) = self.c_type(&bt) else { return self.not_yet(fx, e, "a field of this service struct") };
+                    let Some(ct) = self.c_type(&bt) else { return self.not_yet(fx, e, ny!("ServiceStructField")) };
                     let b = self.expr(fx, base)?;
                     let b = fx.temp(&ct, &b);
                     match self.service_field_get(fx, e.at.line, &b, &service, &record, &field) {
                         Some(v) => Ok(v),
-                        None => self.not_yet(fx, e, "this field of a service struct"),
+                        None => self.not_yet(fx, e, ny!("ServiceStructFieldThis")),
                     }
                 }
-                _ => self.not_yet(fx, e, "this member"),
+                _ => self.not_yet(fx, e, ny!("ThisMember")),
             },
             // `a?.b`: none when a is none, else a's b (an option of it, unless it is one already).
             ExprKind::Member { base, optional: true, .. } => {
                 let bt = self.ty(m, base);
-                let Ty::Opt(inner_t) = &bt else { return self.not_yet(fx, e, "?. on this type") };
+                let Ty::Opt(inner_t) = &bt else { return self.not_yet(fx, e, ny!("OptOnType")) };
                 let inner_t = (**inner_t).clone();
                 let bct = self.c_type(&bt).ok_or_else(lost)?;
                 let ct = self.c_type(&t).ok_or_else(lost)?;
@@ -287,7 +288,7 @@ impl<'a> Gen<'a> {
                         let parts: Vec<String> = components(*val).iter().map(|c| format!("-{v}.{c}")).collect();
                         Ok(fx.temp(value_c(*val), &format!("({}){{{}}}", value_c(*val), parts.join(", "))))
                     }
-                    _ => self.not_yet(fx, e, "- on this type"),
+                    _ => self.not_yet(fx, e, ny!("MinusOnType")),
                 }
             }
             ExprKind::Not(x) => {
@@ -389,7 +390,7 @@ impl<'a> Gen<'a> {
                 let (has, inner) = match &xt {
                     Ty::Opt(y) if is_view(y) => (format!("{tmp} != 0"), tmp.clone()),
                     Ty::Opt(_) => (format!("{tmp}.some"), format!("{tmp}.value")),
-                    _ => return self.not_yet(fx, e, "! on this type"),
+                    _ => return self.not_yet(fx, e, ny!("BangOnType")),
                 };
                 let src = c_string(&expr_text(x));
                 fx.fail_if(&format!("!({has}) && lumart_raise({}, {}, 906, 1, (const char* const[]){{{src}}})", c_string(&fx.file), e.at.line));
@@ -397,7 +398,7 @@ impl<'a> Gen<'a> {
             }
             ExprKind::Tuple(items) => {
                 let ct = self.c_type(&t).ok_or_else(lost)?;
-                let Ty::Tuple(ts) = &t else { return self.not_yet(fx, e, "this tuple") };
+                let Ty::Tuple(ts) = &t else { return self.not_yet(fx, e, ny!("ThisTuple")) };
                 let ts = ts.clone();
                 let mut parts = Vec::new();
                 let last = items.len().saturating_sub(1);
@@ -420,7 +421,7 @@ impl<'a> Gen<'a> {
                 let Some(a) = args.first() else { return Err(lost()) };
                 // A mod's class's object is its game base's object (the kernel made it so): the same slot.
                 if !matches!(self.ty(m, &a.value), Ty::Game(GameTy::View { .. }) | Ty::Class(_)) {
-                    return self.not_yet(fx, e, "ref of this value");
+                    return self.not_yet(fx, e, ny!("RefOfValue"));
                 }
                 let v = self.expr(fx, &a.value)?;
                 let nameobj = self.class_slot("NameObj");
@@ -436,8 +437,8 @@ impl<'a> Gen<'a> {
                     return Ok(String::new());
                 }
                 let ct = self.c_type(&t).ok_or_else(|| {
-                    let what = format!("if or match giving {}", self.ty_text(&t));
-                    self.say(m, e.at, &what);
+                    let what = ny!("IfMatchGiving", "type" => self.ty_text(&t));
+                    self.say(m, e.at, what);
                     NotWritten
                 })?;
                 let r = fx.fresh(&ct);
@@ -460,7 +461,7 @@ impl<'a> Gen<'a> {
                     fx.place_args_in();
                     Ok(String::new())
                 }
-                _ => self.not_yet(fx, e, "proceed() outside a wrap"),
+                _ => self.not_yet(fx, e, ny!("ProceedOutsideWrap")),
             },
             ExprKind::Str(_) => self.text_value(fx, e, &t),
             ExprKind::Content { word, path, args } if word == "text" => self.text_row(fx, e, path, args.as_deref().unwrap_or(&[])),
@@ -470,7 +471,7 @@ impl<'a> Gen<'a> {
                 for part in &path.parts {
                     match part {
                         StrPart::Text(raw) => bytes.extend(if path.prefix == StrPrefix::Raw { raw.as_bytes().to_vec() } else { unescape(raw) }),
-                        _ => return self.not_yet(fx, e, "a content name made at run time (write `<kind>_named(..)`)"),
+                        _ => return self.not_yet(fx, e, ny!("ContentRuntime")),
                     }
                 }
                 // A model is the game's resource name: a mod's own "Luma/<id>/<path>" (its cooked archive), a needed
@@ -502,11 +503,11 @@ impl<'a> Gen<'a> {
         match self.resolved(m, e).cloned() {
             Some(Resolved::Component(i)) => match bt {
                 Ty::Value(v) => Ok((format!("{b}.{}", components(*v)[i]), Ty::Float(Scalar::F32))),
-                _ => self.not_yet(fx, e, "a component of this value"),
+                _ => self.not_yet(fx, e, ny!("ComponentOf")),
             },
             Some(Resolved::TupleIndex(i)) => match bt {
                 Ty::Tuple(xs) if i < xs.len() => Ok((format!("{b}._{i}"), xs[i].clone())),
-                _ => self.not_yet(fx, e, "this tuple index"),
+                _ => self.not_yet(fx, e, ny!("TupleIndex")),
             },
             Some(Resolved::Member { owner, name }) if matches!(bt, Ty::Struct(_)) => Ok((format!("{b}.{name}"), self.declared_ty(owner, &format!(".{name}")))),
             Some(Resolved::GameField { record, field }) if is_view(bt) => {
@@ -515,14 +516,14 @@ impl<'a> Gen<'a> {
                 // A plain game struct is the script's copy, here as after `.`: never its address in the
                 // game, which a count taken or given back would write over.
                 if let Ty::Game(GameTy::Struct(rec)) = own {
-                    let super::game::GamePlace::Address(a) = p else { return self.not_yet(fx, e, "a copy of this game struct after ?.") };
+                    let super::game::GamePlace::Address(a) = p else { return self.not_yet(fx, e, ny!("GameStructCopyOpt")) };
                     let rec = rec.clone();
                     return Ok((self.record_copy(fx, e.at.line, &a, &rec), own.clone()));
                 }
                 let v = self.game_read(fx, p)?;
                 Ok((v, own.clone()))
             }
-            _ => self.not_yet(fx, e, "this member after ?."),
+            _ => self.not_yet(fx, e, ny!("ThisMemberOpt")),
         }
     }
 
@@ -530,7 +531,7 @@ impl<'a> Gen<'a> {
         let (digits, radix) = number_text(text);
         match t {
             Ty::Int(s) => {
-                let Ok(v) = u128::from_str_radix(&digits, radix) else { return self.not_yet(fx, e, "this number") };
+                let Ok(v) = u128::from_str_radix(&digits, radix) else { return self.not_yet(fx, e, ny!("ThisNumber")) };
                 // A literal is non-negative (`-` is an operator); written unsigned and cast, exact for every width.
                 Ok(format!("(({})0x{v:x}ull)", scalar_c(*s)))
             }
@@ -542,7 +543,7 @@ impl<'a> Gen<'a> {
                 let v: f32 = if radix == 10 { digits.parse().unwrap_or(0.0) } else { u128::from_str_radix(&digits, radix).unwrap_or(0) as f32 };
                 Ok(f32_c(v))
             }
-            _ => self.not_yet(fx, e, "a number of this type"),
+            _ => self.not_yet(fx, e, ny!("NumberType")),
         }
     }
 
@@ -572,8 +573,8 @@ impl<'a> Gen<'a> {
                 let r = if rt == lt { r.to_string() } else { self.coerce(fx, r, rt, lt, at)? };
                 let b = fx.temp(&ct, &r);
                 let Some(eq) = self.eq_c(&a, &b, lt) else {
-                    let what = format!("== on {}", self.ty_text(lt));
-                    return self.say_at(fx, at, &what);
+                    let what = ny!("EqOn", "type" => self.ty_text(lt));
+                    return self.say_at(fx, at, what);
                 };
                 Ok(fx.temp("uint8_t", &if op == BinOp::Eq { format!("(uint8_t){eq}") } else { format!("(uint8_t)!{eq}") }))
             }
@@ -643,7 +644,7 @@ impl<'a> Gen<'a> {
                 let o = binop_text(op);
                 Ok(fx.temp(scalar_c(*s), &format!("{l} {o} {r}")))
             }
-            (BinOp::Rem, Ty::Float(_), _) => self.say_at(fx, at, "% on floats"),
+            (BinOp::Rem, Ty::Float(_), _) => self.say_at(fx, at, ny!("RemOnFloats")),
             (BinOp::Add | BinOp::Sub, Ty::Value(v), Ty::Value(_)) if !components(*v).is_empty() => {
                 let o = binop_text(op);
                 let parts: Vec<String> = components(*v).iter().map(|c| format!("{l}.{c} {o} {r}.{c}")).collect();
@@ -663,8 +664,8 @@ impl<'a> Gen<'a> {
             }
             _ => {
                 let _ = t;
-                let what = format!("{} on {} and {}", binop_text(op), self.ty_text(lt), self.ty_text(rt));
-                self.say_at(fx, at, &what)
+                let what = ny!("BinaryOn", "op" => binop_text(op).to_string(), "left" => self.ty_text(lt), "right" => self.ty_text(rt));
+                self.say_at(fx, at, what)
             }
         }
     }
@@ -713,7 +714,7 @@ impl<'a> Gen<'a> {
                 fx.emit("}".into());
                 Ok(format!("(({}){tmp})", scalar_c(*b)))
             }
-            _ => self.not_yet(fx, e, "this conversion"),
+            _ => self.not_yet(fx, e, ny!("ThisConversion")),
         }
     }
 
@@ -765,7 +766,7 @@ impl<'a> Gen<'a> {
             let ft = self.declared_ty(owner, &format!("{prefix}{}", f.name.name));
             let x = match g.or(f.default.as_ref()) {
                 Some(x) => x,
-                None => return self.not_yet(fx, e, "a value missing its field"),
+                None => return self.not_yet(fx, e, ny!("ValueMissingField")),
             };
             let in_owner = g.is_none();
             // A library's default is filled in by the caller, a literal (it has no expression types here).
@@ -813,7 +814,7 @@ impl<'a> Gen<'a> {
                             args.push((ident.clone(), Err(self.item_value(*item))));
                             continue;
                         }
-                        _ => return self.not_yet(fx, e, "this shorthand field"),
+                        _ => return self.not_yet(fx, e, ny!("ShorthandField")),
                     }
                 }
             };
@@ -827,7 +828,7 @@ impl<'a> Gen<'a> {
             Ty::Enum(item) => {
                 let case = match self.checked.named.get(&(m, path[path.len() - 1].at)) {
                     Some(Resolved::Case { case, .. }) => case.clone(),
-                    _ => return self.not_yet(fx, e, "this case"),
+                    _ => return self.not_yet(fx, e, ny!("ThisCase")),
                 };
                 let ItemKind::Enum(d) = &self.item(*item).kind else { return Err(lost()) };
                 let c = d.cases.iter().find(|c| c.name.name == case).ok_or_else(lost)?;
@@ -837,7 +838,7 @@ impl<'a> Gen<'a> {
                 let (service, name) = (service.clone(), name.clone());
                 return self.service_struct_lit(fx, e, &args, &service, &name);
             }
-            _ => return self.not_yet(fx, e, "this literal"),
+            _ => return self.not_yet(fx, e, ny!("ThisLiteral")),
         };
         let ct = self.c_type(t).ok_or_else(lost)?;
         // Fields in the order written (their reads and errors), then the defaults of the rest in declared order.
@@ -859,7 +860,7 @@ impl<'a> Gen<'a> {
             if values[i].is_some() {
                 continue;
             }
-            let Some(d) = &f.default else { return self.not_yet(fx, e, "a value missing its field") };
+            let Some(d) = &f.default else { return self.not_yet(fx, e, ny!("ValueMissingField")) };
             let ft = self.declared_ty(item, &format!("{prefix}{}", f.name.name));
             // A library's struct or case: its default is a literal the caller fills in (its expression was not
             // checked in this mod).
@@ -936,7 +937,7 @@ impl<'a> Gen<'a> {
                 ItemKind::Task { .. } => self.task_pending(fx, e, item, args),
                 // C6: `T()`, the struct of its defaults.
                 ItemKind::Struct(_) => self.struct_lit(fx, e, &[], &[], t),
-                _ => self.not_yet(fx, e, "a call of this item"),
+                _ => self.not_yet(fx, e, ny!("CallItem")),
             },
             // A needed library mod's function, through its kind 6 import (docs/modding/language/compiled-form.md).
             Some(Resolved::Item(item)) if matches!(item.owner, Owner::Library(_)) => match &self.item(item).kind {
@@ -950,7 +951,7 @@ impl<'a> Gen<'a> {
                     self.call_library(fx, e, item, "", None, &f, args, true)
                 }
                 ItemKind::Struct(_) => self.struct_lit(fx, e, &[], &[], t),
-                _ => self.not_yet(fx, e, "a call of this item of another mod"),
+                _ => self.not_yet(fx, e, ny!("CallModItem")),
             },
             // A needed library's struct's function: `v.f(...)` through its kind 6 import, v its `self`.
             Some(Resolved::Member { owner, name }) if matches!(owner.owner, Owner::Library(_)) && matches!(self.item(owner).kind, ItemKind::Struct(_)) => {
@@ -959,7 +960,7 @@ impl<'a> Gen<'a> {
                     if matches!(self.ty(m, callee), Ty::Fn(..)) {
                         return self.call_fn_value(fx, e, callee, args);
                     }
-                    return self.not_yet(fx, e, "this struct function of another mod");
+                    return self.not_yet(fx, e, ny!("ModStructFn"));
                 };
                 let recv = match &callee.kind {
                     ExprKind::Member { base, .. } if matches!(self.ty(m, base), Ty::Struct(_)) => Some(&**base),
@@ -975,7 +976,7 @@ impl<'a> Gen<'a> {
                     if matches!(self.ty(m, callee), Ty::Fn(..)) {
                         return self.call_fn_value(fx, e, callee, args);
                     }
-                    return self.not_yet(fx, e, "this struct function");
+                    return self.not_yet(fx, e, ny!("StructFn"));
                 };
                 let c_name = self.struct_fn_c(owner, &f.name.name);
                 let receiver = match &callee.kind {
@@ -1010,7 +1011,7 @@ impl<'a> Gen<'a> {
             Some(Resolved::ServiceFn { service, name, waited }) => self.call_service(fx, e, &service, &name, waited, args),
             // A value of function type: a local, a field, an element, any expression (5.4; closure.rs).
             _ if matches!(self.ty(m, callee), Ty::Fn(..)) => self.call_fn_value(fx, e, callee, args),
-            _ => self.not_yet(fx, e, "a call of this kind"),
+            _ => self.not_yet(fx, e, ny!("CallKind")),
         }
     }
 
@@ -1020,7 +1021,7 @@ impl<'a> Gen<'a> {
     fn optional_call(&mut self, fx: &mut Fx, e: &Expr, base: &Expr, res: Option<Resolved>, args: &[ast::Arg], t: &Ty) -> Ex {
         let m = fx.module;
         let bt = self.ty(m, base);
-        let Ty::Opt(x) = &bt else { return self.not_yet(fx, e, "?. on this type") };
+        let Ty::Opt(x) = &bt else { return self.not_yet(fx, e, ny!("OptOnType")) };
         let x = (**x).clone();
         // What the call gives on a value, and how the value is passed.
         enum Target {
@@ -1030,7 +1031,7 @@ impl<'a> Gen<'a> {
         }
         let target = match res {
             Some(Resolved::GameFn { name, signature }) => {
-                let Ok(fnty) = self.game.call_signature(&name, &signature) else { return self.not_yet(fx, e, "a game call whose signature does not cross") };
+                let Ok(fnty) = self.game.call_signature(&name, &signature) else { return self.not_yet(fx, e, ny!("GameCallNoCross")) };
                 let inner = match (&fnty.result, t) {
                     (GameTy::Opt(_), _) => t.clone(),
                     (_, Ty::Opt(y)) => (**y).clone(),
@@ -1040,7 +1041,7 @@ impl<'a> Gen<'a> {
             }
             Some(Resolved::Member { owner, name }) if owner.owner == Owner::Mod && matches!(self.item(owner).kind, ItemKind::Struct(_)) => {
                 let ItemKind::Struct(st) = &self.item(owner).kind else { return Err(lost()) };
-                let Some(f) = st.fns.iter().find(|f| f.name.name == name).cloned() else { return self.not_yet(fx, e, "this struct function") };
+                let Some(f) = st.fns.iter().find(|f| f.name.name == name).cloned() else { return self.not_yet(fx, e, ny!("StructFn")) };
                 let inner = self.checked.types.get(&(owner, format!(".{name}->"))).cloned().unwrap_or(Ty::Unit);
                 let var_self = f.params.iter().any(|p| p.is_self && p.var);
                 Target::Struct { owner, f, var_self, inner }
@@ -1062,7 +1063,7 @@ impl<'a> Gen<'a> {
                 };
                 Target::Method { name, inner }
             }
-            _ => return self.not_yet(fx, e, "?. on a call of this kind"),
+            _ => return self.not_yet(fx, e, ny!("OptOnCall")),
         };
         // The value: a view is its address; an option of a value is read once, or by its place for `var self`.
         let var_self = matches!(target, Target::Struct { var_self: true, .. });
@@ -1147,7 +1148,7 @@ impl<'a> Gen<'a> {
         let mut held: Vec<(String, String)> = Vec::new();
         if let Some(sp) = f.params.iter().find(|p| p.is_self) {
             let v = match receiver {
-                None => return self.not_yet(fx, e, "a struct function called without its value"),
+                None => return self.not_yet(fx, e, ny!("StructFnNoValue")),
                 // Read already (`a?.f()`): the value, or for `var self` its place's address.
                 Some(Recv::Value(v)) => v,
                 Some(Recv::Expr(base)) => {
@@ -1201,7 +1202,7 @@ impl<'a> Gen<'a> {
             if slots[k].is_some() {
                 continue;
             }
-            let Some(d) = &p.default else { return self.not_yet(fx, e, "a call missing an argument") };
+            let Some(d) = &p.default else { return self.not_yet(fx, e, ny!("CallMissingArg")) };
             let pt = self.declared_ty(item, &pkey(*i, p));
             let saved = fx.module;
             fx.module = item.module;
@@ -1243,14 +1244,14 @@ impl<'a> Gen<'a> {
     #[allow(clippy::too_many_arguments)]
     fn call_game(&mut self, fx: &mut Fx, e: &Expr, receiver: Option<Recv>, name: &str, signature: &str, args: &[ast::Arg], t: &Ty) -> Ex {
         let m = fx.module;
-        let Ok(fnty) = self.game.call_signature(name, signature) else { return self.not_yet(fx, e, "a game call whose signature does not cross") };
-        let Ok(sig) = ctype::parse_signature(signature) else { return self.not_yet(fx, e, "a game call whose signature does not read") };
+        let Ok(fnty) = self.game.call_signature(name, signature) else { return self.not_yet(fx, e, ny!("GameCallNoCross")) };
+        let Ok(sig) = ctype::parse_signature(signature) else { return self.not_yet(fx, e, ny!("GameCallUnread")) };
         if !fnty.counts.is_empty() {
-            return self.not_yet(fx, e, "a game call with a counted list");
+            return self.not_yet(fx, e, ny!("GameCallCountedList"));
         }
         // One argument per parameter: the invoker reads exactly that many.
         if args.len() != fnty.params.len() {
-            return self.not_yet(fx, e, "a game call with another number of arguments than its parameters");
+            return self.not_yet(fx, e, ny!("GameCallArgCount"));
         }
         // docs/modding/language/objects.md: a member called on an object (`obj.f()`, `obj?.f()`, or by its bare name in a hook) that the
         // facts mark virtual runs the object's own class's function, as in C++ (kind 8); one written qualified
@@ -1289,7 +1290,7 @@ impl<'a> Gen<'a> {
                 if method {
                     match &fx.hook {
                         Some(_) => Some("call->args[0]".to_string()),
-                        None => return self.not_yet(fx, e, "a member function called on self outside a hook"),
+                        None => return self.not_yet(fx, e, ny!("SelfMemberOutsideHook")),
                     }
                 } else {
                     None
@@ -1300,7 +1301,7 @@ impl<'a> Gen<'a> {
         // The scratch's mark before the first text made for the call alone, given back once it returns.
         let mut scratch_mark: Option<String> = None;
         for (i, (a, p)) in args.iter().zip(fnty.params.iter()).enumerate() {
-            let Some(c) = sig.params.get(fnty.c_index(i)).cloned() else { return self.not_yet(fx, e, "a game argument past its signature") };
+            let Some(c) = sig.params.get(fnty.c_index(i)).cloned() else { return self.not_yet(fx, e, ny!("GameArgPast")) };
             let at = &a.value;
             let from = self.ty(m, at);
             // A marked pointer (`T *` marked in, out or inout; nullable or not): the place it points at.
@@ -1446,7 +1447,7 @@ impl<'a> Gen<'a> {
                 // (the callee takes its own copy), else the script's copy.
                 (GameTy::Struct(_), _) => match self.game_place_of(fx, at) {
                     Some(Ok(super::game::GamePlace::Address(a))) => fx.temp("void*", &format!("(void*)({a})")),
-                    Some(Ok(_)) => return self.not_yet(fx, e, "a game record argument of this kind"),
+                    Some(Ok(_)) => return self.not_yet(fx, e, ny!("GameRecordArg")),
                     Some(Err(x)) => return Err(x),
                     None => {
                         let v = self.expr(fx, at)?;
@@ -1454,7 +1455,7 @@ impl<'a> Gen<'a> {
                         fx.temp("void*", &format!("(void*)lumart_bytes_p({b})"))
                     }
                 },
-                _ => return self.not_yet(fx, e, &format!("a game argument of type {p:?}")),
+                _ => return self.not_yet(fx, e, ny!("GameArgType", "type" => super::game_ty_text(p))),
             };
             slots.push(slot);
         }
@@ -1509,7 +1510,7 @@ impl<'a> Gen<'a> {
                 let r = fx.fresh("void*");
                 (r.clone(), format!("&{r}"))
             }
-            other => return self.not_yet(fx, e, &format!("a game result of type {other:?}")),
+            other => return self.not_yet(fx, e, ny!("GameResultType", "type" => super::game_ty_text(other))),
         };
         fx.emit(format!("{slot}->invoke({argv}, {out});"));
         if let Some(mark) = scratch_mark {
@@ -1860,7 +1861,7 @@ impl<'a> Gen<'a> {
                     Ok(fx.temp(ct, &format!("{} < 0 ? ({ct})-{} : {}", v(0), v(0), v(0))))
                 }
                 Ty::Float(sc) => Ok(fx.temp(scalar_c(*sc), &format!("{} < 0 ? -{} : {}", v(0), v(0), v(0)))),
-                _ => self.not_yet(fx, e, "abs of this type"),
+                _ => self.not_yet(fx, e, ny!("AbsType")),
             },
             "lerp" => {
                 let ct = self.c_type(t).ok_or_else(lost)?;
@@ -1870,11 +1871,11 @@ impl<'a> Gen<'a> {
                         let parts: Vec<String> = components(*val).iter().map(|c| format!("{a}.{c} + ({b}.{c} - {a}.{c}) * {k}", a = v(0), b = v(1), k = v(2))).collect();
                         Ok(fx.temp(&ct, &format!("({ct}){{{}}}", parts.join(", "))))
                     }
-                    _ => self.not_yet(fx, e, "lerp of this type"),
+                    _ => self.not_yet(fx, e, ny!("LerpType")),
                 }
             }
             "dot" => {
-                let Ty::Value(val) = vals[0].1 else { return self.not_yet(fx, e, "dot of this type") };
+                let Ty::Value(val) = vals[0].1 else { return self.not_yet(fx, e, ny!("DotType")) };
                 let parts: Vec<String> = components(val).iter().map(|c| format!("{}.{c} * {}.{c}", v(0), v(1))).collect();
                 Ok(fx.temp("float", &parts.join(" + ")))
             }
@@ -1883,7 +1884,7 @@ impl<'a> Gen<'a> {
                 Ok(fx.temp("lm_vec3", &format!("(lm_vec3){{{a}.y * {b}.z - {a}.z * {b}.y, {a}.z * {b}.x - {a}.x * {b}.z, {a}.x * {b}.y - {a}.y * {b}.x}}")))
             }
             "length" | "normal" => {
-                let Ty::Value(val) = vals[0].1 else { return self.not_yet(fx, e, "length of this type") };
+                let Ty::Value(val) = vals[0].1 else { return self.not_yet(fx, e, ny!("LengthType")) };
                 let sq: Vec<String> = components(val).iter().map(|c| format!("{}.{c} * {}.{c}", v(0), v(0))).collect();
                 let len = fx.temp("float", &format!("lumart_sqrtf({})", sq.join(" + ")));
                 if s == "length" {
@@ -1928,10 +1929,10 @@ impl<'a> Gen<'a> {
                         Ty::Opt(y) => (&**y, true),
                         y => (y, false),
                     };
-                    let Ty::Service { service, name } = handle else { return self.not_yet(fx, e, "same() of these values") };
+                    let Ty::Service { service, name } = handle else { return self.not_yet(fx, e, ny!("SameOf")) };
                     // A handle (uint64_t) or an enum (int32_t), compared as numbers; a struct is not a handle.
                     if !matches!(self.service_c_type(service, name).as_deref(), Some("uint64_t" | "int32_t")) {
-                        return self.not_yet(fx, e, "same() of these values");
+                        return self.not_yet(fx, e, ny!("SameOf"));
                     }
                     sides.push(if opt { (format!("{x}.some"), format!("{x}.value")) } else { ("1".to_string(), x.clone()) });
                 }
@@ -1945,9 +1946,9 @@ impl<'a> Gen<'a> {
             // An integer's low bits as type T: C's conversion to the unsigned width, then to T.
             "low_bits" => match t {
                 Ty::Int(sc) => Ok(fx.temp(scalar_c(*sc), &format!("({})({})(uint64_t){}", scalar_c(*sc), scalar_c(unsigned_of(*sc)), v(0)))),
-                _ => self.not_yet(fx, e, "low_bits of this type"),
+                _ => self.not_yet(fx, e, ny!("LowBitsType")),
             },
-            other => self.not_yet(fx, e, &format!("{other}()")),
+            other => self.not_yet(fx, e, ny!("CallOf", "name" => other.to_string())),
         }
     }
 
@@ -2013,7 +2014,7 @@ impl<'a> Gen<'a> {
     /// `[a, b, ...]`: a new list, its room made once.
     fn list_value(&mut self, fx: &mut Fx, e: &Expr, items: &[Expr], t: &Ty) -> Ex {
         let m = fx.module;
-        let Ty::List(x) = t else { return self.not_yet(fx, e, "a list literal of this type") };
+        let Ty::List(x) = t else { return self.not_yet(fx, e, ny!("ListLiteralType")) };
         if items.is_empty() {
             return Ok("((lumart_list)0)".into());
         }
@@ -2040,7 +2041,7 @@ impl<'a> Gen<'a> {
         let (k, v) = match t {
             Ty::Map(k, v) => ((**k).clone(), Some((**v).clone())),
             Ty::Set(k) => ((**k).clone(), None),
-            _ => return self.not_yet(fx, e, "braces of this type"),
+            _ => return self.not_yet(fx, e, ny!("BracesType")),
         };
         if entries.is_empty() {
             return Ok("((lumart_map)0)".into());
@@ -2111,8 +2112,8 @@ impl<'a> Gen<'a> {
                 Ok(r)
             }
             other => {
-                let what = format!("[ ] on {}", self.ty_text(other));
-                self.not_yet(fx, e, &what)
+                let what = ny!("IndexOn", "type" => self.ty_text(other));
+                self.not_yet(fx, e, what)
             }
         }
     }
@@ -2202,9 +2203,9 @@ impl<'a> Gen<'a> {
             n if n.starts_with("read_") && width(n).is_some() => vec![int.clone(), Ty::Bool],
             n if n.starts_with("write_") => match width(n) {
                 Some((_, vt)) => vec![int.clone(), vt, Ty::Bool],
-                None => return self.not_yet(fx, e, &format!("bytes.{name}()")),
+                None => return self.not_yet(fx, e, ny!("MethodOf", "type" => "bytes".to_string(), "name" => name.to_string())),
             },
-            _ => return self.not_yet(fx, e, &format!("bytes.{name}()")),
+            _ => return self.not_yet(fx, e, ny!("MethodOf", "type" => "bytes".to_string(), "name" => name.to_string())),
         };
         let writes = name == "push" || name.starts_with("write_");
         let mark = fx.rechecks.len();
@@ -2291,7 +2292,7 @@ impl<'a> Gen<'a> {
             // A closure: written in place by the method (no value made for it).
             (Ty::List(_), "map" | "filter" | "any" | "all" | "sum" | "sort_by") => Vec::new(),
             _ if args.is_empty() => Vec::new(),
-            _ => return self.not_yet(fx, e, &format!("{}.{name}()", self.ty_text(bt))),
+            _ => return self.not_yet(fx, e, ny!("MethodOf", "type" => self.ty_text(bt), "name" => name.to_string())),
         };
         for (arg, want) in args.iter().zip(wants.iter()) {
             let v = self.expr(fx, &arg.value)?;
@@ -2386,7 +2387,7 @@ impl<'a> Gen<'a> {
                     "map" | "filter" | "any" | "all" | "sum" | "sort_by" => {
                         let Some(arg) = args.first() else { return Err(lost()) };
                         let ExprKind::Closure { params, body, .. } = &strip(&arg.value).kind else {
-                            return self.not_yet(fx, e, &format!("list.{name}() given a function value (a closure written in the call is compiled)"));
+                            return self.not_yet(fx, e, ny!("MethodFnValue", "type" => "list".to_string(), "name" => name.to_string()));
                         };
                         let i = fx.fresh("uint64_t");
                         let item = Self::list_elem(&ec, &b, &i);
@@ -2465,7 +2466,7 @@ impl<'a> Gen<'a> {
                             }
                         }
                     }
-                    _ => self.not_yet(fx, e, &format!("list.{name}()")),
+                    _ => self.not_yet(fx, e, ny!("MethodOf", "type" => "list".to_string(), "name" => name.to_string())),
                 }
             }
             Ty::Map(k, v) | Ty::Set(k @ v) => {
@@ -2524,7 +2525,7 @@ impl<'a> Gen<'a> {
                         fx.emit("}".into());
                         Ok(r)
                     }
-                    _ => self.not_yet(fx, e, &format!("{}.{name}()", self.ty_text(bt))),
+                    _ => self.not_yet(fx, e, ny!("MethodOf", "type" => self.ty_text(bt), "name" => name.to_string())),
                 }
             }
             _ => Err(lost()),
@@ -2601,11 +2602,11 @@ impl<'a> Gen<'a> {
             return Ok(r);
         }
         if *t != Ty::Text {
-            let what = format!("a string as {}", self.ty_text(t));
-            return self.not_yet(fx, e, &what);
+            let what = ny!("StringAs", "type" => self.ty_text(t));
+            return self.not_yet(fx, e, what);
         }
         if lit.prefix != StrPrefix::None && lit.prefix != StrPrefix::Raw {
-            return self.not_yet(fx, e, "bytes as text");
+            return self.not_yet(fx, e, ny!("BytesAsText"));
         }
         if lit.parts.iter().all(|p| matches!(p, StrPart::Text(_))) {
             let mut bytes = Vec::new();
@@ -2635,7 +2636,7 @@ impl<'a> Gen<'a> {
         for part in &path.parts {
             match part {
                 StrPart::Text(raw) => key.extend(if path.prefix == StrPrefix::Raw { raw.as_bytes().to_vec() } else { unescape(raw) }),
-                _ => return self.not_yet(fx, e, "a text key made at run time"),
+                _ => return self.not_yet(fx, e, ny!("TextKeyRuntime")),
             }
         }
         let file = c_string(&fx.file);
@@ -2644,7 +2645,7 @@ impl<'a> Gen<'a> {
         let mut text = fx.fresh("lumart_text");
         fx.fail_if(&format!("lumart_text_message(&{text}, {k}, {}, {file}, {line})", key.len()));
         for a in args {
-            let Some(name) = &a.name else { return self.not_yet(fx, e, "a text argument without its placeholder's name") };
+            let Some(name) = &a.name else { return self.not_yet(fx, e, ny!("TextArgNoName")) };
             let (b, mark) = fx.scratch_builder();
             self.value_text_into(fx, &b, &a.value, false)?;
             fx.fail_if(&format!("lumart_sb_done(&{b}, {file}, {line})"));
@@ -2703,7 +2704,7 @@ impl<'a> Gen<'a> {
                         let name = c.name.name.clone();
                         format!("{}_n", self.item_c(*item, &name))
                     }
-                    _ => return self.not_yet(fx, e, "get() on a handle of this type"),
+                    _ => return self.not_yet(fx, e, ny!("GetOnHandle")),
                 };
                 let h = self.expr(fx, base)?;
                 let p = fx.temp("void*", &format!("lumart_ref_get({h}, {cls})"));
@@ -2738,7 +2739,7 @@ impl<'a> Gen<'a> {
             }
             Ty::Text => {
                 if !matches!(name, "len" | "starts_with" | "ends_with" | "find" | "slice" | "lower" | "upper" | "parse_int" | "parse_float" | "chars" | "split" | "bytes") {
-                    return self.not_yet(fx, e, &format!("text.{name}()"));
+                    return self.not_yet(fx, e, ny!("MethodOf", "type" => "text".to_string(), "name" => name.to_string()));
                 }
                 let s = self.expr(fx, base)?;
                 let s = fx.temp("lumart_text", &s);
@@ -2803,8 +2804,8 @@ impl<'a> Gen<'a> {
                 }
             }
             other => {
-                let what = format!("{}.{name}()", self.ty_text(other));
-                self.not_yet(fx, e, &what)
+                let what = ny!("MethodOf", "type" => self.ty_text(other), "name" => name.to_string());
+                self.not_yet(fx, e, what)
             }
         }
     }
@@ -2876,9 +2877,9 @@ impl<'a> Gen<'a> {
 
     /// Writes a text value (a string literal with its interpolations) into builder `b`.
     pub(super) fn text_into(&mut self, fx: &mut Fx, b: &str, e: &Expr) -> Result<(), NotWritten> {
-        let ExprKind::Str(lit) = &e.kind else { return self.not_yet(fx, e, "a text that is no string literal") };
+        let ExprKind::Str(lit) = &e.kind else { return self.not_yet(fx, e, ny!("TextNotLiteral")) };
         if lit.prefix != StrPrefix::None && lit.prefix != StrPrefix::Raw {
-            return self.not_yet(fx, e, "bytes as text");
+            return self.not_yet(fx, e, ny!("BytesAsText"));
         }
         for part in &lit.parts {
             match part {
@@ -3087,8 +3088,8 @@ impl<'a> Gen<'a> {
                 }
             }
             other => {
-                let what = format!("{} as text", self.ty_text(other));
-                return self.not_yet(fx, e, &what);
+                let what = ny!("AsText", "type" => self.ty_text(other));
+                return self.not_yet(fx, e, what);
             }
         }
         Ok(())
@@ -3211,39 +3212,39 @@ pub(super) fn number_text(text: &str) -> (String, u32) {
     (t, 10)
 }
 
-pub(super) fn expr_name(e: &ExprKind) -> &'static str {
+pub(super) fn expr_name(e: &ExprKind) -> Ny {
     match e {
-        ExprKind::Number(_) => "a number",
-        ExprKind::Color(_) => "a colour literal",
-        ExprKind::Str(_) => "a string",
-        ExprKind::True | ExprKind::False => "a bool",
-        ExprKind::None => "none",
-        ExprKind::SelfValue => "self",
-        ExprKind::Result => "result",
-        ExprKind::Proceed => "proceed()",
-        ExprKind::Ref(_) => "ref(...)",
-        ExprKind::If { .. } => "if as a value",
-        ExprKind::Match { .. } => "match",
-        ExprKind::Closure { .. } => "a closure",
-        ExprKind::Paren(_) => "( )",
-        ExprKind::Tuple(_) => "a tuple",
-        ExprKind::List(_) => "a list",
-        ExprKind::Braces(_) => "a map or set",
-        ExprKind::Content { .. } => "a content name",
-        ExprKind::Game(_) => "a game name in backquotes",
-        ExprKind::Name { .. } => "a name",
-        ExprKind::StructLit { .. } => "a struct literal",
-        ExprKind::Call { .. } => "a call",
-        ExprKind::Index { .. } => "[ ]",
-        ExprKind::Member { optional: true, .. } => "?.",
-        ExprKind::Member { .. } => "a member",
-        ExprKind::Unwrap(_) => "!",
-        ExprKind::Neg(_) => "-",
-        ExprKind::Not(_) => "not",
-        ExprKind::Binary { .. } => "an operator",
-        ExprKind::Wait { .. } | ExprKind::WaitUntil(_) => "wait",
-        ExprKind::Start(_) => "start",
-        ExprKind::As { .. } => "as",
+        ExprKind::Number(_) => ny!("Number"),
+        ExprKind::Color(_) => ny!("ColorLiteral"),
+        ExprKind::Str(_) => ny!("String"),
+        ExprKind::True | ExprKind::False => ny!("BoolValue"),
+        ExprKind::None => ny!("None"),
+        ExprKind::SelfValue => ny!("Self"),
+        ExprKind::Result => ny!("Result"),
+        ExprKind::Proceed => ny!("Proceed"),
+        ExprKind::Ref(_) => ny!("RefCall"),
+        ExprKind::If { .. } => ny!("IfValue"),
+        ExprKind::Match { .. } => ny!("Match"),
+        ExprKind::Closure { .. } => ny!("Closure"),
+        ExprKind::Paren(_) => ny!("Parens"),
+        ExprKind::Tuple(_) => ny!("Tuple"),
+        ExprKind::List(_) => ny!("ListLiteral"),
+        ExprKind::Braces(_) => ny!("MapOrSet"),
+        ExprKind::Content { .. } => ny!("ContentName"),
+        ExprKind::Game(_) => ny!("GameNameQuoted"),
+        ExprKind::Name { .. } => ny!("Name"),
+        ExprKind::StructLit { .. } => ny!("StructLiteral"),
+        ExprKind::Call { .. } => ny!("Call"),
+        ExprKind::Index { .. } => ny!("Index"),
+        ExprKind::Member { optional: true, .. } => ny!("OptChain"),
+        ExprKind::Member { .. } => ny!("Member"),
+        ExprKind::Unwrap(_) => ny!("Bang"),
+        ExprKind::Neg(_) => ny!("Minus"),
+        ExprKind::Not(_) => ny!("Not"),
+        ExprKind::Binary { .. } => ny!("Operator"),
+        ExprKind::Wait { .. } | ExprKind::WaitUntil(_) => ny!("Wait"),
+        ExprKind::Start(_) => ny!("Start"),
+        ExprKind::As { .. } => ny!("As"),
     }
 }
 

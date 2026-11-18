@@ -43,6 +43,7 @@ fn said_with(text: &str, names: Option<&ContentNames>) -> Said {
             let args = d.args.iter().map(|(n, a)| (*n, match a {
                 Arg::Text(t) => t.clone(),
                 Arg::Phrase(p) => format!("P:{p}"),
+                Arg::Phrased(p, v) => format!("P:{p}{v:?}"),
             })).collect();
             (d.code, d.at.line, args)
         })

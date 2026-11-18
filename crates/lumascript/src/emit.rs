@@ -19,6 +19,23 @@
 //!
 //! A construct this back end does not write yet is S0800 at its place, naming it: never a guess and never silence.
 
+/// What S0800 names: the phrase row `LumaLink.Script.NotYet.<id>` (14 languages) and the values for its placeholders
+/// (a type, an operator, a name: shown as they are).
+pub(crate) struct Ny {
+    pub(crate) id: &'static str,
+    pub(crate) values: Vec<(&'static str, String)>,
+}
+
+/// `ny!("Id")`, or `ny!("Id", "type" => text, ...)`: S0800's phrase `Script.NotYet.Id`.
+macro_rules! ny {
+    ($id:literal) => {
+        crate::emit::Ny { id: concat!("Script.NotYet.", $id), values: Vec::new() }
+    };
+    ($id:literal, $($k:literal => $v:expr),+ $(,)?) => {
+        crate::emit::Ny { id: concat!("Script.NotYet.", $id), values: vec![$(($k, $v)),+] }
+    };
+}
+
 mod cside;
 mod expr;
 mod flow;
@@ -232,7 +249,7 @@ pub fn emit_with(
     for (m, at) in LOST.with(|l| std::mem::take(&mut *l.borrow_mut())) {
         let path = &sources[m].path;
         if !g.diags.iter().any(|(p, d)| p == path && d.at.line == at.line) {
-            g.say(m, at, "this construct");
+            g.say(m, at, ny!("ThisConstruct"));
         }
     }
     if !g.diags.is_empty() {
@@ -592,6 +609,23 @@ fn value_c(v: Value) -> &'static str {
     }
 }
 
+/// A game type as S0800 names it, in the script's words: `f32`, `vec3`, `Actor`, `list<i32>`, `i32?`.
+fn game_ty_text(g: &GameTy) -> String {
+    match g {
+        GameTy::Unit => "()".into(),
+        GameTy::Scalar(s) => scalar_name(*s).into(),
+        GameTy::Value(v) => value_name(*v).into(),
+        GameTy::Enum(name) | GameTy::Struct(name) | GameTy::View { record: name, .. } => name.clone(),
+        GameTy::Text => "text".into(),
+        GameTy::Place { of, .. } => format!("var {}", game_ty_text(of)),
+        GameTy::Opt(of) => format!("{}?", game_ty_text(of)),
+        GameTy::Bits { of, width } => format!("{}: {width} bits", scalar_name(*of)),
+        GameTy::Array { of, extents } => format!("{}{}", game_ty_text(of), extents.iter().map(|n| format!("[{n}]")).collect::<String>()),
+        GameTy::List { of, .. } => format!("list<{}>", game_ty_text(of)),
+        GameTy::Null => "none".into(),
+    }
+}
+
 fn value_name(v: Value) -> &'static str {
     match v {
         Value::Vec2 => "vec2",
@@ -688,8 +722,9 @@ fn module_c(path: &str) -> String {
 }
 
 impl<'a> Gen<'a> {
-    fn say(&mut self, module: usize, at: Pos, what: &str) {
-        let d = Diagnostic::new(code::BACKEND_NOT_YET, at).with("what", Arg::Text(what.to_string()));
+    fn say(&mut self, module: usize, at: Pos, what: Ny) {
+        let what = if what.values.is_empty() { Arg::Phrase(what.id) } else { Arg::Phrased(what.id, what.values) };
+        let d = Diagnostic::new(code::BACKEND_NOT_YET, at).with("what", what);
         self.diags.push((self.sources[module].path.clone(), d));
     }
 
@@ -1013,7 +1048,7 @@ impl<'a> Gen<'a> {
                     // the scenario's opening is over, when the game's current stage has that name.
                     ast::OnEvent::Stage(ref stage) => {
                         if stage.interpolates() {
-                            self.say(m, on.at, "on stage with a name made while running");
+                            self.say(m, on.at, ny!("StageNameRuntime"));
                             continue;
                         }
                         let text: String = stage.parts.iter().map(|p| if let ast::StrPart::Text(t) = p { t.as_str() } else { "" }).collect();
@@ -1072,7 +1107,7 @@ impl<'a> Gen<'a> {
                         let name = format!("lm_on_step_{m}");
                         // The time service's header (LumaTimeNow) for lm.h, and its import row.
                         if self.service_for("time", "on_step").is_none() {
-                            self.say(m, on.at, "on step without the time service's header");
+                            self.say(m, on.at, ny!("StepNoHeader"));
                             continue;
                         }
                         let mut fx = Fx::new(&file, m);
@@ -1092,7 +1127,7 @@ impl<'a> Gen<'a> {
                     // task when it waits), run by the mod's options handler after the option's value is read again.
                     ast::OnEvent::Option(ref key) => {
                         if self.service_for("mods", "option").is_none() {
-                            self.say(m, on.at, "on option without the mods service's header");
+                            self.say(m, on.at, ny!("OptionHandlerNoHeader"));
                             continue;
                         }
                         let name = format!("lm_on_option_{m}_{}", self.option_ons.len());
@@ -1125,11 +1160,11 @@ impl<'a> Gen<'a> {
                     // mod: the mod's bodies at one point run from it in order). Never a task.
                     ast::OnEvent::Draw(ref path) => {
                         let Some(Resolved::ServiceCase { number, .. }) = path.last().and_then(|c| self.checked.named.get(&(m, c.at))).cloned() else {
-                            self.say(m, on.at, "on draw at this point");
+                            self.say(m, on.at, ny!("DrawHere"));
                             continue;
                         };
                         if self.service_for("draw", "at").is_none() {
-                            self.say(m, on.at, "on draw without the draw service's header");
+                            self.say(m, on.at, ny!("DrawNoHeader"));
                             continue;
                         }
                         let name = format!("lm_on_draw_{m}_{}", self.draws.len());
@@ -1145,7 +1180,7 @@ impl<'a> Gen<'a> {
                     ast::OnEvent::Layers(_) => {
                         let t = Ty::List(Box::new(Ty::Text));
                         let Some(ct) = self.c_type(&t) else {
-                            self.say(m, on.at, "on layers");
+                            self.say(m, on.at, ny!("OnLayers"));
                             continue;
                         };
                         let name = format!("lm_on_layers_{m}");
@@ -1158,19 +1193,19 @@ impl<'a> Gen<'a> {
                         self.protos.push(format!("{head};"));
                         self.layers = Some(name);
                     }
-                    _ => self.say(m, on.at, &format!("on {}", on_name(&on.event))),
+                    _ => self.say(m, on.at, ny!("OnEvent", "event" => on_name(&on.event).to_string())),
                 },
                 ItemKind::Binding(b) => {
                     // A module `let` or `var`: a global of the mod, set by the module's initialiser in order.
                     let ast::PatternKind::Path { path, args: None, fields: None } = &b.pattern.kind else {
-                        self.say(m, b.at, "a module-level pattern");
+                        self.say(m, b.at, ny!("ModulePattern"));
                         continue;
                     };
                     let name = &path[0];
                     let t = self.checked.types.get(&(me, String::new())).cloned().or_else(|| b.value.as_ref().map(|v| self.ty(m, v))).unwrap_or(Ty::Error);
                     let Some(ct) = self.c_type(&t) else {
-                        let what = format!("a module value of type {}", self.ty_text(&t));
-                        self.say(m, b.at, &what);
+                        let what = ny!("ModuleValue", "type" => self.ty_text(&t));
+                        self.say(m, b.at, what);
                         continue;
                     };
                     let g = global_name(m, &name.name);
@@ -1231,19 +1266,19 @@ impl<'a> Gen<'a> {
                         for fd in &s.fields {
                             let ft = self.declared_ty(me, &format!(".{}", fd.name.name));
                             if self.c_field(&ft).is_none() {
-                                let what = format!("a c struct field of type {}", self.ty_text(&ft));
-                                self.say(m, fd.name.at, &what);
+                                let what = ny!("CStructField", "type" => self.ty_text(&ft));
+                                self.say(m, fd.name.at, what);
                                 said = true;
                             }
                         }
                     }
                     if !said && self.struct_type(me).is_none() {
-                        self.say(m, s.name.at, "a struct holding a value of this kind");
+                        self.say(m, s.name.at, ny!("StructHolding"));
                     }
                 }
                 ItemKind::Enum(e) => {
                     if self.enum_type(me).is_none() {
-                        self.say(m, e.name.at, "an enum holding a value of this kind");
+                        self.say(m, e.name.at, ny!("EnumHolding"));
                     }
                 }
                 // `option <key>: <type>`: a global of the mod, read by start and again on the option's OPTION
@@ -1254,13 +1289,13 @@ impl<'a> Gen<'a> {
                     let ct = match self.c_type(&t) {
                         Some(ct) if matches!(t, Ty::Bool | Ty::Int(_) | Ty::Float(_) | Ty::Text) || key_option => ct,
                         _ => {
-                            let what = format!("an option of type {}", self.ty_text(&t));
-                            self.say(m, item.at, &what);
+                            let what = ny!("OptionOfType", "type" => self.ty_text(&t));
+                            self.say(m, item.at, what);
                             continue;
                         }
                     };
                     if self.service_for("mods", "option").is_none() || (key_option && self.service_for("input", "action").is_none()) {
-                        self.say(m, item.at, "an option without the mods (or input) service's header");
+                        self.say(m, item.at, ny!("OptionNoHeader"));
                         continue;
                     }
                     let g = format!("lm_opt_{}", key.name);
@@ -1404,7 +1439,7 @@ impl<'a> Gen<'a> {
 
     fn function(&mut self, m: usize, me: ItemRef, key: &str, c_name: &str, f: &ast::FnDecl, file: &str) -> Option<String> {
         let Some((head, params, ret, self_c)) = self.fn_head(me, key, c_name, f) else {
-            self.say(m, f.name.at, "a function with a parameter or result of this type");
+            self.say(m, f.name.at, ny!("FnSignatureType"));
             return None;
         };
         let mut fx = Fx::new(file, m);
@@ -1430,7 +1465,7 @@ impl<'a> Gen<'a> {
         let fnty = match self.game.hook_signature(&target.signature) {
             Ok(f) => f,
             Err(_) => {
-                self.say(m, h.at, "a hook whose signature does not cross");
+                self.say(m, h.at, ny!("HookNoCross"));
                 return None;
             }
         };
@@ -1443,7 +1478,8 @@ impl<'a> Gen<'a> {
             GameTy::Opt(_) if fnty.text16_result => Some("const uint16_t*".to_string()),
             GameTy::View { .. } | GameTy::Opt(_) => Some("void*".to_string()),
             other => {
-                self.say(m, h.at, &format!("a hook on a function returning {other:?}"));
+                let what = ny!("HookReturning", "type" => game_ty_text(other));
+                self.say(m, h.at, what);
                 return None;
             }
         };
@@ -1505,7 +1541,7 @@ impl<'a> Gen<'a> {
                         fx.declared.insert(*id);
                     }
                     None => {
-                        self.say(m, name.at, &format!("a hook parameter of type {g:?}"));
+                        self.say(m, name.at, ny!("HookParam", "type" => game_ty_text(g)));
                         return None;
                     }
                 }
@@ -1562,7 +1598,7 @@ impl<'a> Gen<'a> {
             let owner = on.rsplit_once("::").map(|(r, _)| r.to_string()).unwrap_or_default();
             let same = self.game.hook_signature(os).is_ok_and(|f| f == fnty);
             if !same || !self.game.same_address(&owner, &base) {
-                self.say(m, h.at, &format!("hook ... every override of, on {on}, whose object or arguments are not those of {}", target.name));
+                self.say(m, h.at, ny!("HookEveryOverride", "on" => on.to_string(), "target" => target.name.clone()));
                 continue;
             }
             self.inside_flag(on, os);

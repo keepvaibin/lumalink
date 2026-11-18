@@ -146,13 +146,13 @@ impl<'a> Gen<'a> {
             ExprKind::Paren(x) => self.json_pieces(fx, x, out)?,
             ExprKind::Number(text) => match json_number(text) {
                 Some(n) => put(out, n.as_bytes()),
-                None => return self.not_yet(fx, e, "this number in JSON"),
+                None => return self.not_yet(fx, e, ny!("JsonNumber")),
             },
             ExprKind::Neg(x) => {
-                let ExprKind::Number(text) = &x.kind else { return self.not_yet(fx, e, "this value in JSON") };
+                let ExprKind::Number(text) = &x.kind else { return self.not_yet(fx, e, ny!("JsonValue")) };
                 match json_number(text) {
                     Some(n) => put(out, format!("-{n}").as_bytes()),
-                    None => return self.not_yet(fx, e, "this number in JSON"),
+                    None => return self.not_yet(fx, e, ny!("JsonNumber")),
                 }
             }
             ExprKind::True => put(out, b"true"),
@@ -160,7 +160,7 @@ impl<'a> Gen<'a> {
             ExprKind::None => put(out, b"null"),
             ExprKind::Str(lit) => {
                 if lit.prefix != StrPrefix::None && lit.prefix != StrPrefix::Raw {
-                    return self.not_yet(fx, e, "bytes in JSON");
+                    return self.not_yet(fx, e, ny!("JsonBytes"));
                 }
                 if lit.parts.iter().all(|p| matches!(p, StrPart::Text(_))) {
                     let mut bytes = Vec::new();
@@ -194,7 +194,7 @@ impl<'a> Gen<'a> {
             ExprKind::Braces(entries) => {
                 put(out, b"{");
                 for (i, (k, v)) in entries.iter().enumerate() {
-                    let Some(v) = v else { return self.not_yet(fx, e, "a set in JSON") };
+                    let Some(v) = v else { return self.not_yet(fx, e, ny!("JsonSet")) };
                     if i > 0 {
                         put(out, b", ");
                     }
@@ -226,7 +226,7 @@ impl<'a> Gen<'a> {
     /// when it does not read, or when anything but white space follows.
     pub(super) fn json_decode(&mut self, fx: &mut Fx, e: &Expr, data: &str, dt: &Ty, t: &Ty) -> Ex {
         if !matches!(t, Ty::Opt(_)) {
-            return self.not_yet(fx, e, "json.decode of this type");
+            return self.not_yet(fx, e, ny!("DecodeType"));
         }
         let (p, n) = match dt {
             Ty::Bytes => (format!("lumart_bytes_p({data})"), format!("lumart_list_n({data})")),
@@ -489,8 +489,8 @@ impl<'a> Gen<'a> {
                 dx.emit(format!("{chain}if (lumart_text_parse_i64({name}, &{num}) && {num} >= INT32_MIN && {num} <= INT32_MAX) {place} = (int32_t){num}; else {{ lm_st = 2; goto lm_out; }}"));
             }
             other => {
-                let what = format!("json.decode of {}", self.ty_text(other));
-                return self.not_yet(dx, e, &what);
+                let what = ny!("DecodeOf", "type" => self.ty_text(other));
+                return self.not_yet(dx, e, what);
             }
         }
         Ok(())
@@ -600,14 +600,14 @@ impl<'a> Gen<'a> {
                         let num = dx.fresh_kept("int64_t");
                         chain.push_str(&format!("if (lumart_text_parse_i64({name}, &{num}) && {num} >= INT32_MIN && {num} <= INT32_MAX) {key} = (int32_t){num}; else "));
                     }
-                    _ => return self.not_yet(dx, e, "a map key of an enum with values in JSON"),
+                    _ => return self.not_yet(dx, e, ny!("JsonEnumKey")),
                 }
                 dx.emit(format!("{chain}{{ lm_st = 2; goto lm_out; }}"));
                 dx.emit(format!("lm_rel_lumart_text(&{name});"));
             }
             other => {
-                let what = format!("json.decode of a map keyed by {}", self.ty_text(other));
-                return self.not_yet(dx, e, &what);
+                let what = ny!("DecodeMapKeyed", "type" => self.ty_text(other));
+                return self.not_yet(dx, e, what);
             }
         }
         Ok(())
@@ -713,7 +713,7 @@ impl<'a> Gen<'a> {
                 fx.fail_if(&call);
                 fx.emit(format!("{r}.some = {some};"));
             }
-            _ => return self.not_yet(fx, e, &format!("json.Value.{name}()")),
+            _ => return self.not_yet(fx, e, ny!("MethodOf", "type" => "json.Value".to_string(), "name" => name.to_string())),
         }
         Ok(r)
     }

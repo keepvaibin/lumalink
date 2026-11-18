@@ -75,18 +75,18 @@ impl<'a> Gen<'a> {
             Ok(GameTy::Value(v)) => Ok(format!("sizeof({})", value_c(v))),
             Ok(GameTy::Enum(name)) => match self.enum_storage(&name) {
                 Some(s) => Ok(format!("sizeof({})", scalar_c(s))),
-                None => self.not_yet(fx, e, "an array of a game enum whose storage does not read"),
+                None => self.not_yet(fx, e, ny!("ArrayEnumStorage")),
             },
             Ok(GameTy::View { record, .. } | GameTy::Struct(record)) => Ok(format!("(size_t){}", self.size_slot(&record))),
-            _ => self.not_yet(fx, e, "an array of this element type"),
+            _ => self.not_yet(fx, e, ny!("ArrayElementType")),
         }
     }
 
     /// `base[index]` where `base` is a game array: the index checked against its extent (S0902), then the element's
     /// place, or the array of the extents left.
     fn game_index(&mut self, fx: &mut Fx, e: &Expr, base: &Expr, index: &Expr) -> Result<GamePlace, NotWritten> {
-        let Some(p) = self.game_place_of(fx, base) else { return self.not_yet(fx, e, "[ ] on this game place") };
-        let GamePlace::Array { at, elem, extents } = p? else { return self.not_yet(fx, e, "[ ] on this game place") };
+        let Some(p) = self.game_place_of(fx, base) else { return self.not_yet(fx, e, ny!("IndexGamePlace")) };
+        let GamePlace::Array { at, elem, extents } = p? else { return self.not_yet(fx, e, ny!("IndexGamePlace")) };
         let i = self.expr(fx, index)?;
         let i = fx.temp("int64_t", &format!("(int64_t){i}"));
         let n = extents[0];
@@ -129,13 +129,13 @@ impl<'a> Gen<'a> {
     /// it (`of`: the field's own type).
     pub(super) fn game_field_place(&mut self, fx: &mut Fx, e: &Expr, object: String, of: &Ty, record: &str, field: &str) -> Result<GamePlace, NotWritten> {
         let found = self.game.types.as_ref().and_then(|t| t.record(record)).and_then(|(row, rec)| rec.fields.get(field).map(|ty| (row.to_string(), ty.clone())));
-        let Some((row, ty_text)) = found else { return self.not_yet(fx, e, "a field the types file does not give") };
+        let Some((row, ty_text)) = found else { return self.not_yet(fx, e, ny!("FieldNotInTypes")) };
         let slot = self.field_slot(&format!("{row}.{field}"), &ty_text);
-        let Ok((ct, width)) = ctype::parse_field_type(&ty_text) else { return self.not_yet(fx, e, "a field whose type does not read") };
+        let Ok((ct, width)) = ctype::parse_field_type(&ty_text) else { return self.not_yet(fx, e, ny!("FieldTypeUnread")) };
         if let Some(width) = width {
             // LUMA_BITS_GET and LUMA_BITS_SET carry 32 bits.
             if width == 0 || width > 32 {
-                return self.not_yet(fx, e, "a bit-field wider than 32 bits");
+                return self.not_yet(fx, e, ny!("BitsWide"));
             }
             let of = match of {
                 Ty::Bool => Scalar::Bool,
@@ -145,9 +145,9 @@ impl<'a> Gen<'a> {
                 Ty::Game(GameTy::Enum(name)) => match self.enum_storage(name) {
                     Some(s) if signed(s) => Scalar::I32,
                     Some(_) => Scalar::U32,
-                    None => return self.not_yet(fx, e, "a bit-field of a game enum whose storage does not read"),
+                    None => return self.not_yet(fx, e, ny!("BitsEnumStorage")),
                 },
-                _ => return self.not_yet(fx, e, "a bit-field of this type"),
+                _ => return self.not_yet(fx, e, ny!("BitsType")),
             };
             return Ok(GamePlace::Bits { object, slot, width, of });
         }
@@ -158,8 +158,8 @@ impl<'a> Gen<'a> {
     /// A game global by name.
     pub(super) fn game_global_place(&mut self, fx: &mut Fx, e: &Expr, name: &str) -> Result<GamePlace, NotWritten> {
         let ty_text = self.game.types.as_ref().and_then(|t| t.global_facts.get(name)).map(|g| g.ty.clone());
-        let Some(ty_text) = ty_text else { return self.not_yet(fx, e, "a global the types file does not give") };
-        let Ok(ct) = ctype::parse_type(&ty_text) else { return self.not_yet(fx, e, "a global whose type does not read") };
+        let Some(ty_text) = ty_text else { return self.not_yet(fx, e, ny!("GlobalNotInTypes")) };
+        let Ok(ct) = ctype::parse_type(&ty_text) else { return self.not_yet(fx, e, ny!("GlobalTypeUnread")) };
         let slot = self.global_slot(name, &ty_text);
         let at = format!("((char*){slot})");
         let t = self.ty(fx.module, e);
@@ -201,12 +201,12 @@ impl<'a> Gen<'a> {
                 let under = self.enum_storage(name);
                 match under {
                     Some(Scalar::I32 | Scalar::U32) => Ok(GamePlace::Lvalue(format!("(*(int32_t*){at})"))),
-                    _ => self.not_yet(fx, e, "a game enum stored in other than 32 bits"),
+                    _ => self.not_yet(fx, e, ny!("GameEnumStorage")),
                 }
             }
             _ => {
-                let what = format!("a game place of type {}", self.ty_text(t));
-                self.not_yet(fx, e, &what)
+                let what = ny!("GamePlace", "type" => self.ty_text(t));
+                self.not_yet(fx, e, what)
             }
         }
     }
@@ -285,13 +285,13 @@ impl<'a> Gen<'a> {
             (Ty::Bool, Some(v)) => Ok(format!("((uint8_t){})", u8::from(v != 0))),
             (Ty::Float(Scalar::F64), _) => match text.trim_end_matches(['f', 'F']).parse::<f64>() {
                 Ok(v) => Ok(super::f64_c(v)),
-                Err(_) => self.not_yet(fx, e, "a game constant whose value does not read"),
+                Err(_) => self.not_yet(fx, e, ny!("GameConstUnread")),
             },
             (Ty::Float(_), _) => match text.trim_end_matches(['f', 'F']).parse::<f32>() {
                 Ok(v) => Ok(super::f32_c(v)),
-                Err(_) => self.not_yet(fx, e, "a game constant whose value does not read"),
+                Err(_) => self.not_yet(fx, e, ny!("GameConstUnread")),
             },
-            _ => self.not_yet(fx, e, "a game constant of this type"),
+            _ => self.not_yet(fx, e, ny!("GameConstType")),
         }
     }
 
@@ -356,20 +356,20 @@ impl<'a> Gen<'a> {
                             match self.game_place_of(fx, base) {
                                 Some(Ok(GamePlace::Address(a))) => a,
                                 Some(Err(x)) => return Some(Err(x)),
-                                Some(Ok(_)) => return Some(self.not_yet(fx, e, "a field of this game place")),
+                                Some(Ok(_)) => return Some(self.not_yet(fx, e, ny!("GamePlaceField"))),
                                 None => match self.copy_address(fx, base, &rec, writing) {
                                     Ok(a) => a,
                                     Err(x) => return Some(Err(x)),
                                 },
                             }
                         }
-                        _ => return Some(self.not_yet(fx, e, "a field of this value")),
+                        _ => return Some(self.not_yet(fx, e, ny!("ValueField"))),
                     },
                     // `a?.f` reads its field where the optional's value is known (expr.rs).
                     crate::ast::ExprKind::Member { optional: true, .. } => return None,
                     // A field named alone: `self`'s, in a hook.
                     _ if fx.hook.is_some() => "call->args[0]".to_string(),
-                    _ => return Some(self.not_yet(fx, e, "a field of self outside a hook")),
+                    _ => return Some(self.not_yet(fx, e, ny!("SelfFieldOutsideHook"))),
                 };
                 let of = self.ty(m, e);
                 Some(self.game_field_place(fx, e, object, &of, &record, &field))

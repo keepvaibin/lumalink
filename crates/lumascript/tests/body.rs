@@ -54,6 +54,7 @@ fn the_programs_check_against_a_kernel_build() {
                 let args: Vec<String> = d.args.iter().map(|(n, a)| match a {
                     Arg::Text(t) => format!("{n}={t}"),
                     Arg::Phrase(p) => format!("{n}=P:{p}"),
+                    Arg::Phrased(p, v) => format!("{n}=P:{p}{v:?}"),
                 }).collect();
                 let line = src.lines().nth(d.at.line as usize - 1).unwrap_or("").trim();
                 eprintln!("{name}:{}:{} {} {} | {line}", d.at.line, d.at.col, d.code, args.join(" "));
@@ -223,6 +224,7 @@ fn full_in(game: &Game, text: &str) -> Said {
             let args = d.args.iter().map(|(n, a)| (*n, match a {
                 Arg::Text(t) => t.clone(),
                 Arg::Phrase(p) => format!("P:{p}"),
+                Arg::Phrased(p, v) => format!("P:{p}{v:?}"),
             })).collect();
             (d.code, d.at.line, d.at.col, args)
         })

@@ -64,6 +64,7 @@ fn the_programs_emit_against_a_kernel_build() {
                     let what = d.args.iter().map(|(_, a)| match a {
                         Arg::Text(t) => t.clone(),
                         Arg::Phrase(p) => p.to_string(),
+                        Arg::Phrased(p, v) => format!("{p} {v:?}"),
                     });
                     *missing.entry(what.collect::<Vec<_>>().join(" ")).or_default() += 1;
                 }

@@ -82,7 +82,7 @@ impl Gen<'_> {
             match member {
                 ClassMember::Binding(b) => {
                     let ast::PatternKind::Path { .. } = &b.pattern.kind else {
-                        self.say(m, b.pattern.at, "a class field bound by a pattern");
+                        self.say(m, b.pattern.at, ny!("ClassFieldPattern"));
                         ok = false;
                         continue;
                     };
@@ -92,7 +92,7 @@ impl Gen<'_> {
                     };
                     let t = self.declared_ty(me, &format!(".{name}"));
                     let Some(ct) = self.c_type(&t) else {
-                        self.say(m, b.pattern.at, "a class field of this type");
+                        self.say(m, b.pattern.at, ny!("ClassFieldType"));
                         ok = false;
                         continue;
                     };
@@ -113,11 +113,11 @@ impl Gen<'_> {
                     fields.push((name, ct, first));
                 }
                 ClassMember::Fn(f) => {
-                    self.say(m, f.name.at, "a class's own fn");
+                    self.say(m, f.name.at, ny!("ClassOwnFn"));
                     ok = false;
                 }
                 ClassMember::Hook(h) => {
-                    self.say(m, h.at, "a hook in a class");
+                    self.say(m, h.at, ny!("HookInClass"));
                     ok = false;
                 }
                 ClassMember::Override(_) => {}
@@ -134,7 +134,7 @@ impl Gen<'_> {
             _ => None,
         };
         if !machines.is_empty() && control.is_none() {
-            self.say(m, c.name.at, "states for a class whose base has no control() to run them from");
+            self.say(m, c.name.at, ny!("StatesNoControl"));
             return None;
         }
         let mut machine_code = String::new();
@@ -288,7 +288,7 @@ impl Gen<'_> {
     #[allow(clippy::too_many_arguments)]
     fn override_body(&mut self, m: usize, me: ItemRef, f: &ast::FnDecl, signature: &str, c_name: &str, data: Option<(&str, &str)>, file: &str) -> Option<String> {
         let Ok(fnty) = self.game.hook_signature(signature) else {
-            self.say(m, f.name.at, "an override whose signature does not cross");
+            self.say(m, f.name.at, ny!("OverrideNoCross"));
             return None;
         };
         let sig = crate::ctype::parse_signature(signature).ok()?;
@@ -300,7 +300,7 @@ impl Gen<'_> {
             GameTy::Opt(_) if fnty.text16_result => Some("const uint16_t*".to_string()),
             GameTy::View { .. } | GameTy::Opt(_) => Some("void*".to_string()),
             other => {
-                self.say(m, f.name.at, &format!("an override of a function returning {other:?}"));
+                self.say(m, f.name.at, ny!("OverrideReturning", "type" => super::game_ty_text(other)));
                 return None;
             }
         };
@@ -322,7 +322,7 @@ impl Gen<'_> {
                 }
             }
             let Some(place) = self.hook_param(g, c, fnty.c_index(i) + 1) else {
-                self.say(m, p.at, &format!("an override parameter of type {g:?}"));
+                self.say(m, p.at, ny!("OverrideParam", "type" => super::game_ty_text(g)));
                 return None;
             };
             let id = match p.name.as_ref().and_then(|n| self.checked.named.get(&(m, n.at))) {
@@ -371,10 +371,10 @@ impl Gen<'_> {
                 continue;
             }
             if matches!(g, GameTy::Opt(x) if matches!(**x, GameTy::Place { .. })) {
-                return self.not_yet(fx, &a.value, "base.f(...) given another value for a pointer parameter to a number or vector");
+                return self.not_yet(fx, &a.value, ny!("BaseOtherValue"));
             }
             if !matches!(g, GameTy::Scalar(_) | GameTy::Value(_) | GameTy::Enum(_) | GameTy::View { .. } | GameTy::Opt(_)) {
-                return self.not_yet(fx, &a.value, "base.f(...) given another object for a reference parameter");
+                return self.not_yet(fx, &a.value, ny!("BaseOtherObject"));
             }
             let from = self.ty(m, &a.value);
             let to = match id {
@@ -445,7 +445,7 @@ impl Gen<'_> {
             fx.fail_if(&format!("lm_d == 0 && lumart_raise({file}, {}, 906, 1, (const char* const[]){{\"self\"}})", e.at.line));
             return Some(Ok(format!("lm_d->{name}")));
         }
-        let ExprKind::Member { base, .. } = &e.kind else { return Some(self.not_yet(fx, e, "a class field outside its class's overrides")) };
+        let ExprKind::Member { base, .. } = &e.kind else { return Some(self.not_yet(fx, e, ny!("ClassFieldOutside"))) };
         let b = match self.expr(fx, base) {
             Ok(b) => b,
             Err(x) => return Some(Err(x)),

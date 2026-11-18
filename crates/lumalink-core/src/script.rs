@@ -11,6 +11,10 @@ fn value(language: usize, arg: &Arg) -> String {
     match arg {
         Arg::Text(text) => text.clone(),
         Arg::Phrase(id) => text::say_in(language, &format!("LumaLink.{id}"), &[]),
+        Arg::Phrased(id, values) => {
+            let refs: Vec<(&str, &dyn Display)> = values.iter().map(|(name, v)| (*name, v as &dyn Display)).collect();
+            text::say_in(language, &format!("LumaLink.{id}"), &refs)
+        }
     }
 }
 
@@ -41,7 +45,7 @@ pub fn line(file: &str, d: &Diagnostic) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lumascript::diag::{args_of, code, PHRASES};
+    use lumascript::diag::{args_of, code, NOT_YET, PHRASES};
     use std::collections::BTreeSet;
 
     fn placeholders(template: &str) -> BTreeSet<&str> {
@@ -71,6 +75,16 @@ mod tests {
             let id = format!("LumaLink.{p}");
             let template = text::template(0, &id).unwrap_or_else(|| panic!("{id}: no row"));
             assert!(placeholders(template).is_empty(), "{id} fills nothing");
+            wanted.insert(id);
+        }
+        // What S0800 names (N-4022): each with exactly the values the emitter gives it, in every language.
+        for (p, names) in NOT_YET {
+            let id = format!("LumaLink.{p}");
+            let names: BTreeSet<&str> = names.iter().copied().collect();
+            for (i, lang) in luma_validate::LANGUAGES.iter().enumerate() {
+                let template = text::template(i, &id).unwrap_or_else(|| panic!("{id}: no row"));
+                assert_eq!(placeholders(template), names, "{id} in {lang}");
+            }
             wanted.insert(id);
         }
         let rows: BTreeSet<String> = text::ids().filter(|id| id.starts_with("LumaLink.Script.")).map(String::from).collect();
@@ -146,5 +160,40 @@ mod tests {
                 "`nope` names nothing here: no local, no name of the module or its uses, no standard name, nothing of the game",
             ]
         );
+    }
+
+    /// N-4022: what S0800 names is in the reader's language, as the rest of the line is, its values filled (before,
+    /// the emitter gave it as English text in all 14).
+    #[test]
+    fn what_s0800_names_reads_in_every_language() {
+        use lumascript::check::{check, ModFacts, Source};
+        let text = "extern c fn bump(var n: i32)\nextern c fn many() -> list<i32>\n\non start {\n    var n = 1\n    bump(var n)\n}\n";
+        let (module, parsed) = lumascript::parse_module(text);
+        assert!(parsed.is_empty(), "{parsed:?}");
+        let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+        let game = lumascript::game::Game::new(Default::default(), None);
+        let said = lumascript::on_compiler_stack(|| {
+            let checked = check(&sources, &[], ModFacts::of_game(&game));
+            assert!(checked.diags.iter().all(|(_, d)| lumascript::diag::is_note(d.code)), "{:?}", checked.diags);
+            lumascript::emit::emit("small", &sources, &checked, &game).err().unwrap_or_default()
+        })
+        .unwrap();
+        assert_eq!(said.len(), 2, "{said:?}");
+        let (_, var) = &said[0];
+        let (_, list) = &said[1];
+        assert_eq!(message_in(0, var), "LumaLink cannot build an extern C function's var parameter yet");
+        assert_eq!(message_in(0, list), "LumaLink cannot build a C result of type list<i32> yet");
+        let french = luma_validate::LANGUAGES.iter().position(|l| *l == "UsFrench").unwrap();
+        assert_eq!(message_in(french, var), "LumaLink ne sait pas encore compiler un paramètre var d'une fonction C extern");
+        assert_eq!(message_in(french, list), "LumaLink ne sait pas encore compiler un résultat C de type list<i32>");
+        for (i, lang) in luma_validate::LANGUAGES.iter().enumerate() {
+            for (_, d) in &said {
+                let line = line_in(i, "main.lum", d);
+                assert!(!line.contains('{') && !line.contains("LumaLink."), "{lang}: {line}");
+                if i > 1 {
+                    assert!(!line.contains("parameter yet") && !line.contains("result of type"), "{lang}: English in {line}");
+                }
+            }
+        }
     }
 }

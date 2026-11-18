@@ -5,6 +5,7 @@
 //! bindings made as it holds, and the arm's block runs inside; the next arm runs when the flag stayed down. No C
 //! `switch`, so the script's `break` and `continue` are C's own.
 
+use super::Ny;
 use super::game::GamePlace;
 use super::{lost, assign_line, c_string, components, expr_text, is_view, Ex, Fx, Gen, NotWritten};
 use crate::ast::{self, ArmBody, BinOp, Block, Cond, Expr, ExprKind, Pattern, PatternKind, Pos, Stmt, StmtKind};
@@ -180,11 +181,11 @@ impl<'a> Gen<'a> {
                     self.value_into(fx, e, "(*lm_ret)", &t);
                     // An override's value is the call's result (class.rs), a text as its kept copy.
                     if fx.override_rc.is_some() && self.result_put(fx, "(*lm_ret)", &t, e.at, true).is_err() {
-                        self.say(m, e.at, "an override's result that may be none for a pointer to a number");
+                        self.say(m, e.at, ny!("OverrideNonePtr"));
                     }
                     fx.emit("goto lm_out;".into());
                 }
-                None => self.say(m, e.at, "return with a value here"),
+                None => self.say(m, e.at, ny!("ReturnValueHere")),
             },
             // A log line is made in the scratch (docs/modding/language/language.md, section 6.4) and given back once the core has it (LumaCore.log
             // copies); an empty line is "", never null. Its text is any text value: a literal with its
@@ -233,7 +234,7 @@ impl<'a> Gen<'a> {
                     let Ok(x) = self.expr(fx, e) else { return };
                     let kept = !matches!(strip(e).kind, ExprKind::None | ExprKind::Str(_));
                     if self.result_put(fx, &x, &from, e.at, kept).is_err() {
-                        self.say(m, e.at, "skip with a value that may be none for a pointer to a number");
+                        self.say(m, e.at, ny!("SkipNonePtr"));
                         return;
                     }
                 }
@@ -241,7 +242,7 @@ impl<'a> Gen<'a> {
                 fx.emit("goto lm_out;".into());
             }
             // `expect` belongs to tests, which `lumalink test` builds (4.8); in a mod's code it is a check.
-            StmtKind::Expect(_) => self.say(m, s.at, "expect outside a test"),
+            StmtKind::Expect(_) => self.say(m, s.at, ny!("ExpectOutsideTest")),
             // `stop` (11.1): the task's way out (its defers, its counts); in an `on start`, the handler's end.
             // In a machine (docs/modding/language/language.md, section 11.2): the machine stops where it is.
             StmtKind::Stop if fx.task || fx.machine.is_some() => {
@@ -276,13 +277,13 @@ impl<'a> Gen<'a> {
         }
         // `let (a, b) = t`, `let P { x, y } = p`: the value once, then the pattern binds (it cannot fail: docs/modding/language/language.md, section 4).
         let Some(value) = &b.value else {
-            self.say(m, b.at, "a pattern without a value");
+            self.say(m, b.at, ny!("PatternNoValue"));
             return;
         };
         let t = self.ty(m, value);
         let Some(ct) = self.c_type(&t) else {
-            let what = format!("a value of type {}", self.ty_text(&t));
-            self.say(m, b.at, &what);
+            let what = ny!("ValueOfType", "type" => self.ty_text(&t));
+            self.say(m, b.at, what);
             return;
         };
         let Ok(v) = self.expr(fx, value) else { return };
@@ -298,8 +299,8 @@ impl<'a> Gen<'a> {
         if fx.declared.insert(id) {
             let t = self.checked.locals[id as usize].ty.clone();
             let Some(ct) = self.c_type(&t) else {
-                let what = format!("a local of type {}", self.ty_text(&t));
-                self.say(fx.module, at, &what);
+                let what = ny!("LocalOfType", "type" => self.ty_text(&t));
+                self.say(fx.module, at, what);
                 return None;
             };
             fx.decl(format!("{ct} l{id};"));
@@ -349,11 +350,11 @@ impl<'a> Gen<'a> {
                 return;
             }
             Some(Ok(GamePlace::Address(_))) => {
-                self.say(m, target.at, "a whole game object written");
+                self.say(m, target.at, ny!("GameObjectWritten"));
                 return;
             }
             Some(Ok(GamePlace::Array { .. })) => {
-                self.say(m, target.at, "a whole game array written");
+                self.say(m, target.at, ny!("GameArrayWritten"));
                 return;
             }
             Some(Ok(GamePlace::Lvalue(l))) => l,
@@ -442,7 +443,7 @@ impl<'a> Gen<'a> {
         fx.writing = true;
         match self.game_place_of(fx, e) {
             Some(Ok(GamePlace::Lvalue(l))) => return Ok(l),
-            Some(Ok(_)) => return self.not_yet(fx, e, "this game place as a whole"),
+            Some(Ok(_)) => return self.not_yet(fx, e, ny!("GamePlaceWhole")),
             Some(Err(NotWritten)) => return Err(lost()),
             None => {}
         }
@@ -453,15 +454,15 @@ impl<'a> Gen<'a> {
             ExprKind::Name { .. } => match self.resolved(m, e) {
                 Some(Resolved::Local(id)) => Ok(fx.local(*id)),
                 Some(Resolved::Item(item)) => Ok(self.item_value(*item)),
-                _ => self.not_yet(fx, e, "a place of this kind"),
+                _ => self.not_yet(fx, e, ny!("PlaceKind")),
             },
             ExprKind::Result => match fx.hook.as_ref().and_then(|h| h.result_c.clone()) {
                 Some(rc) => Ok(format!("LUMA_RESULT(call, {rc})")),
-                None => self.not_yet(fx, e, "result of a function with none"),
+                None => self.not_yet(fx, e, ny!("ResultOfNone")),
             },
             ExprKind::Member { base, optional: false, .. } => match self.resolved(m, e) {
                 Some(Resolved::Component(i)) => {
-                    let Ty::Value(v) = self.ty(m, base) else { return self.not_yet(fx, e, "a component of this value") };
+                    let Ty::Value(v) = self.ty(m, base) else { return self.not_yet(fx, e, ny!("ComponentOf")) };
                     let b = self.place(fx, base)?;
                     Ok(format!("{b}.{}", components(v)[*i]))
                 }
@@ -479,7 +480,7 @@ impl<'a> Gen<'a> {
                     let b = self.place(fx, base)?;
                     Ok(format!("{b}.{field}"))
                 }
-                _ => self.not_yet(fx, e, "a member place of this kind"),
+                _ => self.not_yet(fx, e, ny!("MemberPlaceKind")),
             },
             ExprKind::Paren(x) => self.place(fx, x),
             // `xs[i]` / `m[k]` written (or a field of one): the container made this variable's own (copy on write),
@@ -528,14 +529,14 @@ impl<'a> Gen<'a> {
                         fx.rechecks.push(checks);
                         Ok(format!("(*({vc}*)lumart_map_val({b}, {at}))"))
                     }
-                    _ => self.not_yet(fx, e, "this place"),
+                    _ => self.not_yet(fx, e, ny!("ThisPlace")),
                 }
             }
             ExprKind::SelfValue => match &fx.self_c {
                 Some(c) => Ok(c.clone()),
-                None => self.not_yet(fx, e, "self as a place"),
+                None => self.not_yet(fx, e, ny!("SelfAsPlace")),
             },
-            _ => self.not_yet(fx, e, "this place"),
+            _ => self.not_yet(fx, e, ny!("ThisPlace")),
         }
     }
 
@@ -555,8 +556,8 @@ impl<'a> Gen<'a> {
                 Some(p) => {
                     let t = self.ty(m, &c.value);
                     let Some(ct) = self.c_type(&t) else {
-                        let what = format!("if let on {}", self.ty_text(&t));
-                        self.say(m, c.value.at, &what);
+                        let what = ny!("IfLetOn", "type" => self.ty_text(&t));
+                        self.say(m, c.value.at, what);
                         fx.emit("if (0) {".into());
                         fx.depth += 1;
                         opened += 1;
@@ -617,8 +618,8 @@ impl<'a> Gen<'a> {
         let m = fx.module;
         let t = self.ty(m, subject);
         let Some(ct) = self.c_type(&t) else {
-            let what = format!("match on {}", self.ty_text(&t));
-            self.say(m, subject.at, &what);
+            let what = ny!("MatchOn", "type" => self.ty_text(&t));
+            self.say(m, subject.at, what);
             return;
         };
         let Ok(v) = self.expr(fx, subject) else { return };
@@ -666,7 +667,7 @@ impl<'a> Gen<'a> {
         let m = fx.module;
         match &p.kind {
             PatternKind::Tuple(ps) => {
-                let Ty::Tuple(ts) = t else { return self.say_at(fx, p.at, "a tuple pattern on this value") };
+                let Ty::Tuple(ts) = t else { return self.say_at(fx, p.at, ny!("TuplePattern")) };
                 let mut tests = Vec::new();
                 let mut binds = Vec::new();
                 for (i, (sp, st)) in ps.iter().zip(ts.iter()).enumerate() {
@@ -698,8 +699,8 @@ impl<'a> Gen<'a> {
                         Ok((format!("{subject} == {v}"), Vec::new()))
                     }
                     _ => {
-                        let what = format!("a literal pattern on {}", self.ty_text(t));
-                        self.say_at(fx, p.at, &what)
+                        let what = ny!("LiteralPattern", "type" => self.ty_text(t));
+                        self.say_at(fx, p.at, what)
                     }
                 }
             }
@@ -785,7 +786,7 @@ impl<'a> Gen<'a> {
                         }
                         Ok((all(tests), binds))
                     }
-                    _ => self.say_at(fx, p.at, "this pattern"),
+                    _ => self.say_at(fx, p.at, ny!("ThisPattern")),
                 }
             }
         }
@@ -813,8 +814,8 @@ impl<'a> Gen<'a> {
             return;
         }
         let (ExprKind::Binary { op: op @ (BinOp::Range | BinOp::RangeIncl), left, right }, Ty::Range(elem)) = (&strip(iter).kind, self.ty(m, iter)) else {
-            let what = format!("for over {}", self.ty_text(&self.ty(m, iter)));
-            self.say(m, at, &what);
+            let what = ny!("ForOver", "type" => self.ty_text(&self.ty(m, iter)));
+            self.say(m, at, what);
             return;
         };
         let Some(ct) = self.c_type(&elem) else {
@@ -835,7 +836,7 @@ impl<'a> Gen<'a> {
             }
         };
         let Some(place) = bind(self, fx) else {
-            self.say(m, pattern.at, "this pattern in for");
+            self.say(m, pattern.at, ny!("ForPattern"));
             return;
         };
         if *op == BinOp::Range {
@@ -980,24 +981,24 @@ fn all(tests: Vec<String>) -> String {
     }
 }
 
-pub(super) fn stmt_name(s: &StmtKind) -> &'static str {
+pub(super) fn stmt_name(s: &StmtKind) -> Ny {
     match s {
-        StmtKind::Binding(_) => "let or var",
-        StmtKind::Fn(_) => "a local fn",
-        StmtKind::Return(_) => "return",
-        StmtKind::Break => "break",
-        StmtKind::Continue => "continue",
-        StmtKind::Stop => "stop",
-        StmtKind::Skip(_) => "skip",
-        StmtKind::Go(_) => "go",
-        StmtKind::Defer(_) => "defer",
-        StmtKind::Log { .. } => "log",
-        StmtKind::Expect(_) => "expect",
-        StmtKind::Fail(_) => "fail",
-        StmtKind::Guard { .. } => "guard",
-        StmtKind::While { .. } => "while",
-        StmtKind::For { .. } => "for",
-        StmtKind::Expr(_) => "an expression",
-        StmtKind::Assign { .. } => "an assignment",
+        StmtKind::Binding(_) => ny!("LetOrVar"),
+        StmtKind::Fn(_) => ny!("LocalFn"),
+        StmtKind::Return(_) => ny!("Return"),
+        StmtKind::Break => ny!("Break"),
+        StmtKind::Continue => ny!("Continue"),
+        StmtKind::Stop => ny!("Stop"),
+        StmtKind::Skip(_) => ny!("Skip"),
+        StmtKind::Go(_) => ny!("Go"),
+        StmtKind::Defer(_) => ny!("Defer"),
+        StmtKind::Log { .. } => ny!("Log"),
+        StmtKind::Expect(_) => ny!("Expect"),
+        StmtKind::Fail(_) => ny!("Fail"),
+        StmtKind::Guard { .. } => ny!("Guard"),
+        StmtKind::While { .. } => ny!("While"),
+        StmtKind::For { .. } => ny!("For"),
+        StmtKind::Expr(_) => ny!("Expression"),
+        StmtKind::Assign { .. } => ny!("Assignment"),
     }
 }

@@ -85,7 +85,7 @@ impl<'a> Gen<'a> {
     /// written into the module's code; here, the value made.
     pub(super) fn closure_value(&mut self, fx: &mut Fx, e: &Expr, params: &[ast::Param], body: &Block, t: &Ty) -> Ex {
         let m = fx.module;
-        let Ty::Fn(_, r) = t else { return self.not_yet(fx, e, "a closure of this type") };
+        let Ty::Fn(_, r) = t else { return self.not_yet(fx, e, ny!("ClosureType")) };
         let r = (**r).clone();
         let n = self.closure_n;
         self.closure_n += 1;
@@ -192,7 +192,7 @@ impl<'a> Gen<'a> {
 
     /// A function of the mod used as a value: a static block whose C function calls it.
     pub(super) fn fn_item_value(&mut self, fx: &mut Fx, e: &Expr, c_name: &str, t: &Ty) -> Ex {
-        let Ty::Fn(ps, r) = t else { return self.not_yet(fx, e, "this function as a value") };
+        let Ty::Fn(ps, r) = t else { return self.not_yet(fx, e, ny!("FnAsValue")) };
         let key = format!("{c_name}_fv{}", fx.module);
         if self.fn_values.insert(key.clone()) {
             let mut head = vec!["lumart_fn lm_fn".to_string()];
@@ -225,7 +225,7 @@ impl<'a> Gen<'a> {
     /// (fn_value_call): when that does not run to its end, the result is empty and the caller goes on.
     pub(super) fn call_fn_value(&mut self, fx: &mut Fx, e: &Expr, callee: &Expr, args: &[ast::Arg]) -> Ex {
         let m = fx.module;
-        let Ty::Fn(ps, r) = self.ty(m, callee) else { return self.not_yet(fx, e, "a call of this value") };
+        let Ty::Fn(ps, r) = self.ty(m, callee) else { return self.not_yet(fx, e, ny!("CallValue")) };
         let cast = self.fn_cast(&ps, &r).ok_or_else(lost)?;
         let v = self.expr(fx, callee)?;
         let f = fx.temp("lumart_fn", &v);

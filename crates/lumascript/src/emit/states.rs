@@ -237,11 +237,11 @@ impl Gen<'_> {
         let m = fx.module;
         let Some(last) = path.last() else { return };
         let Some(Resolved::State { machine, state }) = self.checked.named.get(&(m, last.at)).cloned() else {
-            self.say(m, at, "go to this state");
+            self.say(m, at, ny!("GoState"));
             return;
         };
         let (Some(place), Some(n)) = (self.machine_here(fx, machine), self.state_number(machine, &state)) else {
-            self.say(m, at, "go from here");
+            self.say(m, at, ny!("GoHere"));
             return;
         };
         fx.emit(format!("{place}->next = {n};"));
@@ -257,11 +257,11 @@ impl Gen<'_> {
         let at = match args.first().map(|a| &a.value.kind) {
             Some(ast::ExprKind::Name { name, .. }) => name.at,
             Some(ast::ExprKind::Member { name, .. }) => name.at,
-            _ => return self.not_yet(fx, e, "is_state of this"),
+            _ => return self.not_yet(fx, e, ny!("IsStateOf")),
         };
-        let Some(Resolved::State { machine, state }) = self.checked.named.get(&(m, at)).cloned() else { return self.not_yet(fx, e, "is_state of this") };
+        let Some(Resolved::State { machine, state }) = self.checked.named.get(&(m, at)).cloned() else { return self.not_yet(fx, e, ny!("IsStateOf")) };
         let (Some(place), Some(n)) = (self.machine_here(fx, machine), self.state_number(machine, &state)) else {
-            return self.not_yet(fx, e, "is_state from here");
+            return self.not_yet(fx, e, ny!("IsStateHere"));
         };
         Ok(format!("((uint8_t)({place}->state == {n}))"))
     }

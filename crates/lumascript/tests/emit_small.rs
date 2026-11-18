@@ -111,6 +111,70 @@ fn build(text: &str) -> Result<String, Vec<String>> {
     build_file(text, "lum/main.c")
 }
 
+/// A phrase in English, as LumaLink shows it (N-4022: S0800 names its construct by a row of LumaLinkText.tsv, in 14
+/// languages): the row's UsEnglish text with the values in its placeholders. A phrase with no row panics.
+fn english(id: &str, values: &[(&'static str, String)]) -> String {
+    const TABLE: &str = include_str!("../../lumalink-core/text/LumaLinkText.tsv");
+    let row = format!("LumaLink.{id}\t");
+    let line = TABLE.lines().find(|l| l.starts_with(&row)).unwrap_or_else(|| panic!("{id}: no row in LumaLinkText.tsv"));
+    let mut text = line.split('\t').nth(1).unwrap().to_string();
+    for (name, value) in values {
+        let hole = format!("{{{name}}}");
+        assert!(text.contains(&hole), "{id}: no {hole} in its row");
+        text = text.replace(&hole, value);
+    }
+    assert!(!text.contains('{'), "{id}: a placeholder without a value: {text}");
+    text
+}
+
+/// N-4022: S0800 names its construct by a phrase, never English text. Every `ny!` in the emitter gives a phrase of
+/// `diag::NOT_YET` with exactly the values it lists, and every phrase listed is given somewhere (LumaLink's own test
+/// holds each to its row in the 14 languages).
+#[test]
+fn every_s0800_phrase_is_listed_with_its_values() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = vec![src.join("emit.rs")];
+    for entry in std::fs::read_dir(src.join("emit")).unwrap() {
+        files.push(entry.unwrap().path());
+    }
+    let listed: std::collections::BTreeMap<&str, Vec<&str>> =
+        lumascript::diag::NOT_YET.iter().map(|(id, names)| (id.strip_prefix("Script.NotYet.").unwrap(), names.to_vec())).collect();
+    let mut given = std::collections::BTreeSet::new();
+    for f in files {
+        // The code alone: a comment may show the macro's form.
+        let text: String = std::fs::read_to_string(&f).unwrap().lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        let mut rest = text.as_str();
+        while let Some(at) = rest.find("ny!(\"") {
+            let call = &rest[at + 5..];
+            // The call up to its closing parenthesis (values may hold calls of their own).
+            let mut depth = 1;
+            let end = call.char_indices().find(|(_, c)| {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                depth == 0
+            }).map(|(i, _)| i).unwrap_or_else(|| panic!("{}: an unclosed ny!", f.display()));
+            let call = &call[..end];
+            let id = &call[..call.find('"').unwrap()];
+            let mut keys = Vec::new();
+            let mut k = call;
+            while let Some(arrow) = k.find("\" =>") {
+                let open = k[..arrow].rfind('"').unwrap();
+                keys.push(&k[open + 1..arrow]);
+                k = &k[arrow + 4..];
+            }
+            let names = listed.get(id).unwrap_or_else(|| panic!("{}: ny!(\"{id}\") is not in diag::NOT_YET", f.display()));
+            assert_eq!(&keys, names, "{}: ny!(\"{id}\") gives other values than NOT_YET lists", f.display());
+            given.insert(id.to_string());
+            rest = &rest[at + 5 + end..];
+        }
+    }
+    let unused: Vec<_> = listed.keys().filter(|id| !given.contains(**id)).collect();
+    assert!(unused.is_empty(), "listed in NOT_YET, given nowhere: {unused:?}");
+}
+
 /// One generated file of the mod.
 fn build_file(text: &str, file: &str) -> Result<String, Vec<String>> {
     let (module, diags) = lumascript::parse_module(text);
@@ -133,7 +197,8 @@ fn build_file(text: &str, file: &str) -> Result<String, Vec<String>> {
                     assert_eq!(d.code, code::BACKEND_NOT_YET);
                     d.args.iter().map(|(_, a)| match a {
                         Arg::Text(t) => t.clone(),
-                        Arg::Phrase(p) => p.to_string(),
+                        Arg::Phrase(p) => english(p, &[]),
+                        Arg::Phrased(p, values) => english(p, values),
                     }).collect::<Vec<_>>().join(" ")
                 })
                 .collect()),

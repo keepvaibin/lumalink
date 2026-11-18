@@ -710,7 +710,7 @@ impl Gen<'_> {
         if self.service_struct(service, name).is_none() && self.text_struct_fields(service, name).is_some() {
             return self.text_struct_lit(fx, e, args, service, name);
         }
-        let Some((c, fields)) = self.service_struct(service, name) else { return self.not_yet(fx, e, "a literal of this service struct") };
+        let Some((c, fields)) = self.service_struct(service, name) else { return self.not_yet(fx, e, ny!("ServiceStructLiteral")) };
         let mut sets = Vec::new();
         for (ident, value) in args {
             let fty = fields.iter().find(|(n, _)| *n == ident.name).map(|f| f.1.clone()).ok_or_else(lost)?;
@@ -986,7 +986,7 @@ impl Gen<'_> {
         }
         // Every type a pass names must be written.
         if passes.iter().filter(|p| matches!(p, Pass::Buffer { .. })).count() > 1 {
-            return self.not_yet(fx, e, "a service function giving two out buffers");
+            return self.not_yet(fx, e, ny!("ServiceTwoOut"));
         }
         for p in &passes {
             let tys = match p {
@@ -1003,12 +1003,12 @@ impl Gen<'_> {
                     _ => false,
                 };
                 if !self.service_ty_written(service, ty) || (in_callback && text_struct) {
-                    let what = format!("a service function taking or giving {}", sty_text(ty));
-                    return self.not_yet(fx, e, &what);
+                    let what = ny!("ServiceTakingGiving", "type" => sty_text(ty));
+                    return self.not_yet(fx, e, what);
                 }
             }
         }
-        let Some(slot) = self.service_for(service, name) else { return self.not_yet(fx, e, "a service its header gives no version") };
+        let Some(slot) = self.service_for(service, name) else { return self.not_yet(fx, e, ny!("ServiceNoVersion")) };
         // A service that needs a permission, used by a library while it runs for another mod: the player's answer for
         // that mod counts (lumart_for_caller), at the version that has this function.
         if let Some(face) = self.game.services.faces.get(service).filter(|f| f.permission.is_some()) {
@@ -1065,7 +1065,7 @@ impl Gen<'_> {
                     let from = self.ty(m, x);
                     let v = self.coerce(fx, &v, &from, &to, x.at)?;
                     let Some(tramp) = self.stream_trampoline(m, service, &slot, &fx.file.clone(), x.at.line) else {
-                        return self.not_yet(fx, e, "a stream whose events' fields or takes are not written yet");
+                        return self.not_yet(fx, e, ny!("StreamNotWritten"));
                     };
                     let (file, line) = (c_string(&fx.file), x.at.line);
                     let keep = |f: &str| format!("lumart_fn_keep({f}, {file}, {line}u) != 0");
@@ -1088,9 +1088,9 @@ impl Gen<'_> {
                     if waited {
                         let data = self.event_kind(service, &format!("{}Event", case_name(&kind.to_ascii_uppercase()))).ok_or_else(lost)?.1;
                         let r = data.map_or(Ty::Int(crate::game::Scalar::U64), |d| service_sty(service, &d));
-                        let Some((bt, ft, step)) = self.waited_parts(&Ty::Opt(Box::new(r))) else { return self.not_yet(fx, e, "a waited request of this value") };
+                        let Some((bt, ft, step)) = self.waited_parts(&Ty::Opt(Box::new(r))) else { return self.not_yet(fx, e, ny!("WaitedRequest")) };
                         let Some(tramp) = self.waited_trampoline(m, service, &kind, &slot, &bt, &fx.file.clone(), e.at.line) else {
-                            return self.not_yet(fx, e, "a request whose event's take its value does not size");
+                            return self.not_yet(fx, e, ny!("RequestTakeSize"));
                         };
                         let bx = fx.fresh("lumart_bytes");
                         let task = fx.fresh("lumart_task");
@@ -1108,7 +1108,7 @@ impl Gen<'_> {
                     let v = self.coerce(fx, &v, &from, &to, x.at)?;
                     let f = fx.temp("lumart_fn", &v);
                     let Some(tramp) = self.event_trampoline(m, service, &kind, &slot, &fx.file.clone(), x.at.line) else {
-                        return self.not_yet(fx, e, "a request whose event's take its value does not size");
+                        return self.not_yet(fx, e, ny!("RequestTakeSize"));
                     };
                     // A count for the request's event, given back by its trampoline (or below, when refused).
                     fx.emit(format!("lm_ret_lumart_fn(&{f});"));
@@ -1137,7 +1137,7 @@ impl Gen<'_> {
                             (ArgForm::Ref, true) => format!("({t}.some ? &{cs} : 0)"),
                             (ArgForm::Ref, false) => format!("&{cs}"),
                             (ArgForm::Value, false) => cs,
-                            _ => return self.not_yet(fx, e, "a text struct passed this way"),
+                            _ => return self.not_yet(fx, e, ny!("TextStructPassed")),
                         });
                         continue;
                     }
@@ -1267,7 +1267,7 @@ impl Gen<'_> {
                                     list.push(format!("({t} != 0 ? (const void*)lumart_bytes_p({t}) : (const void*)0)"));
                                     list.push(format!("lumart_list_n({t})"));
                                 }
-                                _ => return self.not_yet(fx, e, "a service function taking bytes"),
+                                _ => return self.not_yet(fx, e, ny!("ServiceTakesBytes")),
                             }
                         }
                         // A compound literal: the array lives to the end of the block the call is in.

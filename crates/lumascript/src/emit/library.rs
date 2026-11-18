@@ -617,7 +617,7 @@ impl Gen<'_> {
                 };
                 Ok(format!("(({ct})({n}))"))
             }
-            _ => self.not_yet(fx, e, "a call leaving out a parameter of another mod whose default is not a literal"),
+            _ => self.not_yet(fx, e, ny!("ModDefaultNotLiteral")),
         }
     }
 
@@ -646,7 +646,7 @@ impl Gen<'_> {
         }
         fx.emit(format!("{r}.tag = {tag}u;"));
         for (f, g) in fields.iter().zip(given) {
-            let Some(x) = g.or_else(|| f.default.clone()) else { return self.not_yet(fx, e, "a value missing its field") };
+            let Some(x) = g.or_else(|| f.default.clone()) else { return self.not_yet(fx, e, ny!("ValueMissingField")) };
             let ft = self.declared_ty(item, &format!("{case}.{}", f.name.name));
             let v = self.library_default(fx, e, &x, &ft)?;
             let fc = self.field_c(item, &format!("{case}.{}", f.name.name))?;
@@ -660,7 +660,7 @@ impl Gen<'_> {
     /// `key` and `recv`: a library struct's function (`.<fn>`) and the value it is called on (its `self`).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn call_library(&mut self, fx: &mut Fx, e: &Expr, item: ItemRef, key: &str, recv: Option<&Expr>, f: &ast::FnDecl, args: &[ast::Arg], task: bool) -> Ex {
-        let Some((ptys, result)) = self.fn_types(item, key, f) else { return self.not_yet(fx, e, "a call of another mod's function with a `var` parameter") };
+        let Some((ptys, result)) = self.fn_types(item, key, f) else { return self.not_yet(fx, e, ny!("ModCallVar")) };
         let result = if task { Ty::Pending(Box::new(result)) } else { result };
         let fname = self.cross_name(item, key, f);
         self.call_library_as(fx, e, item, &fname, &ptys, &result, &f.params, recv, args)
@@ -685,8 +685,8 @@ impl Gen<'_> {
             match self.cross(t) {
                 Some(c) => crossing.push(c),
                 None => {
-                    let what = format!("a call of another mod's function with a parameter of type {}", self.ty_text(t));
-                    return self.not_yet(fx, e, &what);
+                    let what = ny!("ModCallParam", "type" => self.ty_text(t));
+                    return self.not_yet(fx, e, what);
                 }
             }
         }
@@ -701,8 +701,8 @@ impl Gen<'_> {
                         None
                     }
                     None => {
-                        let what = format!("a call of another mod's function giving {}", self.ty_text(t));
-                        return self.not_yet(fx, e, &what);
+                        let what = ny!("ModCallGiving", "type" => self.ty_text(t));
+                        return self.not_yet(fx, e, what);
                     }
                 },
             },
@@ -753,7 +753,7 @@ impl Gen<'_> {
                 }
                 None => match &p.default {
                     Some(d) => self.library_default(fx, e, d, &pt)?,
-                    None => return self.not_yet(fx, e, "a call missing an argument"),
+                    None => return self.not_yet(fx, e, ny!("CallMissingArg")),
                 },
             };
             let t = fx.temp(&ct, &v);

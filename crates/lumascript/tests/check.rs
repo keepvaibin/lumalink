@@ -45,6 +45,7 @@ fn said(modules: &[Source], libraries: &[Library], needs: &[&str], options: &[Op
             let args = d.args.iter().map(|(n, a)| (*n, match a {
                 Arg::Text(t) => t.clone(),
                 Arg::Phrase(p) => format!("P:{p}"),
+                Arg::Phrased(p, v) => format!("P:{p}{v:?}"),
             })).collect();
             (m, d.code, d.at.line, d.at.col, args)
         })

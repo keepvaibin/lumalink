@@ -11,7 +11,7 @@
 //! parameters; an export's text parameters, copied into a text of the script's own). A fault in the C is the guard's,
 //! not a script error.
 
-use super::{c_string, scalar_c, value_c, Ex, Fx, Gen};
+use super::{c_string, scalar_c, value_c, Ex, Fx, Gen, Ny};
 use crate::ast::{self, Expr, Ident, ItemKind, Param};
 use crate::check::{ItemRef, Ty};
 use crate::game::GameTy;
@@ -94,16 +94,16 @@ impl<'a> Gen<'a> {
     }
 
     /// The C result type of an extern or export (None: it gives none); Err when it does not cross.
-    fn c_result(&mut self, item: ItemRef, has: bool) -> Result<Option<(Side, Ty)>, String> {
+    fn c_result(&mut self, item: ItemRef, has: bool) -> Result<Option<(Side, Ty)>, Ny> {
         if !has {
             return Ok(None);
         }
         let t = self.declared_ty(item, "->");
         match self.side(&t) {
-            Some(Side::Text) | Some(Side::Bytes) => Err(format!("a C result of type {}", self.ty_text(&t))),
+            Some(Side::Text) | Some(Side::Bytes) => Err(ny!("CResult", "type" => self.ty_text(&t))),
             Some(s) => Ok(Some((s, t))),
             None if t == Ty::Unit => Ok(None),
-            None => Err(format!("a C result of type {}", self.ty_text(&t))),
+            None => Err(ny!("CResult", "type" => self.ty_text(&t))),
         }
     }
 
@@ -119,14 +119,14 @@ impl<'a> Gen<'a> {
         for (i, p) in params.iter().enumerate() {
             // The C gets a copy: a var's write-back would be lost without a word.
             if p.var {
-                self.say(m, name.at, "an extern C function's var parameter");
+                self.say(m, name.at, ny!("ExternVar"));
                 return;
             }
             let pn = Self::param_name(p, i);
             let t = self.declared_ty(me, &format!("({pn})"));
             let Some(s) = self.side(&t) else {
-                let what = format!("a C parameter of type {}", self.ty_text(&t));
-                self.say(m, name.at, &what);
+                let what = ny!("CParam", "type" => self.ty_text(&t));
+                self.say(m, name.at, what);
                 return;
             };
             ps.push(c_param(&s, &format!("p{i}")));
@@ -136,7 +136,7 @@ impl<'a> Gen<'a> {
             Ok(Some((Side::Bool, _))) => "_Bool".into(),
             Ok(_) => "void".into(),
             Err(what) => {
-                self.say(m, name.at, &what);
+                self.say(m, name.at, what);
                 return;
             }
         };
@@ -152,7 +152,7 @@ impl<'a> Gen<'a> {
     pub(super) fn call_extern(&mut self, fx: &mut Fx, e: &Expr, item: ItemRef, name: &str, params: &[Param], ret: bool, args: &[ast::Arg]) -> Ex {
         let m = fx.module;
         if args.len() != params.len() || args.iter().any(|a| a.name.is_some()) {
-            return self.not_yet(fx, e, "a C call with named or missing arguments");
+            return self.not_yet(fx, e, ny!("CCallNamed"));
         }
         let mut list = Vec::new();
         for (i, (a, p)) in args.iter().zip(params).enumerate() {
@@ -160,7 +160,7 @@ impl<'a> Gen<'a> {
             let v = self.expr(fx, &a.value)?;
             let from = self.ty(m, &a.value);
             let v = self.coerce(fx, &v, &from, &pt, a.value.at)?;
-            let Some(s) = self.side(&pt) else { return self.not_yet(fx, e, "a C argument of this type") };
+            let Some(s) = self.side(&pt) else { return self.not_yet(fx, e, ny!("CArg")) };
             list.push(match s {
                 Side::Plain(ct) => fx.temp(&ct, &v),
                 Side::Bool => format!("(_Bool){}", fx.temp("uint8_t", &v)),
@@ -182,7 +182,7 @@ impl<'a> Gen<'a> {
                 fx.emit(format!("{call};"));
                 Ok(String::new())
             }
-            Err(what) => self.not_yet(fx, e, &what),
+            Err(what) => self.not_yet(fx, e, what),
         }
     }
 
@@ -202,7 +202,7 @@ impl<'a> Gen<'a> {
         let r = match self.c_result(me, f.ret.is_some()) {
             Ok(r) => r,
             Err(what) => {
-                self.say(m, f.name.at, &what);
+                self.say(m, f.name.at, what);
                 return None;
             }
         };
@@ -218,7 +218,7 @@ impl<'a> Gen<'a> {
             let pn = Self::param_name(p, i);
             let t = self.declared_ty(me, &format!("({pn})"));
             if p.var {
-                self.say(m, f.name.at, "an exported C function's var parameter");
+                self.say(m, f.name.at, ny!("ExportVar"));
                 return None;
             }
             match self.side(&t) {
@@ -239,8 +239,8 @@ impl<'a> Gen<'a> {
                     call.push(format!("a{i}"));
                 }
                 _ => {
-                    let what = format!("an exported C function's parameter of type {}", self.ty_text(&t));
-                    self.say(m, f.name.at, &what);
+                    let what = ny!("ExportParam", "type" => self.ty_text(&t));
+                    self.say(m, f.name.at, what);
                     return None;
                 }
             }

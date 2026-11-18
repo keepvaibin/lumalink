@@ -38,7 +38,7 @@ impl<'a> Gen<'a> {
     pub(super) fn task(&mut self, m: usize, me: ItemRef, f: &ast::FnDecl, file: &str) -> Option<String> {
         let c_name = self.task_c(me);
         let Some((head, params, _, _)) = self.fn_head(me, "", &c_name, f) else {
-            self.say(m, f.name.at, "a task with a parameter of this type");
+            self.say(m, f.name.at, ny!("TaskParam"));
             return None;
         };
         // A result (11.1a) is kept by the task, not written by its start function: fn_head's result parameter goes.
@@ -73,7 +73,7 @@ impl<'a> Gen<'a> {
             let t = self.checked.locals[id as usize].ty.clone();
             let ct = self.c_type(&t)?;
             if var {
-                self.say(m, f.name.at, "a task's var parameter");
+                self.say(m, f.name.at, ny!("TaskVar"));
                 return None;
             }
             fx.decl(format!("{ct} l{id};"));
@@ -121,14 +121,14 @@ impl<'a> Gen<'a> {
     /// `start task(args)`: the arguments as a call's, the task made by its start function; the handle.
     pub(super) fn start_expr(&mut self, fx: &mut Fx, e: &Expr, inner: &Expr) -> Ex {
         let m = fx.module;
-        let ExprKind::Call { args, .. } = &inner.kind else { return self.not_yet(fx, e, "start of this kind") };
-        let Some(Resolved::Item(item)) = self.resolved(m, inner).cloned() else { return self.not_yet(fx, e, "start of this kind") };
+        let ExprKind::Call { args, .. } = &inner.kind else { return self.not_yet(fx, e, ny!("StartKind")) };
+        let Some(Resolved::Item(item)) = self.resolved(m, inner).cloned() else { return self.not_yet(fx, e, ny!("StartKind")) };
         // Another mod's task runs in that mod's task table: its call gives the pending to wait on (11.1a); no `task`
         // of this mod's can stand for it.
         if matches!(item.owner, super::Owner::Library(_)) {
-            return self.not_yet(fx, e, "start of another mod's task (call it: `wait f(args)` waits on its pending)");
+            return self.not_yet(fx, e, ny!("StartModTask"));
         }
-        let ast::ItemKind::Task { name, params, body, .. } = &self.item(item).kind else { return self.not_yet(fx, e, "start of this kind") };
+        let ast::ItemKind::Task { name, params, body, .. } = &self.item(item).kind else { return self.not_yet(fx, e, ny!("StartKind")) };
         let f = ast::FnDecl { name: name.clone(), params: params.clone(), ret: None, body: body.clone() };
         let c_name = self.task_c(item);
         self.start_ret = true;
@@ -138,7 +138,7 @@ impl<'a> Gen<'a> {
     /// A call of a task with a result (11.1a): the task started as `start` starts it, its handle and this mod's
     /// operations the pending.
     pub(super) fn task_pending(&mut self, fx: &mut Fx, e: &Expr, item: ItemRef, args: &[ast::Arg]) -> Ex {
-        let ast::ItemKind::Task { name, params, body, ret } = &self.item(item).kind else { return self.not_yet(fx, e, "a call of this task") };
+        let ast::ItemKind::Task { name, params, body, ret } = &self.item(item).kind else { return self.not_yet(fx, e, ny!("CallTask")) };
         let watch = ret.is_none();
         let f = ast::FnDecl { name: name.clone(), params: params.clone(), ret: None, body: body.clone() };
         let c_name = self.task_c(item);
@@ -157,7 +157,7 @@ impl<'a> Gen<'a> {
         let Some((_, t)) = fx.task_ret.clone() else { return };
         self.value_into(fx, e, "lm_resv", &t);
         let Some(d) = self.desc(&t) else {
-            self.say(fx.module, at, "a task giving a value of this type");
+            self.say(fx.module, at, ny!("TaskGiving"));
             return;
         };
         fx.fail_if(&format!("lumart_task_result_keep(lm_f, &lm_resv, {d}, {}, {}) != 0", c_string(&fx.file), at.line));
@@ -175,7 +175,7 @@ impl<'a> Gen<'a> {
         let inf = if super::counted(&rc) || (!unit && self.holds_ref(of, &mut std::collections::HashSet::new())) {
             match self.in_fn(of) {
                 Some(f) => f,
-                None => return self.not_yet(fx, e, "wait on a pending of this type"),
+                None => return self.not_yet(fx, e, ny!("WaitPendingType")),
             }
         } else {
             "0".to_string()
@@ -195,7 +195,7 @@ impl<'a> Gen<'a> {
     pub(super) fn wait_expr(&mut self, fx: &mut Fx, e: &Expr, amount: &Expr, unit: Option<ast::WaitUnit>) -> Ex {
         let m = fx.module;
         if !fx.task {
-            return self.not_yet(fx, e, "wait here");
+            return self.not_yet(fx, e, ny!("WaitHere"));
         }
         let (file, line) = (c_string(&fx.file), e.at.line);
         let from = self.ty(m, amount);
@@ -221,7 +221,7 @@ impl<'a> Gen<'a> {
                     let t = fx.temp("lumart_task", &v);
                     format!("lumart_task_alive({t})")
                 }
-                _ => return self.not_yet(fx, e, "wait on a pending result"),
+                _ => return self.not_yet(fx, e, ny!("WaitPendingResult")),
             },
         };
         park(fx);
@@ -232,7 +232,7 @@ impl<'a> Gen<'a> {
     /// `wait until c`: parks, then reads `c` on each frame until it holds.
     pub(super) fn wait_until(&mut self, fx: &mut Fx, e: &Expr, c: &Expr) -> Ex {
         if !fx.task {
-            return self.not_yet(fx, e, "wait here");
+            return self.not_yet(fx, e, ny!("WaitHere"));
         }
         park(fx);
         let v = self.expr(fx, c)?;

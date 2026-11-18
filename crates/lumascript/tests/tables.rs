@@ -80,6 +80,7 @@ fn said(text: &str) -> Vec<(u16, u32, Vec<String>)> {
                 let args = d.args.iter().map(|(n, a)| match a {
                     Arg::Text(t) => format!("{n}={t}"),
                     Arg::Phrase(p) => format!("{n}={p}"),
+                    Arg::Phrased(p, v) => format!("{n}={p}{v:?}"),
                 });
                 (d.code, d.at.line, args.collect())
             })
