@@ -70,15 +70,21 @@ impl<'w, 'a> Walk<'w, 'a> {
         self.game().facts.as_ref().and_then(|f| f.guarantees.iter().find(|g| g.name == set)).map(|g| g.needs.clone()).unwrap_or_default()
     }
 
-    /// `needs` proved here from now on, in this scope, until a `wait`.
+    /// `needs` proved here from now on, in this scope, until a `wait`. A need proved again in the same scope keeps
+    /// one entry, at the later tick: both end with the scope, and the later stands wherever the earlier does (N-4031:
+    /// one entry for each proof made, copied to every call after it, grew with the square of the calls).
     pub(super) fn prove(&mut self, needs: Vec<String>) {
         if needs.is_empty() {
             return;
         }
         let t = self.next_tick();
         let frame = self.frame_mut();
+        let scope = frame.proved_marks.last().copied().unwrap_or(0);
         for n in needs {
-            frame.proved.push((n, t));
+            match frame.proved[scope..].iter_mut().find(|(p, _)| *p == n) {
+                Some(entry) => entry.1 = t,
+                None => frame.proved.push((n, t)),
+            }
         }
     }
 
@@ -338,18 +344,33 @@ pub(super) fn say(c: &mut crate::check::Checker<'_>) {
     let missing = |of: &HashMap<FnKey, BTreeSet<String>>, s: &NeedSite| -> BTreeSet<String> {
         callee_needs(of, &s.callee).into_iter().filter(|n| !s.proved.iter().any(|(p, _)| p == n)).collect()
     };
-    loop {
-        let mut changed = false;
-        for s in &needs.sites {
-            let Some(k) = s.caller.as_ref().filter(|k| open(k)) else { continue };
-            let more = missing(&of, s);
-            let mine = of.entry(k.clone()).or_default();
-            for n in more {
-                changed |= mine.insert(n);
-            }
+    // A work list: each call looked at once, and again only when what its callee needs grew (N-4031: a pass over
+    // every call until none changed took one pass for each function in a chain of calls).
+    let mut callers_of: HashMap<&FnKey, Vec<usize>> = HashMap::new();
+    for (i, s) in needs.sites.iter().enumerate() {
+        if let Callee::Mod { key, .. } = &s.callee {
+            callers_of.entry(key).or_default().push(i);
         }
-        if !changed {
-            break;
+    }
+    let mut queued = vec![true; needs.sites.len()];
+    let mut work: Vec<usize> = (0..needs.sites.len()).rev().collect();
+    while let Some(i) = work.pop() {
+        queued[i] = false;
+        let s = &needs.sites[i];
+        let Some(k) = s.caller.as_ref().filter(|k| open(k)) else { continue };
+        let more = missing(&of, s);
+        let mine = of.entry(k.clone()).or_default();
+        let mut grew = false;
+        for n in more {
+            grew |= mine.insert(n);
+        }
+        if grew {
+            for &j in callers_of.get(k).map(Vec::as_slice).unwrap_or(&[]) {
+                if !queued[j] {
+                    queued[j] = true;
+                    work.push(j);
+                }
+            }
         }
     }
     let sets: Vec<(String, Vec<String>)> = c.facts.game.facts.as_ref().map(|f| f.guarantees.iter().map(|g| (g.name.clone(), g.needs.clone())).collect()).unwrap_or_default();

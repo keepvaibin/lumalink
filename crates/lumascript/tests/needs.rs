@@ -275,3 +275,51 @@ fn a_game_without_needs_says_nothing() {
     let checked = check::check(&[Source { path: "main".into(), module }, check::std_source()], &[], facts);
     assert!(checked.diags.iter().all(|(_, d)| d.code != code::NEEDS_NOT_PROVED), "{:?}", checked.diags);
 }
+
+/// What one S0154/S0155 says: (code, line, found, needs, how).
+type Said = (u16, u32, String, String, String);
+
+/// Checks `text` on the compiler's stack and gives the time and what was said.
+fn needs_timed(text: &str) -> (std::time::Duration, Vec<Said>) {
+    let text = text.to_string();
+    let start = std::time::Instant::now();
+    let said = lumascript::on_compiler_stack(move || needs_said(&text)).unwrap();
+    (start.elapsed(), said)
+}
+
+/// Many calls that make something and many that need it, in one body: each call keeps what is proved where it is,
+/// which is each need once a scope, not each proof made (N-4031: every call kept every proof before it).
+#[test]
+fn many_proofs_stay_linear() {
+    let mut took = Vec::new();
+    for n in [2_000usize, 8_000] {
+        let text = format!("on frame {{\n{}{}}}\n", "    MR::makeOdd()\n".repeat(n), "    log MR::getOdd()\n".repeat(n));
+        let (t, said) = needs_timed(&text);
+        assert_eq!(said, vec![]);
+        took.push(t);
+    }
+    eprintln!("2000: {:?}, 8000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+    // A later proof in the same scope stands where the earlier one was taken back by a wait.
+    assert_eq!(needs_said("task t() {\n    MR::makeOdd()\n    wait 1 frames\n    MR::makeOdd()\n    log MR::getOdd()\n}\n"), vec![]);
+}
+
+/// A long chain of the mod's functions, the last needing what the first's caller must prove: the needs reach the
+/// caller in time that grows with the chain (N-4031: one pass over every call for each function in the chain).
+#[test]
+fn a_chain_of_functions_stays_linear() {
+    let mut took = Vec::new();
+    for n in [1_000usize, 4_000] {
+        let mut text = String::new();
+        for i in 0..n - 1 {
+            text.push_str(&format!("fn f{i}() {{\n    f{}()\n}}\n", i + 1));
+        }
+        text.push_str(&format!("fn f{}() {{\n    MR::useScene()\n}}\non frame {{\n    f0()\n}}\n", n - 1));
+        let (t, said) = needs_timed(&text);
+        let line = 3 * (n as u32 - 1) + 5;
+        assert_eq!(said, vec![refused(line, "f0", "scene", "Stage")]);
+        took.push(t);
+    }
+    eprintln!("1000: {:?}, 4000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
