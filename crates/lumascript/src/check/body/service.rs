@@ -464,7 +464,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             self.say(Diagnostic::new(code::NOT_A_STRUCT, at).with("found", Arg::Text(shown)));
             return self.struct_quiet(fields);
         };
-        let mut given: Vec<&str> = Vec::new();
+        let mut given: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for (ident, value) in fields {
             let Some((_, fty)) = decl.iter().find(|(n, _)| *n == ident.name) else {
                 self.say(Diagnostic::new(code::NO_MEMBER, ident.at).with("name", Arg::Text(ident.name.clone())).with("found", Arg::Text(shown.clone())));
@@ -473,10 +473,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                 }
                 continue;
             };
-            if given.contains(&ident.name.as_str()) {
+            if !given.insert(&ident.name) {
                 self.say(Diagnostic::new(code::ARG_TWICE, ident.at).with("name", Arg::Text(ident.name.clone())));
             }
-            given.push(&ident.name);
             self.named.insert(ident.at, Resolved::ServiceField { service: owner.clone(), record: record.clone(), field: ident.name.clone() });
             match value {
                 Some(v) => {

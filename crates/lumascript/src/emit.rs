@@ -224,6 +224,7 @@ pub fn emit_with(
         defining: HashSet::new(),
         hooks_written: 0,
         json_readers: HashMap::new(),
+        member_index: Default::default(),
         writers: HashMap::new(),
         writer_inline: false,
         pre_read: None,
@@ -415,6 +416,8 @@ struct Gen<'a> {
     reader_inline: bool,
     /// Readers and writers made while a module is written, put in that module's file.
     json_code: String,
+    /// Each item's members by name, made the first time a use asks ([`crate::check::MemberIndex`]).
+    member_index: crate::check::MemberIndexes,
 }
 
 /// A function being written.
@@ -744,6 +747,11 @@ impl<'a> Gen<'a> {
         &modules[item.module].module.items[item.item]
     }
 
+    /// `item`'s members by name ([`crate::check::MemberIndex`]).
+    fn members_of(&self, item: ItemRef) -> std::rc::Rc<crate::check::MemberIndex> {
+        crate::check::members_of(&self.member_index, item, self.item(item))
+    }
+
     /// The C name of an item of the mod: `lm_<module>__<name>` (docs/modding/language/compiled-form.md, section 2); of a library's (its types, as this mod's C
     /// holds them): `lml<n>_<module>__<name>`.
     fn item_c(&self, item: ItemRef, name: &str) -> String {
@@ -946,8 +954,8 @@ impl<'a> Gen<'a> {
 
     /// The number of an enum's case (its place in the declaration).
     fn case_tag(&self, item: ItemRef, case: &str) -> Option<usize> {
-        let ItemKind::Enum(e) = &self.item(item).kind else { return None };
-        e.cases.iter().position(|c| c.name.name == case)
+        let ItemKind::Enum(_) = &self.item(item).kind else { return None };
+        self.members_of(item).cases.first(case)
     }
 
     fn slot(&mut self, name: &str, signature: &str) -> String {

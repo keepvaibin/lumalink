@@ -1441,17 +1441,9 @@ impl<'w, 'a> Walk<'w, 'a> {
     fn has_member(&self, members: &Members, name: &str) -> bool {
         match members {
             Members::Mod(class) => {
-                if let ast::ItemKind::Class(cd) = &self.item_of(*class).kind {
-                    let own = cd.members.iter().any(|m| match m {
-                        ast::ClassMember::Binding(b) => {
-                            let mut idents = Vec::new();
-                            crate::check::pattern_names(&b.pattern, &mut idents);
-                            idents.iter().any(|i| i.name == name)
-                        }
-                        ast::ClassMember::Fn(f) | ast::ClassMember::Override(f) => f.name.name == name,
-                        ast::ClassMember::Hook(_) => false,
-                    });
-                    if own {
+                if let ast::ItemKind::Class(_) = &self.item_of(*class).kind {
+                    // A binding under each name it binds, a function or an override under its own; no hook.
+                    if !self.members_of(*class).members.of(name).is_empty() {
                         return true;
                     }
                 }
@@ -1530,7 +1522,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             Members::Mod(class) => {
                 let class = *class;
                 if let ast::ItemKind::Class(cd) = &self.item_of(class).kind {
-                    let is_fn = cd.members.iter().any(|m| matches!(m, ast::ClassMember::Fn(f) | ast::ClassMember::Override(f) if f.name.name == name));
+                    let is_fn = self.class_fn_named(cd, class, name);
                     if is_fn {
                         return self.not_a_value(e.at, name, "Script.Kind.Function");
                     }
@@ -1554,14 +1546,12 @@ impl<'w, 'a> Walk<'w, 'a> {
 
     fn has_own_field(&self, class: ItemRef, name: &str) -> bool {
         let ast::ItemKind::Class(cd) = &self.item_of(class).kind else { return false };
-        cd.members.iter().any(|m| match m {
-            ast::ClassMember::Binding(b) => {
-                let mut idents = Vec::new();
-                crate::check::pattern_names(&b.pattern, &mut idents);
-                idents.iter().any(|i| i.name == name)
-            }
-            _ => false,
-        })
+        self.members_of(class).members.of(name).iter().any(|&i| matches!(cd.members[i], ast::ClassMember::Binding(_)))
+    }
+
+    /// Whether the class has a function or an override named `name`.
+    fn class_fn_named(&self, cd: &ast::ClassDecl, class: ItemRef, name: &str) -> bool {
+        self.members_of(class).members.of(name).iter().any(|&i| matches!(cd.members[i], ast::ClassMember::Fn(_) | ast::ClassMember::Override(_)))
     }
 
     /// A game name written bare: an enum's value, a global, or a function (no value).
@@ -1825,12 +1815,13 @@ impl<'w, 'a> Walk<'w, 'a> {
         match t {
             Ty::Struct(item) => {
                 let item = *item;
-                let ast::ItemKind::Struct(s) = &self.item_of(item).kind else { return Ty::Error };
-                if s.fields.iter().any(|f| f.name.name == n) {
+                let ast::ItemKind::Struct(_) = &self.item_of(item).kind else { return Ty::Error };
+                let index = self.members_of(item);
+                if !index.fields.of(n).is_empty() {
                     self.res.insert(e.id, Resolved::Member { owner: item, name: n.to_string() });
                     return self.declared(item, &format!(".{n}"));
                 }
-                if s.fns.iter().any(|f| f.name.name == n) {
+                if !index.fns.of(n).is_empty() {
                     return self.not_a_value(name.at, n, "Script.Kind.Function");
                 }
                 let found = self.c.item_name(item);
@@ -1843,7 +1834,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                     return self.class_field_ty(class, n, name.at);
                 }
                 let ast::ItemKind::Class(cd) = &self.item_of(class).kind else { return Ty::Error };
-                if cd.members.iter().any(|m| matches!(m, ast::ClassMember::Fn(f) | ast::ClassMember::Override(f) if f.name.name == n)) {
+                if self.class_fn_named(cd, class, n) {
                     return self.not_a_value(name.at, n, "Script.Kind.Function");
                 }
                 match self.class_base(class) {
@@ -1947,7 +1938,7 @@ impl<'w, 'a> Walk<'w, 'a> {
     /// `Type.name` as a value: an enum's case without data.
     fn type_member(&mut self, e: &'a Expr, item: ItemRef, name: &'a ast::Ident) -> Ty {
         match &self.item_of(item).kind {
-            ast::ItemKind::Enum(decl) => match decl.cases.iter().find(|c| c.name.name == name.name) {
+            ast::ItemKind::Enum(decl) => match self.members_of(item).cases.first(&name.name).map(|k| &decl.cases[k]) {
                 Some(case) if case.fields.is_empty() => {
                     self.res.insert(e.id, Resolved::Case { item, case: case.name.name.clone() });
                     Ty::Enum(item)
@@ -1958,7 +1949,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                     Ty::Error
                 }
             },
-            ast::ItemKind::Struct(s) if s.fns.iter().any(|f| f.name.name == name.name) => self.not_a_value(e.at, &name.name, "Script.Kind.Function"),
+            ast::ItemKind::Struct(_) if !self.members_of(item).fns.of(&name.name).is_empty() => self.not_a_value(e.at, &name.name, "Script.Kind.Function"),
             _ => {
                 let found = self.c.item_name(item);
                 self.say(Diagnostic::new(code::NO_MEMBER, name.at).with("name", Arg::Text(name.name.clone())).with("found", Arg::Text(found)));
@@ -1982,32 +1973,36 @@ impl<'w, 'a> Walk<'w, 'a> {
             _ => {}
         }
         let target = self.struct_path(path);
-        let (owner, prefix, decl_fields, result, shown) = match target {
+        let (owner, prefix, decl_fields, result, shown, case) = match target {
             Some((item, None)) => match &self.item_of(item).kind {
-                ast::ItemKind::Struct(s) => (item, ".".to_string(), &s.fields, Ty::Struct(item), s.name.name.clone()),
+                ast::ItemKind::Struct(s) => (item, ".".to_string(), &s.fields, Ty::Struct(item), s.name.name.clone(), None),
                 _ => return self.not_struct(at, &written, fields),
             },
             Some((item, Some(case))) => {
                 let ast::ItemKind::Enum(decl) = &self.item_of(item).kind else { return self.not_struct(at, &written, fields) };
                 let c = &decl.cases[case];
                 self.named.insert(path[path.len() - 1].at, Resolved::Case { item, case: c.name.name.clone() });
-                (item, format!("{}.", c.name.name), &c.fields, Ty::Enum(item), format!("{}.{}", decl.name.name, c.name.name))
+                (item, format!("{}.", c.name.name), &c.fields, Ty::Enum(item), format!("{}.{}", decl.name.name, c.name.name), Some(case))
             }
             None => return self.not_struct(at, &written, fields),
         };
-        let mut given: Vec<&str> = Vec::new();
+        let index = self.members_of(owner);
+        let names = match case {
+            Some(k) => &index.case_fields[k],
+            None => &index.fields,
+        };
+        let mut given: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for (ident, value) in fields {
-            let Some(f) = decl_fields.iter().find(|f| f.name.name == ident.name) else {
+            let Some(f) = names.first(&ident.name).map(|i| &decl_fields[i]) else {
                 self.say(Diagnostic::new(code::NO_MEMBER, ident.at).with("name", Arg::Text(ident.name.clone())).with("found", Arg::Text(shown.clone())));
                 if let Some(v) = value {
                     self.expr(v, Want::Ty(&Ty::Error));
                 }
                 continue;
             };
-            if given.contains(&ident.name.as_str()) {
+            if !given.insert(&ident.name) {
                 self.say(Diagnostic::new(code::ARG_TWICE, ident.at).with("name", Arg::Text(ident.name.clone())));
             }
-            given.push(&ident.name);
             let ty = self.declared(owner, &format!("{prefix}{}", f.name.name));
             match value {
                 Some(v) => {
@@ -2092,7 +2087,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         };
         match (&self.item_of(item).kind, rest) {
             (ast::ItemKind::Struct(_), []) => Some((item, None)),
-            (ast::ItemKind::Enum(decl), [case]) => decl.cases.iter().position(|c| c.name.name == case.name && c.braces).map(|k| (item, Some(k))),
+            (ast::ItemKind::Enum(decl), [case]) => self.members_of(item).cases.of(&case.name).iter().copied().find(|&k| decl.cases[k].braces).map(|k| (item, Some(k))),
             _ => None,
         }
     }

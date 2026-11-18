@@ -9,6 +9,7 @@ use crate::check::{ItemRef, ModRef, ModTarget, Name, Ty};
 use crate::diag::{code, Arg, Diagnostic};
 use crate::game::{FnTy, GameTy, NotCrossing, Scalar, SigNotCrossing, TableLeaf, TablePart, Value};
 use luma_validate::names::FunctionKind as FnKind;
+use std::collections::HashMap;
 
 /// The names every module has without `use` (16a), besides the type names.
 pub(crate) const STD_NAMES: &[&str] = &[
@@ -419,6 +420,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             self.say(d);
         }
         let mut k = 0;
+        let mut by_name: Option<HashMap<&str, usize>> = None;
         for a in args {
             match &a.name {
                 None => {
@@ -429,7 +431,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                     }
                     k += 1;
                 }
-                Some(n) => match ps.iter().position(|p| p.name.as_deref() == Some(n.name.as_str())) {
+                Some(n) => match by_name.get_or_insert_with(|| param_places(ps)).get(n.name.as_str()).copied() {
                     Some(i) if slots[i].is_some() => {
                         self.say(Diagnostic::new(code::ARG_TWICE, n.at).with("name", Arg::Text(n.name.clone())));
                         self.expr(&a.value, Want::Ty(&Ty::Error));
@@ -551,14 +553,7 @@ impl<'w, 'a> Walk<'w, 'a> {
 
     fn has_own_field_named(&self, class: ItemRef, name: &str) -> bool {
         let ast::ItemKind::Class(cd) = &self.item_of(class).kind else { return false };
-        cd.members.iter().any(|m| match m {
-            ast::ClassMember::Binding(b) => {
-                let mut idents = Vec::new();
-                crate::check::pattern_names(&b.pattern, &mut idents);
-                idents.iter().any(|i| i.name == name)
-            }
-            _ => false,
-        })
+        self.members_of(class).members.of(name).iter().any(|&i| matches!(cd.members[i], ast::ClassMember::Binding(_)))
     }
 
     /// A function of the mod's class `class` by name, called on `base` (None: this body's `self`); None when the
@@ -567,8 +562,8 @@ impl<'w, 'a> Walk<'w, 'a> {
     /// override included (docs/modding/language/objects.md).
     fn class_method(&mut self, e: &'a Expr, class: ItemRef, name: &'a ast::Ident, args: &'a [ast::Arg], base: Option<&'a Expr>) -> Option<Ty> {
         let ast::ItemKind::Class(cd) = &self.item_of(class).kind else { return None };
-        let f = cd.members.iter().find_map(|m| match m {
-            ast::ClassMember::Fn(f) if f.name.name == name.name => Some(f),
+        let f = self.members_of(class).members.of(&name.name).iter().find_map(|&i| match &cd.members[i] {
+            ast::ClassMember::Fn(f) => Some(f),
             _ => None,
         })?;
         Some(self.member_fn(e, class, f, name, args, base))
@@ -711,7 +706,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         let type_name = self.c.item_name(item);
         match &self.item_of(item).kind {
             ast::ItemKind::Enum(decl) => {
-                let Some(case) = decl.cases.iter().find(|c| c.name.name == name.name) else {
+                let Some(case) = self.members_of(item).cases.first(&name.name).map(|k| &decl.cases[k]) else {
                     self.say(Diagnostic::new(code::NO_MEMBER, name.at).with("name", Arg::Text(name.name.clone())).with("found", Arg::Text(type_name)));
                     self.args_any(args);
                     return Ty::Error;
@@ -729,7 +724,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 self.args_against(&shown, &ps, args, e.at);
                 Ty::Enum(item)
             }
-            ast::ItemKind::Struct(s) => match s.fns.iter().find(|f| f.name.name == name.name) {
+            ast::ItemKind::Struct(s) => match self.members_of(item).fns.first(&name.name).map(|i| &s.fns[i]) {
                 Some(f) if !f.params.iter().any(|p| p.is_self) => {
                     let key = format!(".{}", f.name.name);
                     let (ps, r) = self.fn_params(item, &key, &f.params, f.ret.is_some());
@@ -760,7 +755,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             Ty::Struct(item) => {
                 let item = *item;
                 if let ast::ItemKind::Struct(s) = &self.item_of(item).kind {
-                    if let Some(f) = s.fns.iter().find(|f| f.name.name == name.name) {
+                    if let Some(f) = self.members_of(item).fns.first(&name.name).map(|i| &s.fns[i]) {
                         return self.member_fn(e, item, f, name, args, Some(base));
                     }
                 }
@@ -1800,6 +1795,17 @@ impl<'w, 'a> Walk<'w, 'a> {
         };
         matches!(self.item_of(item).kind, ast::ItemKind::Task { .. }).then_some(item)
     }
+}
+
+/// Each named parameter's place, the first of a name kept (as a scan from the start found it).
+fn param_places(ps: &[P]) -> HashMap<&str, usize> {
+    let mut places = HashMap::new();
+    for (i, p) in ps.iter().enumerate() {
+        if let Some(n) = p.name.as_deref() {
+            places.entry(n).or_insert(i);
+        }
+    }
+    places
 }
 
 #[cfg(test)]

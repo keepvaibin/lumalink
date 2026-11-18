@@ -356,6 +356,9 @@ pub mod code {
     /// An optional service (`use optional svc.{found}`) called where no test showed it given: `if {alias} != none` or
     /// `guard {alias} != none` first (M-119: S0067's `??` cannot give a service).
     pub const OPTIONAL_SVC_UNTESTED: u16 = 157;
+    /// A `match` too large to check that its arms cover every value (the coverage's steps past MATCH_STEPS): `else`
+    /// covers what is left.
+    pub const MATCH_TOO_LARGE: u16 = 158;
     /// The back end does not write `{what}` yet; the build stops here rather than guess.
     pub const BACKEND_NOT_YET: u16 = 800;
 
@@ -516,6 +519,7 @@ pub mod code {
         CAN_WHAT,
         HOLDS_WHAT,
         OPTIONAL_SVC_UNTESTED,
+        MATCH_TOO_LARGE,
         BACKEND_NOT_YET,
     ];
 

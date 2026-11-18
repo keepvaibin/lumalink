@@ -630,13 +630,14 @@ impl Gen<'_> {
         let fields = decl.cases[tag].fields.clone();
         let mut given: Vec<Option<Expr>> = vec![None; fields.len()];
         let mut next = 0;
+        let mut by_name: Option<std::collections::HashMap<&str, usize>> = None;
         for a in args {
             let k = match &a.name {
                 None => {
                     next += 1;
                     next - 1
                 }
-                Some(n) => fields.iter().position(|f| f.name.name == n.name).ok_or_else(lost)?,
+                Some(n) => *by_name.get_or_insert_with(|| super::expr::field_places(&fields)).get(n.name.as_str()).ok_or_else(lost)?,
             };
             *given.get_mut(k).ok_or_else(lost)? = Some(a.value.clone());
         }
@@ -722,13 +723,14 @@ impl Gen<'_> {
             given[0] = Some(recv.ok_or_else(lost)?);
             next = 1;
         }
+        let mut by_name: Option<std::collections::HashMap<&str, usize>> = None;
         for a in args {
             let k = match &a.name {
                 None => {
                     next += 1;
                     next - 1
                 }
-                Some(nm) => params.iter().position(|p| p.name.as_ref().is_some_and(|pn| pn.name == nm.name)).ok_or_else(lost)?,
+                Some(nm) => *by_name.get_or_insert_with(|| super::expr::param_places(params.iter().copied())).get(nm.name.as_str()).ok_or_else(lost)?,
             };
             *given.get_mut(k).ok_or_else(lost)? = Some(&a.value);
         }

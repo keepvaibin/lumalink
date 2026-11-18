@@ -621,6 +621,11 @@ impl<'w, 'a> Walk<'w, 'a> {
         &self.module_of(item.module_ref()).items[item.item]
     }
 
+    /// `item`'s members by name ([`crate::check::MemberIndex`]).
+    fn members_of(&self, item: ItemRef) -> std::rc::Rc<crate::check::MemberIndex> {
+        crate::check::members_of(&self.c.member_index, item, self.item_of(item))
+    }
+
     fn game(&self) -> &'a crate::game::Game {
         self.c.facts.game
     }
@@ -1419,12 +1424,9 @@ impl<'w, 'a> Walk<'w, 'a> {
             return Ty::Error;
         }
         let ItemKind::Class(cd) = &self.item_of(class).kind else { return Ty::Error };
-        let Some(b) = cd.members.iter().find_map(|m| match m {
-            ClassMember::Binding(b) => {
-                let mut idents = Vec::new();
-                super::pattern_names(&b.pattern, &mut idents);
-                idents.iter().any(|i| i.name == name).then_some(b)
-            }
+        let index = self.members_of(class);
+        let Some(b) = index.members.of(name).iter().find_map(|&i| match &cd.members[i] {
+            ClassMember::Binding(b) => Some(b),
             _ => None,
         }) else {
             return Ty::Error;

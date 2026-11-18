@@ -7,6 +7,7 @@ use crate::ast::{self, PatternKind, Pos};
 use crate::check::{ItemRef, ModTarget, Name, Ty};
 use crate::diag::{code, Arg, Diagnostic};
 use crate::game::GameTy;
+use std::collections::HashMap;
 
 /// A pattern as coverage reads it.
 #[derive(Clone, Debug)]
@@ -18,7 +19,7 @@ pub(super) enum Pat {
     Lit,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Ctor {
     True,
     False,
@@ -167,7 +168,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                     }
                     (None, Some(names)) => {
                         for n in names {
-                            match case.fields.iter().position(|f| f.name.name == n.name) {
+                            match self.members_of(item).case_fields[index].first(&n.name) {
                                 Some(k) => {
                                     let t = field_ty(self, &n.name);
                                     self.bind(n, t, var);
@@ -308,7 +309,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         if let Some(item) = enum_item {
             let ast::ItemKind::Enum(decl) = &self.item_of(item).kind else { return None };
             let last = &path[path.len() - 1];
-            return match decl.cases.iter().position(|c| c.name.name == last.name) {
+            return match self.members_of(item).cases.first(&last.name) {
                 Some(index) => Some(CaseOf::Mod { item, index }),
                 None => {
                     let d = Diagnostic::new(code::NO_MEMBER, last.at).with("name", Arg::Text(last.name.clone())).with("found", Arg::Text(decl.name.name.clone()));
@@ -362,7 +363,11 @@ impl<'w, 'a> Walk<'w, 'a> {
     /// MATCH_NEEDS_ELSE when only `else` could cover them.
     pub(super) fn coverage(&mut self, at: Pos, subject_ty: &Ty, arms: Vec<Pat>) {
         let rows: Vec<Vec<Pat>> = arms.into_iter().map(|p| vec![p]).collect();
-        let found = self.witnesses(&rows, std::slice::from_ref(subject_ty));
+        let mut steps = MATCH_STEPS;
+        let Some(found) = self.witnesses(&rows, std::slice::from_ref(subject_ty), &mut steps) else {
+            self.say(Diagnostic::new(code::MATCH_TOO_LARGE, at));
+            return;
+        };
         if found.is_empty() {
             return;
         }
@@ -429,29 +434,53 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
     }
 
-    /// The rows of values `rows` does not take, over columns of `tys` (at most a few more than [`SHOWN`]).
-    fn witnesses(&self, rows: &[Vec<Pat>], tys: &[Ty]) -> Vec<Vec<W>> {
+    /// The rows of values `rows` does not take, over columns of `tys` (at most a few more than [`SHOWN`]); None when
+    /// `steps` (the cells of the rows looked at, all calls together) ran out first.
+    fn witnesses(&self, rows: &[Vec<Pat>], tys: &[Ty], steps: &mut usize) -> Option<Vec<Vec<W>>> {
         let Some(t) = tys.first() else {
-            return if rows.is_empty() { vec![vec![]] } else { vec![] };
+            return Some(if rows.is_empty() { vec![vec![]] } else { vec![] });
         };
+        let cells = rows.len() * tys.len();
+        if cells > *steps {
+            return None;
+        }
+        *steps -= cells;
+        // A row that takes every value of every column left takes every value: none is missing (without this, an
+        // arm for each value of each part made the walk double with each part: N-4034).
+        if rows.iter().any(|r| r.iter().all(|p| matches!(p, Pat::Any))) {
+            return Some(vec![]);
+        }
         let rest = &tys[1..];
         // A part that did not check is taken by every pattern: nothing more is said about it.
         if matches!(t, Ty::Error | Ty::Never) {
             let def: Vec<Vec<Pat>> = rows.iter().map(|r| r[1..].to_vec()).collect();
-            return self.witnesses(&def, rest).into_iter().map(|w| prepend(W::Any, w)).collect();
+            return Some(self.witnesses(&def, rest, steps)?.into_iter().map(|w| prepend(W::Any, w)).collect());
         }
-        match self.ctors(t) {
+        Some(match self.ctors(t) {
             Some(all) if all.is_empty() => vec![],
             Some(all) => {
-                let used: Vec<&Ctor> = rows.iter().filter_map(|r| if let Pat::Ctor(c, _) = &r[0] { Some(c) } else { None }).collect();
-                let missing: Vec<&(Ctor, Vec<Ty>, String)> = all.iter().filter(|(c, _, _)| !used.contains(&c)).collect();
+                // The rows of each constructor, and those that take any, found in one pass (a scan of every row for
+                // each constructor took the arms times the cases: N-4035).
+                let mut taking: HashMap<&Ctor, Vec<usize>> = HashMap::new();
+                let mut any: Vec<usize> = Vec::new();
+                for (i, r) in rows.iter().enumerate() {
+                    match &r[0] {
+                        Pat::Ctor(c, _) => taking.entry(c).or_default().push(i),
+                        Pat::Any => any.push(i),
+                        // A literal in a column of listed values is a mistake said where it is written; it takes none.
+                        Pat::Lit => {}
+                    }
+                }
+                let missing: Vec<&(Ctor, Vec<Ty>, String)> = all.iter().filter(|(c, _, _)| !taking.contains_key(c)).collect();
                 if missing.is_empty() {
                     let mut out = Vec::new();
                     for (c, arg_tys, name) in &all {
-                        let spec = specialize(rows, c, arg_tys.len());
+                        let mut at: Vec<usize> = taking.get(c).into_iter().flatten().chain(&any).copied().collect();
+                        at.sort_unstable();
+                        let spec = specialize(rows, &at, arg_tys.len());
                         let mut sub: Vec<Ty> = arg_tys.clone();
                         sub.extend(rest.iter().cloned());
-                        for w in self.witnesses(&spec, &sub) {
+                        for w in self.witnesses(&spec, &sub, steps)? {
                             let (args, tail) = w.split_at(arg_tys.len());
                             out.push(prepend(ctor_w(c, name, args.to_vec()), tail.to_vec()));
                         }
@@ -462,7 +491,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                     out
                 } else {
                     let def = default_rows(rows);
-                    let tails = self.witnesses(&def, rest);
+                    let tails = self.witnesses(&def, rest, steps)?;
                     let mut out = Vec::new();
                     for tail in tails {
                         for (c, arg_tys, name) in &missing {
@@ -477,32 +506,36 @@ impl<'w, 'a> Walk<'w, 'a> {
             }
             None => {
                 let def = default_rows(rows);
-                self.witnesses(&def, rest).into_iter().map(|w| prepend(W::Other, w)).collect()
+                self.witnesses(&def, rest, steps)?.into_iter().map(|w| prepend(W::Other, w)).collect()
             }
-        }
+        })
     }
 }
 
-/// The rows that take constructor `c`, with its parts in place of the first column.
-fn specialize(rows: &[Vec<Pat>], c: &Ctor, arity: usize) -> Vec<Vec<Pat>> {
-    let mut out = Vec::new();
-    for r in rows {
-        match &r[0] {
-            Pat::Ctor(rc, args) if rc == c => {
-                let mut row = args.clone();
-                row.resize(arity, Pat::Any);
-                row.extend(r[1..].iter().cloned());
-                out.push(row);
-            }
-            Pat::Any => {
-                let mut row = vec![Pat::Any; arity];
-                row.extend(r[1..].iter().cloned());
-                out.push(row);
-            }
-            _ => {}
-        }
-    }
-    out
+/// The most cells of rows one `match`'s coverage looks at, all its steps together. Whether arms with parts that take
+/// every value cover every value is a hard question in the worst case (its time can double with each part); past
+/// this, S0158 asks for `else`. A match a person writes takes a few thousand.
+const MATCH_STEPS: usize = 2_000_000;
+
+/// The rows at `at` (those that take one constructor of `arity` parts, or any value), with its parts in place of the
+/// first column.
+fn specialize(rows: &[Vec<Pat>], at: &[usize], arity: usize) -> Vec<Vec<Pat>> {
+    at.iter()
+        .map(|&i| {
+            let r = &rows[i];
+            let mut row = match &r[0] {
+                Pat::Ctor(_, args) => {
+                    let mut row = args.clone();
+                    row.resize(arity, Pat::Any);
+                    row
+                }
+                // Only rows of the constructor and rows of any value are at `at`.
+                Pat::Any | Pat::Lit => vec![Pat::Any; arity],
+            };
+            row.extend(r[1..].iter().cloned());
+            row
+        })
+        .collect()
 }
 
 /// The rows whose first column takes every value, without it.

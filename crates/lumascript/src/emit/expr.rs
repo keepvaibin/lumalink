@@ -746,6 +746,7 @@ impl<'a> Gen<'a> {
         let m = fx.module;
         let mut given: Vec<Option<&Expr>> = vec![None; fields.len()];
         let mut next = 0;
+        let mut by_name: Option<std::collections::HashMap<&str, usize>> = None;
         for a in args {
             match &a.name {
                 None => {
@@ -755,8 +756,8 @@ impl<'a> Gen<'a> {
                     next += 1;
                 }
                 Some(n) => {
-                    if let Some(i) = fields.iter().position(|f| f.name.name == n.name) {
-                        given[i] = Some(&a.value);
+                    if let Some(i) = by_name.get_or_insert_with(|| field_places(fields)).get(n.name.as_str()) {
+                        given[*i] = Some(&a.value);
                     }
                 }
             }
@@ -831,7 +832,7 @@ impl<'a> Gen<'a> {
                     _ => return self.not_yet(fx, e, ny!("ThisCase")),
                 };
                 let ItemKind::Enum(d) = &self.item(*item).kind else { return Err(lost()) };
-                let c = d.cases.iter().find(|c| c.name.name == case).ok_or_else(lost)?;
+                let c = &d.cases[self.members_of(*item).cases.first(&case).ok_or_else(lost)?];
                 (*item, format!("{case}."), c.fields.clone(), Some(case))
             }
             Ty::Service { service, name } => {
@@ -843,8 +844,9 @@ impl<'a> Gen<'a> {
         let ct = self.c_type(t).ok_or_else(lost)?;
         // Fields in the order written (their reads and errors), then the defaults of the rest in declared order.
         let mut values: Vec<Option<String>> = vec![None; decl_fields.len()];
+        let places = field_places(&decl_fields);
         for (ident, value) in &args {
-            let Some(i) = decl_fields.iter().position(|f| f.name.name == ident.name) else { continue };
+            let Some(&i) = places.get(ident.name.as_str()) else { continue };
             let ft = self.declared_ty(item, &format!("{prefix}{}", ident.name));
             let v = match value {
                 Ok(x) => {
@@ -916,9 +918,8 @@ impl<'a> Gen<'a> {
             Some(Resolved::Case { item, case }) => self.case_value(fx, e, item, &case, args),
             Some(Resolved::Item(item)) if item.owner == Owner::Mod => match &self.item(item).kind {
                 ItemKind::Fn(f) => {
-                    let f = f.clone();
                     let c_name = self.item_c(item, &f.name.name);
-                    self.call_fn(fx, e, item, "", &c_name, &f, None, args)
+                    self.call_fn(fx, e, item, "", &c_name, f, None, args)
                 }
                 // Language 13: the mod's C function, called directly.
                 ItemKind::Extern { name, params, ret } => {
@@ -927,7 +928,7 @@ impl<'a> Gen<'a> {
                 }
                 // An exported function called from the script: the script's own function (docs/modding/language/compiled-form.md, section 2's `lm_m__f`).
                 ItemKind::Export { name, params, ret, body } => {
-                    let f = ast::FnDecl { name: name.clone(), params: params.clone(), ret: ret.clone(), body: body.clone() };
+                    let f = signature_of(name, params, ret.clone(), body);
                     let c_name = self.item_c(item, &f.name.name);
                     self.call_fn(fx, e, item, "", &c_name, &f, None, args)
                 }
@@ -941,13 +942,10 @@ impl<'a> Gen<'a> {
             },
             // A needed library mod's function, through its kind 6 import (docs/modding/language/compiled-form.md).
             Some(Resolved::Item(item)) if matches!(item.owner, Owner::Library(_)) => match &self.item(item).kind {
-                ItemKind::Fn(f) => {
-                    let f = f.clone();
-                    self.call_library(fx, e, item, "", None, &f, args, false)
-                }
+                ItemKind::Fn(f) => self.call_library(fx, e, item, "", None, f, args, false),
                 // A library's task: its export starts it and gives its pending (11.1a).
                 ItemKind::Task { name, params, body, .. } => {
-                    let f = ast::FnDecl { name: name.clone(), params: params.clone(), ret: None, body: body.clone() };
+                    let f = signature_of(name, params, None, body);
                     self.call_library(fx, e, item, "", None, &f, args, true)
                 }
                 ItemKind::Struct(_) => self.struct_lit(fx, e, &[], &[], t),
@@ -956,7 +954,7 @@ impl<'a> Gen<'a> {
             // A needed library's struct's function: `v.f(...)` through its kind 6 import, v its `self`.
             Some(Resolved::Member { owner, name }) if matches!(owner.owner, Owner::Library(_)) && matches!(self.item(owner).kind, ItemKind::Struct(_)) => {
                 let ItemKind::Struct(st) = &self.item(owner).kind else { return Err(lost()) };
-                let Some(f) = st.fns.iter().find(|f| f.name.name == name).cloned() else {
+                let Some(f) = self.members_of(owner).fns.first(&name).map(|i| &st.fns[i]) else {
                     if matches!(self.ty(m, callee), Ty::Fn(..)) {
                         return self.call_fn_value(fx, e, callee, args);
                     }
@@ -966,12 +964,12 @@ impl<'a> Gen<'a> {
                     ExprKind::Member { base, .. } if matches!(self.ty(m, base), Ty::Struct(_)) => Some(&**base),
                     _ => None,
                 };
-                self.call_library(fx, e, owner, &format!(".{name}"), recv, &f, args, false)
+                self.call_library(fx, e, owner, &format!(".{name}"), recv, f, args, false)
             }
             // A struct's function: `v.f(...)` (self is v) or `S.f(...)` (no self).
             Some(Resolved::Member { owner, name }) if owner.owner == Owner::Mod && matches!(self.item(owner).kind, ItemKind::Struct(_)) => {
                 let ItemKind::Struct(st) = &self.item(owner).kind else { return Err(lost()) };
-                let Some(f) = st.fns.iter().find(|f| f.name.name == name).cloned() else {
+                let Some(f) = self.members_of(owner).fns.first(&name).map(|i| &st.fns[i]) else {
                     // A field of function type, called (5.4).
                     if matches!(self.ty(m, callee), Ty::Fn(..)) {
                         return self.call_fn_value(fx, e, callee, args);
@@ -983,7 +981,7 @@ impl<'a> Gen<'a> {
                     ExprKind::Member { base, .. } if matches!(self.ty(m, base), Ty::Struct(_)) => Some(Recv::Expr(base)),
                     _ => None,
                 };
-                self.call_fn(fx, e, owner, &format!(".{name}"), &c_name, &f, receiver, args)
+                self.call_fn(fx, e, owner, &format!(".{name}"), &c_name, f, receiver, args)
             }
             Some(Resolved::GameFn { name, signature }) => {
                 let receiver = match &callee.kind {
@@ -1024,10 +1022,10 @@ impl<'a> Gen<'a> {
         let Ty::Opt(x) = &bt else { return self.not_yet(fx, e, ny!("OptOnType")) };
         let x = (**x).clone();
         // What the call gives on a value, and how the value is passed.
-        enum Target {
+        enum Target<'f> {
             Game { name: String, signature: String, inner: Ty },
             Method { name: &'static str, inner: Ty },
-            Struct { owner: ItemRef, f: ast::FnDecl, var_self: bool, inner: Ty },
+            Struct { owner: ItemRef, f: &'f ast::FnDecl, var_self: bool, inner: Ty },
         }
         let target = match res {
             Some(Resolved::GameFn { name, signature }) => {
@@ -1041,7 +1039,7 @@ impl<'a> Gen<'a> {
             }
             Some(Resolved::Member { owner, name }) if owner.owner == Owner::Mod && matches!(self.item(owner).kind, ItemKind::Struct(_)) => {
                 let ItemKind::Struct(st) = &self.item(owner).kind else { return Err(lost()) };
-                let Some(f) = st.fns.iter().find(|f| f.name.name == name).cloned() else { return self.not_yet(fx, e, ny!("StructFn")) };
+                let Some(f) = self.members_of(owner).fns.first(&name).map(|i| &st.fns[i]) else { return self.not_yet(fx, e, ny!("StructFn")) };
                 let inner = self.checked.types.get(&(owner, format!(".{name}->"))).cloned().unwrap_or(Ty::Unit);
                 let var_self = f.params.iter().any(|p| p.is_self && p.var);
                 Target::Struct { owner, f, var_self, inner }
@@ -1100,7 +1098,7 @@ impl<'a> Gen<'a> {
             Target::Struct { owner, f, inner, .. } => {
                 let c_name = self.struct_fn_c(owner, &f.name.name);
                 let key = format!(".{}", f.name.name);
-                (self.call_fn(fx, e, owner, &key, &c_name, &f, Some(Recv::Value(value)), args), inner)
+                (self.call_fn(fx, e, owner, &key, &c_name, f, Some(Recv::Value(value)), args), inner)
             }
         };
         let v = match v {
@@ -1171,13 +1169,14 @@ impl<'a> Gen<'a> {
         let pkey = |i: usize, p: &ast::Param| format!("{key}({})", p.name.as_ref().map_or_else(|| i.to_string(), |n| n.name.clone()));
         let mut slots: Vec<Option<String>> = vec![None; params.len()];
         let mut next = 0;
+        let mut by_name: Option<std::collections::HashMap<&str, usize>> = None;
         for a in args {
             let k = match &a.name {
                 None => {
                     next += 1;
                     next - 1
                 }
-                Some(n) => params.iter().position(|(_, p)| p.name.as_ref().is_some_and(|pn| pn.name == n.name)).ok_or_else(lost)?,
+                Some(n) => *by_name.get_or_insert_with(|| param_places(params.iter().map(|(_, p)| *p))).get(n.name.as_str()).ok_or_else(lost)?,
             };
             let (i, p) = *params.get(k).ok_or_else(lost)?;
             let pt = self.declared_ty(item, &pkey(i, p));
@@ -3305,3 +3304,29 @@ pub(super) fn expr_text(e: &Expr) -> String {
     }
 }
 
+/// Each field's place by its name, the first of a name kept (as a scan from the start found it): a literal's or a
+/// call's fields named in constant time each (N-4035).
+pub(super) fn field_places(fields: &[ast::Field]) -> std::collections::HashMap<&str, usize> {
+    let mut places = std::collections::HashMap::new();
+    for (i, f) in fields.iter().enumerate() {
+        places.entry(f.name.name.as_str()).or_insert(i);
+    }
+    places
+}
+
+/// Each named parameter's place among `params`, the first of a name kept.
+pub(super) fn param_places<'p>(params: impl Iterator<Item = &'p ast::Param>) -> std::collections::HashMap<&'p str, usize> {
+    let mut places = std::collections::HashMap::new();
+    for (i, p) in params.enumerate() {
+        if let Some(n) = &p.name {
+            places.entry(n.name.as_str()).or_insert(i);
+        }
+    }
+    places
+}
+
+/// A function's name and parameters as a call reads them, with an empty body: a call is written from these, and a
+/// copy of the body made each call cost the callee's size (N-4035).
+fn signature_of(name: &ast::Ident, params: &[ast::Param], ret: Option<ast::Type>, body: &ast::Block) -> ast::FnDecl {
+    ast::FnDecl { name: name.clone(), params: params.to_vec(), ret, body: ast::Block { at: body.at, stmts: Vec::new(), end: body.end } }
+}

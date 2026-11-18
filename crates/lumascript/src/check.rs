@@ -407,11 +407,13 @@ struct Checker<'a> {
     /// Each virtual's direct overrides by the function facts, (name, signature) to the rows that override it: made
     /// the first time `every override of` asks (N-4033).
     overriders: std::cell::OnceCell<HashMap<(String, String), Vec<(String, String)>>>,
+    /// Each item's members by name, made the first time a use asks ([`MemberIndex`]).
+    member_index: MemberIndexes,
 }
 
 /// Checks a mod's modules (part b) against its libraries and facts.
 pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> Checked {
-    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default() };
+    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default(), member_index: Default::default() };
     c.out.option_index = c.facts.options.iter().enumerate().map(|(i, o)| (o.key.clone(), i as u32)).collect();
     if let Some(content) = c.facts.content {
         if let Some(models) = content.names.get("model") {
@@ -628,6 +630,97 @@ fn edits(a: &str, b: &str, limit: usize) -> Option<usize> {
     }
     let d = prev[b.len()];
     (d <= limit && (d > 0 || a != b)).then_some(d.max(1))
+}
+
+/// The places of each name in one list of an item (its fields, functions, cases, a class's members), first declared
+/// first: a use finds its member in constant time, where a scan of the list made each use of a large item cost its size
+/// (N-4035).
+#[derive(Debug, Default)]
+pub(crate) struct Names(HashMap<String, Vec<usize>>);
+
+impl Names {
+    fn add(&mut self, name: &str, at: usize) {
+        self.0.entry(name.to_string()).or_default().push(at);
+    }
+
+    /// Every place of `name` in the list, first declared first.
+    pub(crate) fn of(&self, name: &str) -> &[usize] {
+        self.0.get(name).map_or(&[], Vec::as_slice)
+    }
+
+    /// The first place of `name` in the list.
+    pub(crate) fn first(&self, name: &str) -> Option<usize> {
+        self.of(name).first().copied()
+    }
+
+    fn of_fields(fields: &[ast::Field]) -> Self {
+        let mut names = Names::default();
+        for (i, f) in fields.iter().enumerate() {
+            names.add(&f.name.name, i);
+        }
+        names
+    }
+}
+
+/// An item's lists by name ([`Names`]).
+#[derive(Debug, Default)]
+pub(crate) struct MemberIndex {
+    /// A struct's fields.
+    pub(crate) fields: Names,
+    /// A struct's functions.
+    pub(crate) fns: Names,
+    /// An enum's cases.
+    pub(crate) cases: Names,
+    /// The fields of each of an enum's cases, by the case's place.
+    pub(crate) case_fields: Vec<Names>,
+    /// A class's members: a binding under each name its pattern binds, a function or an override under its name (a
+    /// hook has none).
+    pub(crate) members: Names,
+}
+
+impl MemberIndex {
+    pub(crate) fn of(item: &ast::Item) -> Self {
+        let mut index = MemberIndex::default();
+        match &item.kind {
+            ItemKind::Struct(s) => {
+                index.fields = Names::of_fields(&s.fields);
+                for (i, f) in s.fns.iter().enumerate() {
+                    index.fns.add(&f.name.name, i);
+                }
+            }
+            ItemKind::Enum(e) => {
+                for (k, c) in e.cases.iter().enumerate() {
+                    index.cases.add(&c.name.name, k);
+                    index.case_fields.push(Names::of_fields(&c.fields));
+                }
+            }
+            ItemKind::Class(cd) => {
+                for (i, m) in cd.members.iter().enumerate() {
+                    match m {
+                        ClassMember::Binding(b) => {
+                            let mut idents = Vec::new();
+                            pattern_names(&b.pattern, &mut idents);
+                            for n in idents {
+                                index.members.add(&n.name, i);
+                            }
+                        }
+                        ClassMember::Fn(f) | ClassMember::Override(f) => index.members.add(&f.name.name, i),
+                        ClassMember::Hook(_) => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        index
+    }
+}
+
+/// The member indexes made so far, by item.
+pub(crate) type MemberIndexes = std::cell::RefCell<HashMap<ItemRef, std::rc::Rc<MemberIndex>>>;
+
+/// `item`'s index (at `at`), made the first time it is asked.
+pub(crate) fn members_of(made: &MemberIndexes, at: ItemRef, item: &ast::Item) -> std::rc::Rc<MemberIndex> {
+    made.borrow_mut().entry(at).or_insert_with(|| std::rc::Rc::new(MemberIndex::of(item))).clone()
 }
 
 /// The names a module-level binding's pattern binds.
