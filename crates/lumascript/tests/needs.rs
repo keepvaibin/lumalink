@@ -324,6 +324,23 @@ fn a_chain_of_functions_stays_linear() {
     assert!(took[1] < took[0] * 8, "{took:?}");
 }
 
+/// Many waits after a handler's proof, each followed by a call proved where it is: each call asks whether a wait came
+/// after each proof by the newest wait, not by a walk of every wait since the proof (N-4045: each call walked them all,
+/// a square of the waits).
+#[test]
+fn many_waits_after_a_proof_stay_linear() {
+    let mut took = Vec::new();
+    for n in [1_000usize, 4_000] {
+        let calls = format!("{}    if can(MR::useScene) {{\n        MR::useScene()\n    }}\n", "    wait 1 frames\n".repeat(8));
+        let text = format!("on stage ready {{\n{}}}\n", calls.repeat(n));
+        let (t, said) = needs_timed(&text);
+        assert_eq!(said, vec![]);
+        took.push(t);
+    }
+    eprintln!("1000: {:?}, 4000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
+
 /// A game of `n` overrides of LiveActor::control (every other one through the one before it) among `filler` other
 /// rows.
 fn game_with_overrides(n: usize, filler: usize) -> Game {

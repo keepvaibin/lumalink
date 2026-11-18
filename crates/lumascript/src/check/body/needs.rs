@@ -144,7 +144,10 @@ impl<'w, 'a> Walk<'w, 'a> {
     /// body's lasting ones (tick `u32::MAX`, which no loop's start takes back).
     fn proved_now(&self) -> Vec<(String, u32)> {
         let frame = self.frame();
-        let mut out: Vec<(String, u32)> = frame.proved.iter().filter(|(_, t)| self.waited_from(*t).is_none()).cloned().collect();
+        // A wait after a proof is one newer than it: the newest wait says it, where a walk of every wait since the
+        // proof made each call cost the waits before it (N-4045).
+        let newest = frame.path.waits.last();
+        let mut out: Vec<(String, u32)> = frame.proved.iter().filter(|(_, t)| newest.is_none_or(|w| w < *t)).cloned().collect();
         out.extend(frame.lasting.iter().map(|n| (n.clone(), u32::MAX)));
         out
     }
