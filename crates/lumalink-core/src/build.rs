@@ -158,7 +158,7 @@ pub fn bundled_clang() -> Option<PathBuf> {
 }
 
 /// The modules under `source/`: (module path with `/`, without `.lum`; file), sorted by path (docs/modding/language/compiled-form.md, section 1.2).
-fn scripts(folder: &Path) -> Result<Vec<(String, PathBuf)>, BuildError> {
+pub(crate) fn scripts(folder: &Path) -> Result<Vec<(String, PathBuf)>, BuildError> {
     let source = folder.join("source");
     let mut out = Vec::new();
     if !source.is_dir() {
@@ -702,6 +702,11 @@ impl CheckInputs {
 
 /// Checks and writes the mod's C into `work/lum/` (the front end and the back end, on the compiler's stack).
 pub fn generate(folder: &Path, game: &Game, work: &Path) -> Result<(String, emit::Emitted, Vec<(String, Diagnostic)>), BuildError> {
+    generate_as(folder, game, work, false)
+}
+
+/// As [`generate`]; with `tests` a test build (`lumalink test`): the mod's `test` blocks written too (emit_tests).
+pub fn generate_as(folder: &Path, game: &Game, work: &Path, tests: bool) -> Result<(String, emit::Emitted, Vec<(String, Diagnostic)>), BuildError> {
     let inputs = CheckInputs::read(folder, Places::of(game))?;
     let (id, version) = (inputs.id.clone(), inputs.version.clone());
     let files = scripts(folder)?;
@@ -735,7 +740,8 @@ pub fn generate(folder: &Path, game: &Game, work: &Path) -> Result<(String, emit
             return Err(said);
         }
         let module_texts: Vec<String> = texts.iter().map(|(_, t)| t.clone()).collect();
-        emit::emit_with(&id, &version, &sources, &module_texts, &libraries, &checked, game)
+        let emitted = if tests { emit::emit_tests } else { emit::emit_with };
+        emitted(&id, &version, &sources, &module_texts, &libraries, &checked, game)
             .map(|e| (e, notes))
             .map_err(|e| e.into_iter().map(|(m, d)| (format!("source/{m}.lum"), d)).collect())
     });
@@ -803,6 +809,11 @@ pub fn listed_platforms(folder: &Path) -> Vec<String> {
 /// `folder/code/<platform>/mod.<ending>`, each platform built recorded in luma.json. A platform clang cannot build is
 /// [`BuildError::Platforms`] naming it, after every other is built.
 pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, platforms: &[String]) -> Result<Built, BuildError> {
+    build_as(folder, game, sdk, clang, work, platforms, false)
+}
+
+/// As [`build`]; with `tests` a test build (`lumalink test`, [`generate_as`]), which no mod ships.
+pub fn build_as(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, platforms: &[String], tests: bool) -> Result<Built, BuildError> {
     let wanted = if platforms.is_empty() { targets(&default_platforms(&listed_platforms(folder)))? } else { targets(platforms)? };
     if !sdk.join("luma.h").is_file() {
         return Err(BuildError::NoSdk(sdk.to_path_buf()));
@@ -835,7 +846,7 @@ pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, 
         let mut game = game.clone();
         game.mod_info_layout = mod_info_has_layout(sdk);
         game.mod_info_cut = mod_info_has_cut(sdk);
-        let (_, emitted, notes) = generate(folder, &game, work)?;
+        let (_, emitted, notes) = generate_as(folder, &game, work, tests)?;
         (emitted, notes)
     };
     let c_bytes = emitted.files.iter().filter(|(p, _)| p.ends_with(".c") || p.ends_with(".h")).filter(|(p, _)| !p.contains("lumart")).map(|(_, t)| t.len() as u64).sum();

@@ -898,6 +898,8 @@ pub struct TestSetup {
     /// the test kit's for an installed game, which ships no test parts.
     pub extension: Option<PathBuf>,
     pub half: Option<PathBuf>,
+    /// Tests LumaLink wrote itself, run after the mod's own: the mod's `test game` blocks (test_blocks::write_game_test).
+    pub extra: Vec<PathBuf>,
 }
 
 /// One test's run: the test folder, the renderers it was asked to run on, every result it left (one per renderer),
@@ -1131,7 +1133,8 @@ pub fn test(folder: &Path, setup: &TestSetup, build: &dyn Fn(&Path) -> Result<()
     if !folder.join("luma.json").is_file() {
         bail!(say!("LumaLink.Add.NoMod", folder = folder.display()));
     }
-    let tests = test_folders(folder)?;
+    let mut tests = test_folders(folder)?;
+    tests.extend(setup.extra.iter().cloned());
     if tests.is_empty() {
         bail!(say!("LumaLink.Test.NoTests", folder = folder.join("tests").display()));
     }
@@ -1430,7 +1433,7 @@ mod tests {
         let none = dir.path().join("none");
         std::fs::create_dir_all(&none).unwrap();
         std::fs::write(none.join("luma.json"), "{}").unwrap();
-        let setup = TestSetup { bin: dir.path().into(), pak: None, runner: file.clone(), python: "python".into(), work: dir.path().into(), lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
+        let setup = TestSetup { bin: dir.path().into(), pak: None, runner: file.clone(), python: "python".into(), work: dir.path().into(), lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None, extra: Vec::new() };
         let e = test(&none, &setup, &|_| Ok(()), &mut |_| {}).err().unwrap();
         assert!(e.to_string().contains("tests"), "{e}");
     }
@@ -1490,7 +1493,7 @@ lock.unlink()
         .unwrap();
         let work = dir.path().join("work");
         std::fs::create_dir_all(&work).unwrap();
-        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: python3(), work: work.clone(), lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
+        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: python3(), work: work.clone(), lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None, extra: Vec::new() };
         let mut heard = Vec::new();
         let runs = test(&m, &setup, &|_| Ok(()), &mut |r| heard.push(r.test.clone())).unwrap();
         assert_eq!(heard.len(), 2);
@@ -1545,7 +1548,7 @@ put("fine", "d3d12", ok("fine", "d3d12"))
         .unwrap();
         let work = dir.path().join("work");
         std::fs::create_dir_all(&work).unwrap();
-        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: python3(), work, lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
+        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: python3(), work, lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None, extra: Vec::new() };
         let runs = test(&m, &setup, &|_| Ok(()), &mut |_| {}).expect("one unreadable result does not lose every result");
         let verdict: Vec<(String, bool, usize)> =
             runs.iter().map(|r| (r.test.file_name().unwrap().to_string_lossy().into_owned(), r.passed(), r.results.len())).collect();
@@ -1565,7 +1568,7 @@ put("fine", "d3d12", ok("fine", "d3d12"))
         let dir = tempfile::tempdir().unwrap();
         let setup_in = |dir: &Path, runner: PathBuf| TestSetup {
             bin: dir.into(), pak: None, runner, python: python3(), work: dir.join("work"), lock: dir.join("run.lock"),
-            renderer: None, extension: None, half: None,
+            renderer: None, extension: None, half: None, extra: Vec::new(),
         };
         for (a, b) in [("same", "same"), ("Same", "same."), ("x-folder", "")] {
             let m = dir.path().join(format!("m-{a}-{b}"));
@@ -1969,6 +1972,12 @@ impl From<&Inputs> for NeedsFrom {
 /// (the one LumaLink ships when None), in `work` (a temporary folder when None), for `platforms` (all when empty),
 /// with the mods it needs from `needs`.
 pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String], needs: &NeedsFrom) -> Result<BuildOutcome> {
+    build_mod_as(folder, names, sdk, clang, work, platforms, needs, false)
+}
+
+/// As [`build_mod`]; with `tests` the test build `lumalink test` runs (build::build_as), never recorded as the mod's.
+#[allow(clippy::too_many_arguments)]
+pub fn build_mod_as(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String], needs: &NeedsFrom, tests: bool) -> Result<BuildOutcome> {
     use crate::build::{self, BuildError};
     let mut rows = Names::from_rows_folder(names, 1).map_err(|e| rows_error(names, e))?;
     rows.api = 1;
@@ -1998,7 +2007,7 @@ pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Optio
             temp.path().to_path_buf()
         }
     };
-    match build::build(folder, &game, &sdk, &clang, &work, platforms) {
+    match build::build_as(folder, &game, &sdk, &clang, &work, platforms, tests) {
         Ok(built) => {
             for (file, d) in &built.notes {
                 say_line(&mut out, crate::script::line(file, d), false);
@@ -2006,14 +2015,17 @@ pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Optio
             for (file, line, function) in &built.kept {
                 say_line(&mut out, say!("LumaLink.Build.Kept", file = format!("source/{file}"), line = line, function = function), false);
             }
-            for platform in &built.recorded {
+            // A test build's copy records this system for the game to load it: not the mod's, so not said.
+            for platform in built.recorded.iter().filter(|_| !tests) {
                 say_line(&mut out, say!("LumaLink.Build.PlatformRecorded", platform = platform), false);
             }
             for (_, library, bytes) in &built.libraries {
                 say_line(&mut out, say!("LumaLink.Build.Built", path = library.display(), bytes = bytes, c = built.c_bytes, imports = built.imports.len()), false);
             }
             let platforms: Vec<&str> = built.libraries.iter().map(|(p, _, _)| *p).collect();
-            record_build(folder, names, Some(&sdk), needs, &platforms);
+            if !tests {
+                record_build(folder, names, Some(&sdk), needs, &platforms);
+            }
         }
         Err(BuildError::Script(errors)) => {
             for (file, d) in &errors {

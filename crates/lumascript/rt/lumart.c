@@ -4069,3 +4069,243 @@ void lumart_end(void) {
     pool_page = 0;
     pool_used = 0;
 }
+
+/* ---------------------------------------------------------------- tests (docs/modding/reference/lumascript/tests.md)
+
+   A test build's lumart.c starts with `#define LUMART_TESTS 1`; a mod's own build has none of this. */
+
+#ifdef LUMART_TESTS
+#include <luma_services.h>
+
+static const LumartTestHost* test_host;
+static const char* test_name = "";
+static uint32_t test_failed;
+static const LumartTest* test_game;
+static uint32_t test_game_count, test_game_at, test_game_passed;
+static int32_t test_game_said;
+
+static uint64_t test_len(const char* s) {
+    uint64_t n = 0;
+    if (s != 0) {
+        while (s[n] != 0) n++;
+    }
+    return n;
+}
+
+static void test_json(lumart_sb* b, const char* s) {
+    lumart_sb_json_str(b, s != 0 ? s : "", test_len(s));
+}
+
+/* The line made in `b`, said in the mod's log (a fact for the harness or the runner); `b` freed. */
+static void test_say(lumart_sb* b) {
+    if (b->ok && b->p != 0) lumart_log(b->p);
+    lumart_sb_free(b);
+}
+
+void lumart_test_expect(const char* rest) {
+    test_failed++;
+    lumart_sb b;
+    lumart_sb_init(&b);
+    lumart_sb_str(&b, "fact expect {\"test\": ");
+    test_json(&b, test_name);
+    lumart_sb_str(&b, ", ");
+    lumart_sb_str(&b, rest);
+    lumart_sb_str(&b, "}");
+    test_say(&b);
+}
+
+/* The running test's end said; 1 when it passed. */
+static int32_t test_said(int32_t status, int32_t stopped) {
+    const char* result = stopped ? "stopped" : status != 0 ? "error" : test_failed != 0 ? "fail" : "pass";
+    lumart_sb b;
+    lumart_sb_init(&b);
+    lumart_sb_str(&b, "fact test {\"name\": ");
+    test_json(&b, test_name);
+    lumart_sb_str(&b, ", \"result\": \"");
+    lumart_sb_str(&b, result);
+    lumart_sb_str(&b, "\", \"failed\": ");
+    lumart_sb_u64(&b, test_failed);
+    lumart_sb_str(&b, "}");
+    test_say(&b);
+    return !stopped && status == 0 && test_failed == 0;
+}
+
+static void test_all_said(const char* kind, uint32_t count, uint32_t passed) {
+    lumart_sb b;
+    lumart_sb_init(&b);
+    lumart_sb_str(&b, "fact tests {\"kind\": \"");
+    lumart_sb_str(&b, kind);
+    lumart_sb_str(&b, "\", \"count\": ");
+    lumart_sb_u64(&b, count);
+    lumart_sb_str(&b, ", \"passed\": ");
+    lumart_sb_u64(&b, passed);
+    lumart_sb_str(&b, "}");
+    test_say(&b);
+}
+
+/* The game tests from test_game_at on: each that ends at once (a function, or a task done in its first step) has
+   started the next from its end; a task that runs on starts it when it ends. */
+static void test_game_next(void) {
+    while (test_game_at < test_game_count) {
+        const uint32_t i = test_game_at;
+        test_name = test_game[i].name;
+        test_failed = 0;
+        const int32_t r = test_game[i].run();
+        if (test_game_at != i || r == 0) return;
+        /* It never ran (no memory for its task, reported): an error, then the next. */
+        (void)test_said(1, 0);
+        test_game_at++;
+    }
+    if (!test_game_said) {
+        test_game_said = 1;
+        test_all_said("game", test_game_count, test_game_passed);
+    }
+}
+
+void lumart_test_end(int32_t status, int32_t stopped) {
+    if (test_game == 0 || test_game_at >= test_game_count) return;
+    if (test_said(status, stopped)) test_game_passed++;
+    test_game_at++;
+    if (!stopped) test_game_next();
+}
+
+void lumart_tests_game(const LumartTest* tests, uint32_t count) {
+    test_game = tests;
+    test_game_count = count;
+    test_game_at = 0;
+    test_game_passed = 0;
+    test_game_said = 0;
+    test_game_next();
+}
+
+void lumart_test_touched(const char* what) {
+    if (test_host != 0) test_host->touched(what);
+}
+
+void lumart_test_table(void* table, uint64_t size, uint32_t major, void (*f)(void)) {
+    LumaServiceTable* base = (LumaServiceTable*)table;
+    void (**fp)(void) = (void (**)(void))(void*)((char*)table + sizeof(LumaServiceTable));
+    const uint64_t n = (size - sizeof(LumaServiceTable)) / sizeof(*fp);
+    for (uint64_t i = 0; i < n; i++) fp[i] = f;
+    base->size = (uint32_t)size;
+    base->major = (uint16_t)major;
+    base->minor = 0xFFFFu;
+}
+
+int64_t lumart_test_option(const LumaMod* mod, const char* key, char* buf, uint64_t size) {
+    (void)mod;
+    return test_host != 0 ? test_host->option(key, buf, size) : -1;
+}
+
+/* The core a plain test's mod is given: its log and reports to the runner, memory from the runner, no game. */
+static void test_core_log(const LumaMod* mod, const char* text) {
+    (void)mod;
+    test_host->say(text);
+}
+
+static void test_core_report(const LumaMod* mod, const char* file, uint32_t line, uint32_t code, const char* const* args,
+                             uint32_t arg_count) {
+    (void)mod;
+    lumart_sb b;
+    lumart_sb_init(&b);
+    lumart_sb_str(&b, "fact error {\"test\": ");
+    test_json(&b, test_name);
+    lumart_sb_str(&b, ", \"file\": ");
+    test_json(&b, file);
+    lumart_sb_str(&b, ", \"line\": ");
+    lumart_sb_u64(&b, line);
+    lumart_sb_str(&b, ", \"code\": ");
+    lumart_sb_u64(&b, code);
+    lumart_sb_str(&b, ", \"args\": [");
+    for (uint32_t i = 0; i < arg_count; i++) {
+        if (i > 0) lumart_sb_str(&b, ", ");
+        test_json(&b, args != 0 ? args[i] : 0);
+    }
+    lumart_sb_str(&b, "]}");
+    test_say(&b);
+}
+
+static void* test_core_alloc(const LumaMod* mod, uint64_t size, uint64_t align) {
+    (void)mod;
+    return test_host->alloc(size, align);
+}
+
+static void test_core_free(const LumaMod* mod, void* p) {
+    (void)mod;
+    if (p != 0) test_host->free(p);
+}
+
+static const LumaFunction* test_core_function(const char* name, const char* signature) {
+    (void)name;
+    (void)signature;
+    return 0;
+}
+
+static int32_t test_core_field(const char* class_name, const char* field, const char* type) {
+    (void)class_name;
+    (void)field;
+    (void)type;
+    return -1;
+}
+
+static int32_t test_core_named(const char* class_name) {
+    (void)class_name;
+    return -1;
+}
+
+static int32_t test_core_is_a(const void* object, int32_t class_number) {
+    (void)object;
+    (void)class_number;
+    return 0;
+}
+
+static const void* test_core_service(const LumaMod* mod, const char* name, uint32_t major, uint32_t minor) {
+    (void)mod;
+    (void)major;
+    (void)minor;
+    test_host->touched(name);
+    return 0;
+}
+
+static int32_t test_core_game_thread(void) {
+    return 1;
+}
+
+int32_t lumart_tests_run(const LumartTestHost* host, void (*begin)(const LumaCore*, const LumaMod*), void (*bind)(void),
+                         int32_t (*prepare)(void), const LumartTest* tests, uint32_t count) {
+    static LumaCore core;
+    if (host == 0 || host->size < sizeof(LumartTestHost)) return 2;
+    test_host = host;
+    __builtin_memset(&core, 0, sizeof core);
+    core.size = sizeof core;
+    core.api = LUMA_API;
+    core.log = test_core_log;
+    core.function = test_core_function;
+    core.field = test_core_field;
+    core.size_of = test_core_named;
+    core.class_of = test_core_named;
+    core.is_a = test_core_is_a;
+    core.service = test_core_service;
+    core.game_thread = test_core_game_thread;
+    core.alloc = test_core_alloc;
+    core.free = test_core_free;
+    core.report = test_core_report;
+    /* The mod's own pointer is never read by the runtime: the core's address stands for it. */
+    begin(&core, (const LumaMod*)(const void*)&core);
+    bind();
+    test_name = "";
+    if (prepare() != 0) {
+        test_all_said("plain", count, 0);
+        return 1;
+    }
+    uint32_t passed = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        test_name = tests[i].name;
+        test_failed = 0;
+        const int32_t status = tests[i].run();
+        if (test_said(status, 0)) passed++;
+    }
+    test_all_said("plain", count, passed);
+    return 0;
+}
+#endif

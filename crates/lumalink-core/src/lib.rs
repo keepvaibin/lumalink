@@ -39,5 +39,6 @@ pub mod riivolution;
 pub mod running;
 pub mod script;
 pub mod source;
+pub mod test_blocks;
 pub mod texture_pack;
 

@@ -482,7 +482,7 @@ fn walk_stmt(s: &ast::Stmt, out: &mut Vec<(ExprId, Pos)>) {
             }
             walk_expr(value, out);
         }
-        S::Expect(e) | S::Expr(e) | S::Fail(e) => walk_expr(e, out),
+        S::Expect { value: e, .. } | S::Expr(e) | S::Fail(e) => walk_expr(e, out),
         S::Guard { conds, otherwise } => {
             walk_conds(conds, out);
             walk_block(otherwise, out);

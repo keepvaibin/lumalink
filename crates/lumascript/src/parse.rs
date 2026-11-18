@@ -144,6 +144,34 @@ impl<'a> Parser<'a> {
         self.peek(0).kind == Kind::Eof
     }
 
+    /// Tokens `from..to` as written: a string whole from the file, the spaces between tokens on a line kept, a line
+    /// break one space; comments left out (the lexer gives none).
+    fn written(&self, from: usize, to: usize) -> String {
+        let mut out = String::new();
+        let mut end: Option<Pos> = None;
+        for t in self.t.get(from..to.min(self.t.len())).unwrap_or_default() {
+            if matches!(t.kind, Kind::Nl | Kind::Eof) {
+                continue;
+            }
+            let piece: String = match &t.string {
+                Some(s) if t.kind == Kind::Str => s.source[s.whole.clone()].iter().collect(),
+                _ => t.text.clone(),
+            };
+            match end {
+                Some(e) if e.line == t.at.line => out.extend(std::iter::repeat_n(' ', t.at.col.saturating_sub(e.col) as usize)),
+                Some(_) => out.push(' '),
+                None => {}
+            }
+            out.push_str(&piece);
+            // Where the token ends: a string may run over lines.
+            end = Some(match piece.rfind('\n') {
+                Some(nl) => Pos { line: t.at.line + piece.matches('\n').count() as u32, col: piece[nl + 1..].chars().count() as u32 + 1 },
+                None => Pos { line: t.at.line, col: t.at.col + piece.chars().count() as u32 },
+            });
+        }
+        out
+    }
+
     /// Inside a list that `close` ends: neither at it nor at the end of the file.
     fn open_until(&self, close: &str) -> bool {
         !self.at(close) && !self.eof()
@@ -1094,7 +1122,9 @@ impl<'a> Parser<'a> {
             StmtKind::Fail(self.expr(false)?)
         } else if self.at("expect") {
             self.take();
-            StmtKind::Expect(self.expr(false)?)
+            let from = self.i;
+            let value = self.expr(false)?;
+            StmtKind::Expect { text: self.written(from, self.i), value }
         } else if self.at("guard") {
             self.take();
             let conds = self.conds()?;

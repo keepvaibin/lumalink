@@ -415,6 +415,10 @@ fn main() -> ExitCode {
         eprintln!("lumalink: {why}");
         return ExitCode::from(2);
     }
+    // The plain tests' process `lumalink test` starts (test_blocks): no command line of its own, no words but facts.
+    if args.get(1).is_some_and(|a| a == lumalink_core::test_blocks::CHILD_ARG) {
+        return ExitCode::from(lumalink_core::test_blocks::child_main(&args[2..]).clamp(0, 255) as u8);
+    }
     let cli = match parse(&args) {
         Ok(cli) => cli,
         Err(code) => return code,
@@ -812,10 +816,20 @@ fn lsp(names: Option<PathBuf>, sdk: Option<PathBuf>, no_installed: bool) -> Resu
     Ok(ExitCode::from(code as u8))
 }
 
-/// The mod's tests through the harness (`jobs::test`), each verdict and each check said; exit 0 only when
-/// every test passed on every renderer.
+/// The mod's tests: its `test` blocks (test_blocks) and its test folders through the harness (`jobs::test`), each
+/// verdict and each check said; exit 0 only when every test passed, on every renderer.
 #[allow(clippy::too_many_arguments)]
 fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Option<PathBuf>, work: Option<PathBuf>, lock: Option<PathBuf>, renderer: Option<String>, game: Option<PathBuf>) -> Result<ExitCode> {
+    use lumalink_core::test_blocks;
+    if !folder.join("luma.json").is_file() {
+        bail!(say!("LumaLink.Add.NoMod", folder = folder.display()));
+    }
+    let blocks = test_blocks::blocks(folder);
+    // The harness runs when the mod has test folders or `test game` blocks; plain blocks alone need no game run.
+    let harness = !jobs::test_folders(folder)?.is_empty() || !blocks.game.is_empty();
+    if !harness && blocks.plain.is_empty() {
+        bail!(say!("LumaLink.Test.NoTests", folder = folder.join("tests").display()));
+    }
     let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
     // Without a bin folder: the installed game's version folder, with the installed game.pak for each run (the folder
     // has no pak.path). A bin folder that is an install's version folder (<install>/versions/<version>) plays that
@@ -832,6 +846,35 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
         },
     };
     let pak = game.or(pak);
+    let work = work.unwrap_or_else(|| {
+        let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod".into());
+        folder.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).join(format!("{name}-tests"))
+    });
+    // A work folder inside the mod folder would be copied into the game with the mod, each run inside the last.
+    let whole = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+    if whole(&work).starts_with(whole(folder)) {
+        bail!(say!("LumaLink.Test.WorkInside", work = work.display(), folder = folder.display()));
+    }
+    // The game's self-description folder is `luma` in its program folder, the mods it comes with in its `mods`.
+    let names = env("LUMA_NAMES").unwrap_or_else(|| Some(bin.join("luma")).filter(|p| p.is_dir()).unwrap_or_else(|| bin.clone()));
+    // The test blocks: the mod's test build for this system, in a copy of the mod under the work folder.
+    let under = if blocks.is_empty() { None } else { Some(test_build(folder, &work, &names)?) };
+    let mut blocks_passed = true;
+    if let (Some(under), false) = (&under, blocks.plain.is_empty()) {
+        let exe = std::env::current_exe().with_context(|| say!("LumaLink.Test.Block.NoProcess", path = "lumalink"))?;
+        let outcome = test_blocks::run_plain(&exe, &under.library, &under.folder.join("luma.json"), &blocks.plain)?;
+        eprint!("{}", outcome.said);
+        for line in &outcome.log {
+            println!("{line}");
+        }
+        for line in test_blocks::lines(&outcome, false) {
+            println!("{line}");
+        }
+        blocks_passed = outcome.all_passed() && outcome.before.is_empty();
+    }
+    if !harness {
+        return Ok(if blocks_passed { ExitCode::SUCCESS } else { ExitCode::from(1) });
+    }
     // The test parts: a build folder's own (a Nebula tree's build), else the test kit installed with LumaLink (the
     // game ships none): its runner, its test extension, and the game half built from its source.
     let kit = if bin.join(TEST_EXTENSION).is_file() { None } else { Some(jobs::test_kit().filter(|k| k.join(TEST_EXTENSION).is_file()).with_context(|| say!("LumaLink.Test.NoKit"))?) };
@@ -843,19 +886,8 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
         bail!(say!("LumaLink.Test.NoRunner", path = kit.as_deref().unwrap_or(bin.as_path()).join("tools/lumacore/luma_test.py").display()));
     };
     let python = python.or_else(|| env("LUMALINK_PYTHON")).unwrap_or_else(|| PathBuf::from("python"));
-    let work = work.unwrap_or_else(|| {
-        let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod".into());
-        folder.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).join(format!("{name}-tests"))
-    });
-    // A work folder inside the mod folder would be copied into the game with the mod, each run inside the last.
-    let whole = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
-    if whole(&work).starts_with(whole(folder)) {
-        bail!(say!("LumaLink.Test.WorkInside", work = work.display(), folder = folder.display()));
-    }
     let lock = lock.or_else(|| env("LUMA_TEST_LOCK")).unwrap_or_else(|| work.join("run.lock"));
     // The mod's code is built by `lumalink build` (every platform) before its tests run.
-    // The game's self-description folder is `luma` in its program folder, the mods it comes with in its `mods`.
-    let names = env("LUMA_NAMES").unwrap_or_else(|| Some(bin.join("luma")).filter(|p| p.is_dir()).unwrap_or_else(|| bin.clone()));
     let build = |f: &Path| build_for_test(f, &names);
     let (extension, half) = match &kit {
         Some(k) => {
@@ -865,7 +897,17 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
         }
         None => (None, None),
     };
-    let setup = jobs::TestSetup { bin, pak, runner, python, work, lock, renderer, extension, half };
+    // The `test game` blocks: one more harness test, written beside the test build, whose mod is the test build.
+    let game_test = match &under {
+        Some(under) if !blocks.game.is_empty() => {
+            let at = work.join("game-tests").join(test_blocks::GAME_TEST);
+            test_blocks::write_game_test(&at, &under.folder, &under.id, blocks.game.len(), GAME_TESTS_SECONDS)?;
+            Some(at)
+        }
+        _ => None,
+    };
+    let extra: Vec<PathBuf> = game_test.iter().cloned().collect();
+    let setup = jobs::TestSetup { bin, pak, runner, python, work, lock, renderer, extension, half, extra };
     let mut each = |run: &jobs::TestRun| {
         let name = run.test.display();
         if run.results.is_empty() {
@@ -876,6 +918,14 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
             println!("{}", say!("LumaLink.Test.Verdict", test = r.test, renderer = r.renderer, verdict = r.verdict, reason = r.reason));
             for (check, result, actual) in &r.checks {
                 println!("{}", say!("LumaLink.Test.Check", result = result, check = check, actual = actual));
+            }
+            // The game tests one by one, from what the run left (its facts).
+            if let (Some(at), Some(under), Some(run_folder)) = (&game_test, &under, r.file.parent()) {
+                if run.test == *at {
+                    for line in test_blocks::lines(&test_blocks::game_outcome(run_folder, &under.id, &blocks.game), true) {
+                        println!("{line}");
+                    }
+                }
             }
         }
         for why in &run.unreadable {
@@ -890,7 +940,51 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
     let runs = jobs::test(folder, &setup, &build, &mut each)?;
     let passed = runs.iter().filter(|r| r.passed()).count();
     println!("{}", say!("LumaLink.Test.Summary", passed = passed, count = runs.len(), work = setup.work.display()));
-    Ok(if passed == runs.len() { ExitCode::SUCCESS } else { ExitCode::from(1) })
+    Ok(if passed == runs.len() && blocks_passed { ExitCode::SUCCESS } else { ExitCode::from(1) })
+}
+
+/// How long the `test game` blocks may take together, in seconds (the harness test's `limit_seconds`); a mod whose
+/// game tests need longer writes them as a test folder with its own limit.
+const GAME_TESTS_SECONDS: u32 = 600;
+
+/// A mod's test build (test_blocks): the copy it was built in, the mod's id, and the library for this system.
+struct TestBuild {
+    folder: PathBuf,
+    id: String,
+    library: PathBuf,
+}
+
+/// The mod in `folder` copied under `work` and built there as a test build for this system: the `test` blocks written.
+fn test_build(folder: &Path, work: &Path, names: &Path) -> Result<TestBuild> {
+    let Some(host) = lumalink_core::build::HOST else {
+        bail!(say!("LumaLink.Test.NotBuilt", folder = folder.display(), why = say!("LumaLink.Test.Block.NoHost")));
+    };
+    let manifest: serde_json::Value = std::fs::read(folder.join("luma.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .with_context(|| say!("LumaLink.CannotRead", path = folder.join("luma.json").display()))?;
+    let id = manifest.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+    let copy = work.join("under-test").join(if id.is_empty() { "mod" } else { id.as_str() });
+    lumalink_core::test_blocks::copy_for_tests(folder, &copy)?;
+    let built = jobs::build_mod_as(&copy, names, sdk_folder(None, Some(names)), None, None, &[host.to_string()], &jobs::NeedsFrom { mods: None, no_installed: true }, true)?;
+    for line in &built.lines {
+        if line.to_stderr {
+            eprint!("{}", line.text);
+        } else {
+            println!("{}", line.text);
+        }
+    }
+    match built.failed {
+        Some(jobs::BuildFailed::Script(count)) => bail!(say!("LumaLink.Test.NotBuilt", folder = folder.display(), why = say!("LumaLink.Build.ScriptErrors", count = count))),
+        Some(jobs::BuildFailed::Platforms(why)) => bail!(say!("LumaLink.Test.NotBuilt", folder = folder.display(), why = why)),
+        None => {}
+    }
+    let code = copy.join("code").join(host);
+    let library = std::fs::read_dir(&code)
+        .ok()
+        .and_then(|e| e.flatten().map(|e| e.path()).find(|p| p.is_file() && p.file_stem().is_some_and(|s| s == "mod")))
+        .with_context(|| say!("LumaLink.CannotRead", path = code.display()))?;
+    Ok(TestBuild { folder: copy, id, library })
 }
 
 /// `lumalink build`: the mod's LumaScript checked, written as C and built into `code/<platform>/mod.<ending>` for each

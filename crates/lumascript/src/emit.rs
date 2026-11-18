@@ -47,6 +47,7 @@ mod library;
 mod service;
 mod closure;
 mod task;
+mod test;
 
 use expr::{binop_text, expr_text};
 
@@ -155,6 +156,35 @@ pub fn emit_with(
     checked: &Checked,
     game: &Game,
 ) -> Result<Emitted, Vec<(String, Diagnostic)>> {
+    emit_in(mod_id, version, sources, texts, libraries, checked, game, false)
+}
+
+/// As [`emit_with`], for `lumalink test`: the mod's `test` blocks written too, with `luma_tests`, the plain tests' entry
+/// for the runner, and the game tests started after every `on start` (docs/modding/reference/lumascript/tests.md).
+#[allow(clippy::too_many_arguments)]
+pub fn emit_tests(
+    mod_id: &str,
+    version: &str,
+    sources: &[Source],
+    texts: &[String],
+    libraries: &[Library],
+    checked: &Checked,
+    game: &Game,
+) -> Result<Emitted, Vec<(String, Diagnostic)>> {
+    emit_in(mod_id, version, sources, texts, libraries, checked, game, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_in(
+    mod_id: &str,
+    version: &str,
+    sources: &[Source],
+    texts: &[String],
+    libraries: &[Library],
+    checked: &Checked,
+    game: &Game,
+    tests: bool,
+) -> Result<Emitted, Vec<(String, Diagnostic)>> {
     // C2: a content value (`model`, `sound`...) is its name, a text, from here on.
     let erased = content_as_text(checked);
     let checked = &erased;
@@ -232,6 +262,9 @@ pub fn emit_with(
         pre_read: None,
         reader_inline: false,
         json_code: String::new(),
+        tests,
+        plain_tests: Vec::new(),
+        game_tests: Vec::new(),
     };
     LOST.with(|l| l.borrow_mut().clear());
     COUNTED.with(|c| {
@@ -426,6 +459,12 @@ struct Gen<'a> {
     json_code: String,
     /// Each item's members by name, made the first time a use asks ([`crate::check::MemberIndex`]).
     member_index: crate::check::MemberIndexes,
+    /// A test build ([`emit_tests`]): the mod's `test` blocks written, with the runner's entry.
+    tests: bool,
+    /// Plain `test` blocks: (name, C name), in module and source order.
+    plain_tests: Vec<(String, String)>,
+    /// `test game` blocks: (name, C name), in module and source order, run in it.
+    game_tests: Vec<(String, String)>,
 }
 
 /// A function being written.
@@ -470,6 +509,8 @@ struct Fx {
     tail: Vec<String>,
     /// A task's body (or an `on start`, which becomes one when it waits): `wait` and `stop` may be written.
     task: bool,
+    /// A `test` block's body in a test build: `expect` is written.
+    test: bool,
     /// A task with a result (11.1a): `return v` keeps `v` (its C type, its type) through `lm_resv`.
     task_ret: Option<(String, Ty)>,
     /// A writer or reader function of a type: its reports name the call's place, given as `file`, `line`, `src`.
@@ -1348,7 +1389,8 @@ impl<'a> Gen<'a> {
                 }
                 // Written with its class (class.rs, states.rs), whose data holds it.
                 ItemKind::States(_) => {}
-                // A test runs under `lumalink test` (4.8), never in the mod's library.
+                // Only in a test build (`lumalink test`, test.rs); never in the mod's own library.
+                ItemKind::Test { game, name, body } if self.tests => self.test_item(m, &file, *game, name, body, item.at, &mut out),
                 ItemKind::Test { .. } => {}
                 ItemKind::Extern { name, params, ret } => self.extern_fn(m, me, name, params, ret.is_some()),
                 ItemKind::Export { name, params, ret, body } => {
@@ -2078,6 +2120,7 @@ impl<'a> Gen<'a> {
                 "\nstatic int64_t lm_layers(const LumaCore* core, const LumaMod* mod, char* buf, uint64_t size) {{\n    (void)core;\n    (void)mod;\n    if (lm_prepare() != 0) return 0;\n    lumart_list lm_l = 0;\n    if ({l}(&lm_l) != 0) {{\n        lm_rel_lumart_list(&lm_l);\n        return 0;\n    }}\n    uint64_t lm_need = 0;\n    for (uint64_t i = 0; i < lumart_list_n(lm_l); i++) {{\n        const lumart_text t = *(const lumart_text*)lumart_list_at(lm_l, i);\n        lm_need += (t != 0 ? t->len : 0u) + 1u;\n    }}\n    if (buf != 0 && lm_need <= size) {{\n        uint64_t at = 0;\n        for (uint64_t i = 0; i < lumart_list_n(lm_l); i++) {{\n            const lumart_text t = *(const lumart_text*)lumart_list_at(lm_l, i);\n            const uint64_t n = t != 0 ? t->len : 0u;\n            for (uint64_t k = 0; k < n; k++) buf[at + k] = t->b[k];\n            buf[at + n] = 0;\n            at += n + 1u;\n        }}\n    }}\n    lm_rel_lumart_list(&lm_l);\n    return (int64_t)lm_need;\n}}\n"
             );
         }
+        self.tests_game_table(&mut c);
         c.push_str("\nstatic int32_t lm_start(const LumaCore* core, const LumaMod* mod) {\n    (void)core;\n    (void)mod;\n");
         if timed {
             // No time service (or not granted): the mod cannot run its frames or steps, so it does not start (said by
@@ -2122,6 +2165,7 @@ impl<'a> Gen<'a> {
         for s in &self.starts {
             let _ = writeln!(c, "    if ({s}() != 0) return 1;");
         }
+        self.tests_start(&mut c);
         c.push_str("    return 0;\n}\n\nstatic void lm_stop(void) {\n");
         if framed {
             c.push_str("    if (lm_time != 0) (void)lm_time->on_frame(luma_rt_self, 0, 0);\n");
@@ -2227,10 +2271,26 @@ impl<'a> Gen<'a> {
                 "LUMA_RUNTIME\n{LM_FINISH}LUMA_C LUMA_EXPORT const LumaModInfo luma_mod = {{sizeof(LumaModInfo), LUMA_API, {list_c}, {count}, lm_start, lm_stop, luma_begin, lm_finish}};"
             );
         }
+        if self.tests {
+            let mut slots = test::TestSlots::default();
+            for ((name, _), slot) in self.fn_slots.iter().chain(self.method_slots.iter()) {
+                slots.functions.push((slot.clone(), name.clone(), test::FnSlot::Game));
+            }
+            for ((name, _), slot) in &self.mod_fns {
+                slots.functions.push((slot.clone(), name.clone(), test::FnSlot::Mod));
+            }
+            for (name, s) in &self.svc_slots {
+                slots.services.push(test::TestService { slot: s.slot.clone(), name: name.clone(), table: s.table.clone(), major: s.major.clone() });
+            }
+            slots.minus_one.extend(self.fields.values().chain(self.classes.values()).cloned());
+            self.tests_c(&mut c, &slots);
+        }
         files.push(("lum/imports.c".to_string(), list));
         files.push(("lum/mod.c".to_string(), c));
         files.push(("lum/lumart.h".to_string(), LUMART_H.to_string()));
-        files.push(("lum/lumart.c".to_string(), LUMART_C.to_string()));
+        // A test build's runtime has its tests part (lumart.c, LUMART_TESTS).
+        let rt = if self.tests { format!("#define LUMART_TESTS 1\n{LUMART_C}") } else { LUMART_C.to_string() };
+        files.push(("lum/lumart.c".to_string(), rt));
         let mut kept = self.kept;
         kept.dedup();
         let exports = exports.into_iter().map(|(n, s, _)| (n, s)).collect();
@@ -2294,7 +2354,7 @@ fn group_wrapper(wrapper: &str, function: &str, kind: u32, group: &Group, flag: 
 
 impl Fx {
     fn new(file: &str, module: usize) -> Fx {
-        Fx { inline_ret: Vec::new(), rechecks: Vec::new(), writing: false, live: Vec::new(), file: file.to_string(), module, decls: Vec::new(), lines: Vec::new(), builders: Vec::new(), tmp: 0, depth: 1, places: HashMap::new(), declared: HashSet::new(), hook: None, ret: None, self_c: None, defer_scopes: Vec::new(), all_defers: Vec::new(), loops: Vec::new(), tail: Vec::new(), task: false, task_ret: None, site: false, scratch: false, waits: 0, class_data: None, override_rc: None, override_params: Vec::new(), machine: None, free: HashMap::new(), made: Vec::new() }
+        Fx { inline_ret: Vec::new(), rechecks: Vec::new(), writing: false, live: Vec::new(), file: file.to_string(), module, decls: Vec::new(), lines: Vec::new(), builders: Vec::new(), tmp: 0, depth: 1, places: HashMap::new(), declared: HashSet::new(), hook: None, ret: None, self_c: None, defer_scopes: Vec::new(), all_defers: Vec::new(), loops: Vec::new(), tail: Vec::new(), task: false, test: false, task_ret: None, site: false, scratch: false, waits: 0, class_data: None, override_rc: None, override_params: Vec::new(), machine: None, free: HashMap::new(), made: Vec::new() }
     }
 
     /// A builder in the scratch (docs/modding/language/language.md, section 6.4, docs/modding/language/compiled-form.md, section 7.2) and the mark taken before it: the caller gives back with

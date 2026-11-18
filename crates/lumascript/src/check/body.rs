@@ -2310,7 +2310,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 self.shown(&t, value.at);
                 false
             }
-            StmtKind::Expect(e) => {
+            StmtKind::Expect { value: e, .. } => {
                 self.expr(e, Want::Ty(&Ty::Bool));
                 false
             }

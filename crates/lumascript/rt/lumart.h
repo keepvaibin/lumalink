@@ -827,6 +827,52 @@ int32_t lumart_placed_at(lumart_text stage, lumart_text zone, lumart_text layer,
 int32_t lumart_make_gravity(const char* class_name, float range, int32_t priority, uint32_t types, uint8_t inverse,
                             int32_t class_number, void** out, const char* file, uint32_t line);
 
+/* ---------------------------------------------------------------- tests (docs/modding/reference/lumascript/tests.md)
+
+   Only a test build (lumalink test) defines these: its lumart.c starts with LUMART_TESTS. What a test says is facts,
+   log lines "fact KEY JSON": `expect` for each failed expect, `test` for each test's end ({"name", "result": "pass",
+   "fail", "error" (a script error ended it, reported as usual) or "stopped" (the mod stopped first), "failed": the
+   expects that failed}), `tests` once every test of the build's kind has run ({"count", "passed"}). */
+
+/* A test: its name as written and its function (a game test that waits: its task's start). */
+typedef struct LumartTest {
+    const char* name;
+    int32_t (*run)(void);
+} LumartTest;
+
+/* What the runner (LumaLink, in a process of its own) gives a test build's luma_tests for the plain tests. */
+typedef struct LumartTestHost {
+    uint32_t size;
+    /* A line the mod logs (a fact among them). */
+    void (*say)(const char* line);
+    /* A plain test reached the game (a function, a virtual call, a global left null), a service or another mod's
+       function, named: the runner ends the run here and names it. Never returns. */
+    void (*touched)(const char* what);
+    /* Memory: `align` a power of two; null when none is left. */
+    void* (*alloc)(uint64_t size, uint64_t align);
+    void (*free)(void* p);
+    /* The mod's option `key` as luma.json gives it by default, in the mods service's text (option's contract): its
+       bytes into buf when they fit with a NUL, the length without it; -1: no such option. */
+    int64_t (*option)(const char* key, char* buf, uint64_t size);
+} LumartTestHost;
+
+/* A failed expect, `rest` the fact's fields after the test's name ("\"file\": ..., \"line\": ..."). */
+void lumart_test_expect(const char* rest);
+/* A game test's end, from its way out: said, and the next one started unless `stopped` (the mod is stopping). */
+void lumart_test_end(int32_t status, int32_t stopped);
+/* The game tests, started from the mod's start after every `on start`: the first, and each one's end the next. */
+void lumart_tests_game(const LumartTest* tests, uint32_t count);
+/* A plain test's stand-in for a name of the game, a service or another mod's function: the run ends, naming it. */
+void lumart_test_touched(const char* what);
+/* A service's stand-in table: its base the newest version of `major`, every function `f`. */
+void lumart_test_table(void* table, uint64_t size, uint32_t major, void (*f)(void));
+/* The mods service's `option` in a plain test: the host's (luma.json's defaults). */
+int64_t lumart_test_option(const LumaMod* mod, const char* key, char* buf, uint64_t size);
+/* luma_tests' body: the core the mod is given, its slots bound (`bind`), its options and values made (`prepare`), each
+   plain test run in order, its facts said through the host. 0 when the run reached its end. */
+int32_t lumart_tests_run(const LumartTestHost* host, void (*begin)(const LumaCore*, const LumaMod*), void (*bind)(void),
+                         int32_t (*prepare)(void), const LumartTest* tests, uint32_t count);
+
 #ifdef __cplusplus
 }
 #endif

@@ -736,7 +736,7 @@ fn scope_ranges(module: &ast::Module) -> Vec<(Pos, Pos)> {
                 block(body, out);
             }
             S::Defer(st) => stmt(st, out),
-            S::Return(Some(e)) | S::Skip(Some(e)) | S::Expect(e) | S::Expr(e) | S::Fail(e) => expr(e, out),
+            S::Return(Some(e)) | S::Skip(Some(e)) | S::Expect { value: e, .. } | S::Expr(e) | S::Fail(e) => expr(e, out),
             S::Assign { value, .. } => expr(value, out),
             S::Log { value, .. } => expr(value, out),
             _ => {}

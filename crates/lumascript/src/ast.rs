@@ -304,7 +304,8 @@ pub enum StmtKind {
     Go(Vec<Ident>),
     Defer(Box<Stmt>),
     Log { fact: Option<Expr>, value: Expr },
-    Expect(Expr),
+    /// `expect <value>`: the value and its text as written (what a failed expect shows).
+    Expect { value: Expr, text: String },
     /// `fail <text>`: the function ends with a script error of the mod's own words (S0921).
     Fail(Expr),
     Guard { conds: Vec<Cond>, otherwise: Block },

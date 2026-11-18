@@ -242,8 +242,9 @@ impl<'a> Gen<'a> {
                 fx.emit("*lm_skip = 1;".into());
                 fx.emit("goto lm_out;".into());
             }
-            // `expect` belongs to tests, which `lumalink test` builds (4.8); in a mod's code it is a check.
-            StmtKind::Expect(_) => self.say(m, s.at, ny!("ExpectOutsideTest")),
+            // `expect` belongs to tests, which only a test build writes (test.rs).
+            StmtKind::Expect { value, text } if fx.test => self.expect(fx, value, text),
+            StmtKind::Expect { .. } => self.say(m, s.at, ny!("ExpectOutsideTest")),
             // `stop` (11.1): the task's way out (its defers, its counts); in an `on start`, the handler's end.
             // In a machine (docs/modding/language/language.md, section 11.2): the machine stops where it is.
             StmtKind::Stop if fx.task || fx.machine.is_some() => {
@@ -1012,7 +1013,7 @@ pub(super) fn stmt_name(s: &StmtKind) -> Ny {
         StmtKind::Go(_) => ny!("Go"),
         StmtKind::Defer(_) => ny!("Defer"),
         StmtKind::Log { .. } => ny!("Log"),
-        StmtKind::Expect(_) => ny!("Expect"),
+        StmtKind::Expect { .. } => ny!("Expect"),
         StmtKind::Fail(_) => ny!("Fail"),
         StmtKind::Guard { .. } => ny!("Guard"),
         StmtKind::While { .. } => ny!("While"),
