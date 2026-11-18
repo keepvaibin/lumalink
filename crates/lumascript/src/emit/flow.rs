@@ -214,7 +214,7 @@ impl<'a> Gen<'a> {
                 }
             }
             StmtKind::Log { fact: Some(key), value } => {
-                // A fact for the harness: the log line `fact <key> <JSON>` (docs/modding/lumalink/test-harness.md, section 4).
+                // A fact for the harness: the log line `fact <key> <JSON>` (docs/modding/reference/test-files.md, Facts).
                 let (b, mark) = fx.scratch_builder();
                 fx.emit(format!("lumart_sb_str(&{b}, \"fact \");"));
                 if self.text_into(fx, &b, key).is_err() {

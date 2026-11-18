@@ -306,8 +306,9 @@ pub fn new_mod(folder: &Path, id: &str, name: &str, summary: &str, authors: &[St
     ];
     let lines: Vec<String> = fields.iter().map(|(k, v)| format!("  \"{k}\": {}", serde_json::to_string(v).expect("JSON"))).collect();
     let text = format!("{{\n{}\n}}\n", lines.join(",\n"));
-    // Checked before anything is written: a wrong id or name is said now, not at pack.
-    let staging = tempfile::tempdir_in(parent_of(folder))?;
+    // Checked before anything is written: a wrong id or name is said now, not at pack. In the system's temporary folder,
+    // not beside the new one: its parent may not be there yet (N-4058).
+    let staging = tempfile::tempdir()?;
     std::fs::write(staging.path().join("luma.json"), &text)?;
     let report = validate(staging.path(), &Inputs::none())?;
     if !report.passed() {
@@ -822,14 +823,9 @@ pub fn verify(luma: &Path, source: &Path) -> Result<std::result::Result<usize, V
 /// text was not in the style. A path that is neither a folder nor a `.lum` is refused by name.
 pub fn format(paths: &[PathBuf], check: bool) -> Result<Vec<(PathBuf, bool)>> {
     fn walk(folder: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-        let entries = std::fs::read_dir(folder).with_context(|| say!("LumaLink.CannotRead", path = folder.display()))?;
-        let mut here: Vec<PathBuf> = Vec::new();
-        for e in entries {
-            here.push(e.with_context(|| say!("LumaLink.CannotRead", path = folder.display()))?.path());
-        }
-        here.sort();
-        for path in here {
-            if path.is_dir() {
+        let here = entries_of(folder).with_context(|| say!("LumaLink.CannotRead", path = folder.display()))?;
+        for (path, is_folder) in here {
+            if is_folder {
                 if !path.file_name().is_some_and(|n| n == "target" || n == "build") {
                     walk(&path, out)?;
                 }
@@ -874,7 +870,7 @@ pub fn not_built(command: &str) -> Option<String> {
     Some(say!("LumaLink.NotBuilt", command = command, what = what))
 }
 
-/// Where `lumalink test` finds the proof harness (docs/modding/lumalink/test-harness.md): its runner (`tools/lumacore/luma_test.py`), the
+/// Where `lumalink test` finds the proof harness (docs/modding/reference/test-files.md): its runner (`tools/lumacore/luma_test.py`), the
 /// Python that runs it, the bin folder of a game build with the harness's parts (the host extension and the game
 /// half), the work folder each run is left in, the run lock, and the renderer (the runner's default when none).
 #[derive(Clone, Debug)]
@@ -905,7 +901,7 @@ pub struct TestRun {
     pub said: String,
 }
 
-/// A run's `result.json` (docs/modding/lumalink/test-harness.md, section 5): the verdict, its reason, and each check with what was found.
+/// A run's `result.json` (docs/modding/reference/test-files.md, Results): the verdict, its reason, and each check with what was found.
 #[derive(Clone, Debug)]
 pub struct TestResult {
     pub file: PathBuf,
@@ -918,7 +914,7 @@ pub struct TestResult {
 
 impl TestRun {
     /// A test passes when each renderer it was asked to run on left a result, every result read, and every verdict is
-    /// `pass` (docs/modding/lumalink/test-harness.md, section 5: only pass is proof).
+    /// `pass` (docs/modding/reference/test-files.md, Results: only pass is proof).
     pub fn passed(&self) -> bool {
         !self.asked.is_empty()
             && self.missing().is_empty()
@@ -1014,13 +1010,8 @@ pub fn has_code(folder: &Path) -> bool {
 /// mod's folder is not searched further (its own `tests/` are its own).
 pub fn test_mods(folder: &Path) -> Result<Vec<PathBuf>> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-        let entries = std::fs::read_dir(dir).with_context(|| say!("LumaLink.CannotRead", path = dir.display()))?;
-        let mut here: Vec<PathBuf> = Vec::new();
-        for e in entries {
-            here.push(e.with_context(|| say!("LumaLink.CannotRead", path = dir.display()))?.path());
-        }
-        here.sort();
-        for p in here.iter().filter(|p| p.is_dir()) {
+        let here = entries_of(dir).with_context(|| say!("LumaLink.CannotRead", path = dir.display()))?;
+        for (p, _) in here.iter().filter(|(_, is_folder)| *is_folder) {
             if p.join("luma.json").is_file() {
                 if has_code(p) {
                     out.push(p.clone());
@@ -1042,16 +1033,11 @@ pub fn test_mods(folder: &Path) -> Result<Vec<PathBuf>> {
 /// The mod's tests: each folder under `tests/` holding a `test.json`, in path order.
 pub fn test_folders(folder: &Path) -> Result<Vec<PathBuf>> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-        let entries = std::fs::read_dir(dir).with_context(|| say!("LumaLink.CannotRead", path = dir.display()))?;
-        let mut here: Vec<PathBuf> = Vec::new();
-        for e in entries {
-            here.push(e.with_context(|| say!("LumaLink.CannotRead", path = dir.display()))?.path());
-        }
-        here.sort();
-        if here.iter().any(|p| p.file_name().is_some_and(|n| n == "test.json") && p.is_file()) {
+        let here = entries_of(dir).with_context(|| say!("LumaLink.CannotRead", path = dir.display()))?;
+        if here.iter().any(|(p, is_folder)| !is_folder && p.file_name().is_some_and(|n| n == "test.json") && p.is_file()) {
             out.push(dir.to_path_buf());
         }
-        for p in here.iter().filter(|p| p.is_dir()) {
+        for (p, _) in here.iter().filter(|(_, is_folder)| *is_folder) {
             walk(p, out)?;
         }
         Ok(())
@@ -1089,16 +1075,39 @@ pub fn test_result(file: &Path) -> Result<TestResult> {
 
 /// Every `result.json` under `dir`, in path order.
 fn result_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let mut here: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-    here.sort();
-    for p in here {
-        if p.is_dir() {
+    let Ok(here) = entries_of(dir) else { return };
+    for (p, is_folder) in here {
+        if is_folder {
             result_files(&p, out);
         } else if p.file_name().is_some_and(|n| n == "result.json") {
             out.push(p);
         }
     }
+}
+
+/// A folder's entries in path order, each with whether a walk goes into it: a folder, never a link to one (N-4057: a
+/// link to a folder above would never end, as [`has_code`] and the build already walk).
+fn entries_of(dir: &Path) -> std::io::Result<Vec<(PathBuf, bool)>> {
+    let mut here = Vec::new();
+    for e in std::fs::read_dir(dir)? {
+        let e = e?;
+        here.push((e.path(), e.file_type().is_ok_and(|t| t.is_dir())));
+    }
+    here.sort();
+    Ok(here)
+}
+
+/// The name of the folder the runner leaves a test's runs in (runs/<suite>/<name>/): the name its test.json gives,
+/// when the runner takes it as one (letters, digits, `-`, `_` and `.`, not dots alone, which would name the folder
+/// above), else the folder's own name, where the runner leaves a test it could not read (N-4059).
+fn run_name(test: &Path) -> String {
+    let plain = |n: &str| !n.is_empty() && n.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b)) && n.bytes().any(|b| b != b'.');
+    test_name(test).filter(|n| plain(n)).unwrap_or_else(|| test.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+}
+
+/// Two run names that are one folder on some system: case and the dots at the end, which Windows drops, ignored.
+fn same_run_folder(name: &str) -> String {
+    name.trim_end_matches('.').to_ascii_lowercase()
 }
 
 /// The mod's tests through the proof harness. The mod is built first when it has code (`build`, the front
@@ -1114,6 +1123,16 @@ pub fn test(folder: &Path, setup: &TestSetup, build: &dyn Fn(&Path) -> Result<()
     let tests = test_folders(folder)?;
     if tests.is_empty() {
         bail!(say!("LumaLink.Test.NoTests", folder = folder.join("tests").display()));
+    }
+    // Each test's results are read from the folder named after it: two tests of one name would each read the other's,
+    // and a failing test could show the other's pass (N-4059).
+    let names: Vec<String> = tests.iter().map(|t| run_name(t)).collect();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (i, name) in names.iter().enumerate() {
+        if let Some(&first) = seen.get(&same_run_folder(name)) {
+            bail!(say!("LumaLink.Test.SameName", name = name, first = tests[first].display(), second = tests[i].display()));
+        }
+        seen.insert(same_run_folder(name), i);
     }
     if !setup.runner.is_file() {
         bail!(say!("LumaLink.Test.NoRunner", path = setup.runner.display()));
@@ -1161,17 +1180,16 @@ pub fn test(folder: &Path, setup: &TestSetup, build: &dyn Fn(&Path) -> Result<()
     let mut said = String::from_utf8_lossy(&out.stdout).into_owned();
     said.push_str(&String::from_utf8_lossy(&out.stderr));
     let code = out.status.code().unwrap_or(-1);
-    // The runner leaves a test's runs under runs/<suite>/<the test's name>/, and one it could not read under its folder's
-    // name.
+    // The runner leaves a test's runs under runs/<suite>/<the test's name>/<renderer>/, and one it could not read under
+    // runs/<suite>/<its folder's name>/-/: only there, so another test of that name is never read as this one.
     let suite_runs = session.join("runs").join(session.file_name().unwrap_or_default());
     let mut runs = Vec::new();
-    for test in &tests {
+    for (test, name) in tests.iter().zip(&names) {
         let folder_name = test.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let name = test_name(test).unwrap_or_else(|| folder_name.clone());
         let mut files = Vec::new();
-        result_files(&suite_runs.join(&name), &mut files);
-        if name != folder_name {
-            result_files(&suite_runs.join(&folder_name), &mut files);
+        result_files(&suite_runs.join(name), &mut files);
+        if *name != folder_name {
+            result_files(&suite_runs.join(&folder_name).join("-"), &mut files);
         }
         // One result that does not read is that result's failure, not the run's: the others are still heard.
         let mut results = Vec::new();
@@ -1502,6 +1520,110 @@ put("fine", "d3d12", ok("fine", "d3d12"))
             "{}",
             runs[0].said
         );
+    }
+
+    /// N-4059: two tests whose runs would share a folder (one name, or names one folder on Windows) are refused by name
+    /// before anything runs; a test named `..` (the folder above its suite's) that left no result reads none, not every
+    /// other test's: before, it read the whole runs folder and passed on another test's pass.
+    #[test]
+    fn a_tests_results_are_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup_in = |dir: &Path, runner: PathBuf| TestSetup {
+            bin: dir.into(), pak: None, runner, python: "python".into(), work: dir.join("work"), lock: dir.join("run.lock"),
+            renderer: None, extension: None, half: None,
+        };
+        for (a, b) in [("same", "same"), ("Same", "same."), ("x-folder", "")] {
+            let m = dir.path().join(format!("m-{a}-{b}"));
+            // A test.json with no name runs under its folder's name.
+            let named = |n: &str| if n.is_empty() { "{}".to_string() } else { format!(r#"{{"name": "{n}"}}"#) };
+            for (t, text) in [("tests/a", named(a)), ("tests/x-folder", named(b))] {
+                std::fs::create_dir_all(m.join(t)).unwrap();
+                std::fs::write(m.join(t).join("test.json"), text).unwrap();
+            }
+            std::fs::write(m.join("luma.json"), "{}").unwrap();
+            let e = test(&m, &setup_in(dir.path(), dir.path().join("none.py")), &|_| Ok(()), &mut |_| {}).err().unwrap();
+            let expected = say!("LumaLink.Test.SameName", name = run_name(&m.join("tests").join("x-folder")), first = m.join("tests").join("a").display(), second = m.join("tests").join("x-folder").display());
+            assert_eq!(e.to_string(), expected, "{a} {b}");
+        }
+        if std::process::Command::new("python").arg("--version").output().is_err() {
+            eprintln!("skipped: no python on the path to run the stand-in runner");
+            return;
+        }
+        let m = dir.path().join("m");
+        for (t, text) in [("tests/a-up", r#"{"name": ".."}"#), ("tests/b-fine", r#"{"name": "fine"}"#)] {
+            std::fs::create_dir_all(m.join(t)).unwrap();
+            std::fs::write(m.join(t).join("test.json"), text).unwrap();
+        }
+        std::fs::write(m.join("luma.json"), "{}").unwrap();
+        // The stand-in leaves a pass for "fine" and nothing for "..", as a runner that stopped on it would.
+        let runner = dir.path().join("runner.py");
+        std::fs::write(
+            &runner,
+            r#"import json, pathlib, sys
+a = sys.argv[1:]
+suite = pathlib.Path(a[1])
+work = pathlib.Path(a[a.index("--work") + 1])
+out = work / "runs" / suite.parent.name / "fine" / "d3d12"
+out.mkdir(parents=True)
+(out / "result.json").write_text(json.dumps({"harness": 1, "test": "fine", "renderer": "d3d12", "verdict": "pass", "reason": "", "checks": []}))
+"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("work")).unwrap();
+        let runs = test(&m, &setup_in(dir.path(), runner), &|_| Ok(()), &mut |_| {}).unwrap();
+        let verdict: Vec<(String, bool, usize)> =
+            runs.iter().map(|r| (r.test.file_name().unwrap().to_string_lossy().into_owned(), r.passed(), r.results.len())).collect();
+        assert_eq!(verdict, [("a-up".to_string(), false, 0), ("b-fine".to_string(), true, 1)], "{}", runs[0].said);
+    }
+
+    /// A link to a folder at `at`, pointing to `to`: a symbolic link, or on Windows without the right to make one, a
+    /// junction. False when neither can be made here.
+    fn link_folder(to: &Path, at: &Path) -> bool {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(to, at).is_ok()
+                || std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(at).arg(to).output().is_ok_and(|o| o.status.success())
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(to, at).is_ok()
+        }
+    }
+
+    /// N-4057: the walks of format, test and its results go into folders, never through a link to one: a link to the
+    /// mod's own folder inside it (a modder's shortcut) is passed over. Before, each walk went round it until the path
+    /// was too long or the stack ran out.
+    #[test]
+    fn walks_pass_over_links_to_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = dir.path().join("m");
+        for (f, text) in [("tests/t/test.json", "{}"), ("tests/t/helper/luma.json", "{}"), ("tests/t/helper/source/a.lum", ""), ("x/a.lum", "")] {
+            let p = m.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+        if !(link_folder(&m, &m.join("tests/t/up")) && link_folder(&m, &m.join("x/up"))) {
+            eprintln!("skipped: no link to a folder can be made here");
+            return;
+        }
+        let rel = |found: Vec<PathBuf>| -> Vec<String> { found.iter().map(|p| p.strip_prefix(&m).unwrap().to_string_lossy().replace('\\', "/")).collect() };
+        assert_eq!(rel(test_folders(&m).unwrap()), ["tests/t"]);
+        assert_eq!(rel(test_mods(&m).unwrap()), ["tests/t/helper"]);
+        assert_eq!(rel(format(std::slice::from_ref(&m), true).unwrap().into_iter().map(|(p, _)| p).collect()), ["tests/t/helper/source/a.lum", "x/a.lum"]);
+        let mut results = Vec::new();
+        result_files(&m, &mut results);
+        assert!(results.is_empty());
+    }
+
+    /// N-4058: a new mod is made where its folder's parent is not there yet (`lumalink new mods/first`): its check is made
+    /// in the system's temporary folder, not beside it.
+    #[test]
+    fn a_new_mod_is_made_where_its_parent_is_not_there_yet() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("mods/more/first");
+        assert!(matches!(new_mod(&folder, "test.first", "First", "One line.", &["Me".into()]).unwrap(), NewMod::Made(_)));
+        assert!(folder.join("luma.json").is_file() && folder.join("layers/base/files").is_dir());
+        assert_eq!(std::fs::read_dir(dir.path().join("mods/more")).unwrap().count(), 1, "nothing left beside it");
     }
 
     #[test]
