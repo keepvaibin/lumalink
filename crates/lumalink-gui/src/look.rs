@@ -40,12 +40,12 @@ fn fonts() -> FontDefinitions {
     fonts
 }
 
-/// Gives `ctx` the fonts and look of LumaLink's windows.
 /// LumaLink's icon for a window's title bar and taskbar button (build.rs draws it from icon.rs).
 pub fn icon() -> egui::IconData {
     egui::IconData { rgba: include_bytes!(concat!(env!("OUT_DIR"), "/icon.rgba")).to_vec(), width: 256, height: 256 }
 }
 
+/// Gives `ctx` the fonts and look of LumaLink's windows.
 pub fn setup(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
     ctx.set_visuals(egui::Visuals::light());

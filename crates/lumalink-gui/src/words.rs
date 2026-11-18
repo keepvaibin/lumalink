@@ -52,13 +52,18 @@ pub fn system_font_first() -> bool {
 /// The system's fonts for languages the rounded font does not hold, this language's own first, each with its face in a
 /// collection. A line reads from one font: two fonts' characters do not share a baseline.
 pub fn system_fonts(bold: bool) -> Vec<(std::path::PathBuf, u32)> {
+    // Windows' own folder, wherever it was put (N-4068: it was taken to be C:\Windows, so with Windows on another
+    // drive Korean and Chinese had no font).
+    let windows = std::env::var_os("SystemRoot").map_or_else(|| std::path::PathBuf::from("C:/Windows"), std::path::PathBuf::from);
+    let mut out = candidates(&windows, bold);
+    out.retain(|(path, _)| path.is_file());
+    out
+}
+
+/// Where [`system_fonts`] looks, in order, with Windows in `windows`.
+fn candidates(windows: &std::path::Path, bold: bool) -> Vec<(std::path::PathBuf, u32)> {
     // Japanese, Korean, Simplified Chinese, Traditional Chinese: regular, bold, face.
-    const WINDOWS: [(&str, &str, u32); 4] = [
-        ("C:/Windows/Fonts/YuGothM.ttc", "C:/Windows/Fonts/YuGothB.ttc", 0),
-        ("C:/Windows/Fonts/malgun.ttf", "C:/Windows/Fonts/malgunbd.ttf", 0),
-        ("C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/msyhbd.ttc", 0),
-        ("C:/Windows/Fonts/msjh.ttc", "C:/Windows/Fonts/msjhbd.ttc", 0),
-    ];
+    const WINDOWS: [(&str, &str, u32); 4] = [("YuGothM.ttc", "YuGothB.ttc", 0), ("malgun.ttf", "malgunbd.ttf", 0), ("msyh.ttc", "msyhbd.ttc", 0), ("msjh.ttc", "msjhbd.ttc", 0)];
     const MAC: [(&str, &str, u32); 4] = [
         ("/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc", "/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc", 0),
         ("/System/Library/Fonts/AppleSDGothicNeo.ttc", "/System/Library/Fonts/AppleSDGothicNeo.ttc", 0),
@@ -71,8 +76,11 @@ pub fn system_fonts(bold: bool) -> Vec<(std::path::PathBuf, u32)> {
     let order = [own, (own + 1) % 4, (own + 2) % 4, (own + 3) % 4];
     let mut out: Vec<(std::path::PathBuf, u32)> = Vec::new();
     for which in order {
-        if cfg!(windows) || cfg!(target_os = "macos") {
-            let (regular, heavy, face) = if cfg!(windows) { WINDOWS[which] } else { MAC[which] };
+        if cfg!(windows) {
+            let (regular, heavy, face) = WINDOWS[which];
+            out.push((windows.join("Fonts").join(if bold { heavy } else { regular }), face));
+        } else if cfg!(target_os = "macos") {
+            let (regular, heavy, face) = MAC[which];
             out.push((std::path::PathBuf::from(if bold { heavy } else { regular }), face));
         } else {
             // One collection holds all four: Japanese, Korean, Simplified, Traditional, in that order.
@@ -82,13 +90,25 @@ pub fn system_fonts(bold: bool) -> Vec<(std::path::PathBuf, u32)> {
             }
         }
     }
-    out.retain(|(path, _)| path.is_file());
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// N-4068: on Windows the fonts are looked for in the Windows folder the system names, on whatever drive.
+    #[cfg(windows)]
+    #[test]
+    fn windows_fonts_are_looked_for_where_windows_is() {
+        let windows = std::path::Path::new("E:/Win");
+        for bold in [false, true] {
+            let found = candidates(windows, bold);
+            assert_eq!(found.len(), 4);
+            assert!(found.iter().all(|(path, _)| path.starts_with("E:/Win/Fonts")), "{found:?}");
+        }
+        assert!(candidates(windows, true).iter().any(|(path, _)| path.ends_with("malgunbd.ttf")));
+    }
 
     #[test]
     fn every_language_has_its_own_name() {
