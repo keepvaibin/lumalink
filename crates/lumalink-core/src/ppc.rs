@@ -453,4 +453,20 @@ mod tests {
         }
         assert_eq!(listing(&[0x60, 0, 0, 0, 0x4E, 0x80], 0x8000_0100), ["0x80000100  nop", "0x80000104  .byte 0x4E, 0x80"]);
     }
+
+    /// The words a mod writes are any 32 bits: every primary opcode with every extended opcode and record bit (the low
+    /// 11 bits), under register and field values from none to all, reads as some text and never stops the listing.
+    #[test]
+    fn every_word_reads_as_some_text() {
+        let middles = [0u32, 0x0000_0800, 0x001F_F800, 0x03E0_0000, 0x03FF_F800, 0x0155_5000, 0x02AA_A800, 0x0210_8400];
+        for op in 0..64u32 {
+            for low in 0..0x800u32 {
+                for middle in middles {
+                    let w = (op << 26) | middle | low;
+                    let text = instruction(w, 0x8000_0000);
+                    assert!(!text.is_empty() && !text.starts_with(' '), "{w:08X}: {text:?}");
+                }
+            }
+        }
+    }
 }

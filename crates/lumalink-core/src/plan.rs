@@ -630,20 +630,26 @@ impl Builder<'_> {
 
     /// What a mod's code in spare memory comes to. Whatever isn't understood stays on the list of code changes.
     fn read_spare_memory(&mut self) {
-        let mut left: Vec<(u32, usize)> = self.spare.parts.iter().map(|(at, bytes)| (*at, bytes.len())).collect();
+        // Each write by its place in the list: two writes to one address are two, each with its own bytes (N-4073: each
+        // was found again by its address and size, so the later write was listed with the first one's bytes).
+        let mut left: Vec<usize> = (0..self.spare.parts.len()).collect();
         if let Some(target) = self.comet_hook.take() {
             match self.spare.comet_limits(target) {
                 Some((rows, used)) => {
                     self.plan.comet_limits.extend(rows);
                     self.said("LumaLink.Patch.CometLimits");
-                    left.retain(|(at, size)| !used.iter().any(|(u, length)| u >= at && *u < at + *size as u32 && *length > 0));
+                    let parts = &self.spare.parts;
+                    left.retain(|&i| {
+                        let (at, size) = (parts[i].0, parts[i].1.len() as u32);
+                        !used.iter().any(|(u, length)| *u >= at && *u < at.wrapping_add(size) && *length > 0)
+                    });
                 }
                 None => self.plan.unknown_code.push(UnknownCode { address: target, bytes: 4, kind: "memory", release: self.version, own: target, ..Default::default() }),
             }
         }
-        for (at, size) in left {
-            let value = self.spare.parts.iter().find(|(start, bytes)| *start == at && bytes.len() == size).map(|(_, b)| b.clone()).unwrap_or_default();
-            self.plan.unknown_code.push(UnknownCode { address: at, bytes: size, kind: "memory", release: self.version, own: at, value, original: Vec::new() });
+        for i in left {
+            let (at, value) = self.spare.parts[i].clone();
+            self.plan.unknown_code.push(UnknownCode { address: at, bytes: value.len(), kind: "memory", release: self.version, own: at, value, original: Vec::new() });
         }
     }
 
@@ -1353,6 +1359,19 @@ mod tests {
         let plan = build(&Layout::of(dir.path()), "RMGE01", None).unwrap();
         assert!(!plan.blocked(), "{:?}", plan.notes);
         assert_eq!(plan.files.len(), 1);
+    }
+
+    /// N-4073: two writes of a mod's own code to one address are listed each with its own bytes, the later one too.
+    /// Before, the later was listed with the first one's bytes, so the listing hid the write that takes effect.
+    #[test]
+    fn two_writes_to_one_address_are_each_listed_with_their_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "riivolution/M.xml", r#"<wiidisc version="1"><id game="RMG"/><options><section name="M"><option name="On">
+            <choice name="Enabled"><patch id="p"/></choice></option></section></options>
+            <patch id="p"><memory offset="0x80001800" value="38600001"/><memory offset="0x80001800" value="38600002"/></patch></wiidisc>"#);
+        let plan = build(&Layout::of(dir.path()), "RMGE01", None).unwrap();
+        let at: Vec<&Vec<u8>> = plan.unknown_code.iter().filter(|u| u.address == 0x8000_1800).map(|u| &u.value).collect();
+        assert_eq!(at, [&vec![0x38, 0x60, 0, 1], &vec![0x38, 0x60, 0, 2]], "{:?}", plan.unknown_code);
     }
 
     #[test]
