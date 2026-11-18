@@ -83,12 +83,35 @@ pub fn id_of(name: &str) -> String {
     id.trim_end_matches('-').to_string()
 }
 
-/// A key not yet in `taken`: `key`, else `key-2`, `key-3`...
-fn unused(key: String, taken: &BTreeSet<String>) -> String {
-    if !taken.contains(&key) {
-        return key;
+/// Keys given out, and for each key asked for again the number its next `-n` is tried from (N-4053: each search
+/// started at 2, the square of the repeats).
+#[derive(Default)]
+struct Taken {
+    keys: BTreeSet<String>,
+    next: BTreeMap<String, usize>,
+}
+
+impl Taken {
+    /// A key not given out: `key`, else `key-2`, `key-3`..., the key cut so that each stays 64 characters (manifest
+    /// key_ok; N-4053: cut at 60, the thousandth was 65). Keys are ASCII (key_of).
+    fn free(&mut self, key: String) -> String {
+        if !self.keys.contains(&key) {
+            return key;
+        }
+        let n = self.next.entry(key.clone()).or_insert(2);
+        loop {
+            let suffix = format!("-{n}");
+            let candidate = format!("{}{suffix}", &key[..key.len().min(64 - suffix.len())]);
+            if !self.keys.contains(&candidate) {
+                return candidate;
+            }
+            *n += 1;
+        }
     }
-    (2..).map(|n| format!("{}-{n}", &key[..key.len().min(60)])).find(|k| !taken.contains(k)).unwrap_or(key)
+
+    fn take(&mut self, key: String) {
+        self.keys.insert(key);
+    }
 }
 
 /// The releases a version letter of the previous engine stands for (the disc id's fourth letter). Korean discs are
@@ -110,15 +133,15 @@ struct Keys {
 impl Keys {
     fn of(plan: &Plan) -> Keys {
         let mut options = BTreeMap::new();
-        let mut taken = BTreeSet::new();
+        let mut taken = Taken::default();
         for option in &plan.options {
-            let key = unused(key_of(&option.id), &taken);
-            taken.insert(key.clone());
+            let key = taken.free(key_of(&option.id));
+            taken.take(key.clone());
             let mut values = BTreeMap::new();
-            let mut used = BTreeSet::new();
+            let mut used = Taken::default();
             for choice in &option.choices {
-                let value = unused(key_of(&choice.id), &used);
-                used.insert(value.clone());
+                let value = used.free(key_of(&choice.id));
+                used.take(value.clone());
                 values.insert(choice.id.clone(), value);
             }
             options.insert(option.id.clone(), (key, values));
@@ -381,17 +404,18 @@ pub fn write(input: &Path, layout: &Layout, plan: &Plan, store: Option<&GameStor
     let game_id = store.map_or("RMGE01", |s| s.game_id.as_str());
 
     // Layers: base, then the plan's, under the form's names.
-    let mut names = BTreeSet::from(["base".to_string()]);
+    let mut names = Taken::default();
+    names.take("base".to_string());
     let mut layers: Vec<OutLayer> = Vec::new();
     let mut numbers: Vec<crate::numbers_code::LayerNumbers> = Vec::new();
     let base = Layer { object_changes: plan.object_changes.clone(), comet_limits: plan.comet_limits.clone(), player_constants: plan.player_constants.clone(), ..Layer::default() };
     layers.push(("base".into(), None, &plan.files, layer_rows(&base)));
     numbers.push(crate::numbers_code::LayerNumbers { layer: "base".into(), when: None, numbers: layer_numbers(&plan.native_patches) });
     for layer in &plan.layers {
-        let name = unused(key_of(&layer.name), &names);
+        let name = names.free(key_of(&layer.name));
         match keys.when(&name, &layer.when) {
             Ok(when) => {
-                names.insert(name.clone());
+                names.take(name.clone());
                 numbers.push(crate::numbers_code::LayerNumbers { layer: name.clone(), when: when.clone(), numbers: layer_numbers(&layer.switches) });
                 layers.push((name, when, &layer.files, layer_rows(layer)));
             }
@@ -554,6 +578,15 @@ mod tests {
         assert_eq!(key_of("2x"), "o-2x");
         assert_eq!(id_of("HD"), "hd-mod");
         assert_eq!(id_of("2D Mario"), "mod-2d-mario");
+        // N-4053: a key given out again and again stays 64 characters, each one other.
+        let mut taken = Taken::default();
+        let long = key_of(&"a".repeat(70));
+        for _ in 0..1_200 {
+            let key = taken.free(long.clone());
+            assert!(key.len() <= 64 && !taken.keys.contains(&key), "{key}");
+            taken.take(key);
+        }
+        assert!(taken.keys.contains(&format!("{}-1200", "a".repeat(59))));
         let key = key_of("Ünïcode");
         assert!(key.starts_with(|c: char| c.is_ascii_lowercase()) && key.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-._".contains(&b)), "{key}");
     }

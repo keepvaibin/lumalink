@@ -53,9 +53,11 @@ pub struct Patch {
     pub memory: Vec<MemoryPatch>,
 }
 
+/// A choice's patch, by id, with the params written in it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct PatchRef {
     pub id: String,
+    /// The params written in the `<patch>` itself: they win over the choice's and the option's ([`OptionEntry::param`]).
     pub params: BTreeMap<String, String>,
 }
 
@@ -63,6 +65,8 @@ pub struct PatchRef {
 pub struct Choice {
     pub name: String,
     pub patches: Vec<PatchRef>,
+    /// The params written in the `<choice>`: they win over the option's.
+    pub params: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -72,6 +76,11 @@ pub struct OptionEntry {
     pub choices: Vec<Choice>,
     /// 0: off; otherwise the choice, counted from 1.
     pub selected: usize,
+    /// The params written in the `<option>`.
+    pub params: BTreeMap<String, String>,
+    /// A macro's params, for an option a `<macros>` copied: they win over every other (N-4054: each level keeps its
+    /// own, looked up through the levels, where each patch held a copy of every level's above it).
+    pub macro_params: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -128,7 +137,13 @@ pub fn hex_bytes(text: &str) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-fn params_of(node: roxmltree::Node, mut params: BTreeMap<String, String>) -> BTreeMap<String, String> {
+/// The most nodes a patch file may have, and the most options, choices and patches its macros may copy (each copy
+/// counted as the nodes it would be): what a mod's XML ever needs.
+const NODES: usize = 2_000_000;
+
+/// The params written in `node` itself.
+fn params_of(node: roxmltree::Node) -> BTreeMap<String, String> {
+    let mut params = BTreeMap::new();
     for param in node.children().filter(|c| c.has_tag_name("param")) {
         params.insert(param.attribute("name").unwrap_or("").to_string(), param.attribute("value").unwrap_or("").to_string());
     }
@@ -156,7 +171,7 @@ pub fn parse(text: &str) -> Result<Disc> {
     let document = roxmltree::Document::parse_with_options(
         text,
         // Some mods carry a DTD. Nested entities can't make more than a mod's XML ever needs.
-        roxmltree::ParsingOptions { allow_dtd: true, nodes_limit: 2_000_000 },
+        roxmltree::ParsingOptions { allow_dtd: true, nodes_limit: NODES as u32 },
     )
     .map_err(|e| anyhow!(say!("LumaLink.Riivolution.NotXml", why = e)))?;
     let root = document.root_element();
@@ -183,25 +198,23 @@ pub fn parse(text: &str) -> Result<Disc> {
         for s in options.children().filter(|c| c.has_tag_name("section")) {
             let mut section = Section { name: s.attribute("name").unwrap_or("").to_string(), options: Vec::new() };
             for o in s.children().filter(|c| c.has_tag_name("option")) {
-                let option_params = params_of(o, BTreeMap::new());
                 let mut option = OptionEntry {
                     id: o.attribute("id").unwrap_or("").to_string(),
                     name: o.attribute("name").unwrap_or("").to_string(),
                     choices: Vec::new(),
                     selected: o.attribute("default").and_then(number).unwrap_or(0) as usize,
+                    params: params_of(o),
+                    macro_params: BTreeMap::new(),
                 };
                 for c in o.children().filter(|c| c.has_tag_name("choice")) {
-                    let choice_params = params_of(c, option_params.clone());
                     option.choices.push(Choice {
                         name: c.attribute("name").unwrap_or("").to_string(),
                         patches: c
                             .children()
                             .filter(|p| p.has_tag_name("patch"))
-                            .map(|p| PatchRef {
-                                id: p.attribute("id").unwrap_or("").to_string(),
-                                params: params_of(p, choice_params.clone()),
-                            })
+                            .map(|p| PatchRef { id: p.attribute("id").unwrap_or("").to_string(), params: params_of(p) })
                             .collect(),
+                        params: params_of(c),
                     });
                 }
                 // A default past the last choice chooses none, as Riivolution shows it.
@@ -212,20 +225,35 @@ pub fn parse(text: &str) -> Result<Disc> {
             }
             disc.sections.push(section);
         }
-        // A macro: an option cloned under another name, with other parameters.
+        // A macro: an option copied under another name, with other parameters; in each section, its first option of
+        // that id (found by an index, N-4054: each macro looked through every option). The copies count against the
+        // node limit, as nodes of the file would: a macro may not multiply a file past what it could hold.
+        let first: Vec<BTreeMap<String, usize>> = disc
+            .sections
+            .iter()
+            .map(|section| {
+                let mut ids = BTreeMap::new();
+                for (i, option) in section.options.iter().enumerate() {
+                    ids.entry(option.id.clone()).or_insert(i);
+                }
+                ids
+            })
+            .collect();
+        let mut copied = 0usize;
         for m in options.children().filter(|c| c.has_tag_name("macros")) {
             let wanted = m.attribute("id").unwrap_or("");
-            for section in &mut disc.sections {
-                if let Some(option) = section.options.iter().find(|o| o.id == wanted).cloned() {
-                    let mut clone = option;
-                    clone.name = m.attribute("name").unwrap_or("").to_string();
-                    for choice in &mut clone.choices {
-                        for patch in &mut choice.patches {
-                            patch.params = params_of(m, std::mem::take(&mut patch.params));
-                        }
-                    }
-                    section.options.push(clone);
+            let params = params_of(m);
+            for (section, ids) in disc.sections.iter_mut().zip(&first) {
+                let Some(&at) = ids.get(wanted) else { continue };
+                let original = &section.options[at];
+                copied += 1 + original.choices.iter().map(|c| 1 + c.patches.len()).sum::<usize>();
+                if copied > NODES {
+                    bail!(say!("LumaLink.Riivolution.NotXml", why = roxmltree::Error::NodesLimitReached));
                 }
+                let mut copy = original.clone();
+                copy.name = m.attribute("name").unwrap_or("").to_string();
+                copy.macro_params.extend(params.iter().map(|(k, v)| (k.clone(), v.clone())));
+                section.options.push(copy);
             }
         }
     }
@@ -325,6 +353,14 @@ impl OptionEntry {
         regions.iter().position(|&r| r == wanted).map(|i| i + 1)
     }
 
+    /// The value of param `name` for patch `patch` of choice `choice` (from 0): a macro's, else the patch's own, the
+    /// choice's, then the option's.
+    pub fn param(&self, choice: usize, patch: usize, name: &str) -> Option<&str> {
+        let c = self.choices.get(choice)?;
+        let own = c.patches.get(patch).and_then(|p| p.params.get(name));
+        self.macro_params.get(name).or(own).or_else(|| c.params.get(name)).or_else(|| self.params.get(name)).map(String::as_str)
+    }
+
     /// How Riivolution's saved choices name this option.
     pub fn key(&self, section: &Section) -> String {
         if self.id.is_empty() {
@@ -356,22 +392,49 @@ impl Disc {
 
     /// The patches of the selected choices, placeholders filled.
     pub fn active_patches(&self, game_id: &str) -> Vec<Patch> {
+        let index = self.patch_index();
         let mut active = Vec::new();
         for option in self.sections.iter().flat_map(|s| &s.options) {
-            let Some(choice) = option.selected.checked_sub(1).and_then(|i| option.choices.get(i)) else {
+            if let Some(choice) = option.selected.checked_sub(1) {
+                self.fill_choice(&index, option, choice, game_id, &mut active);
+            }
+        }
+        active
+    }
+
+    /// The patches of choice `choice` (from 0) of option `option` of section `section` alone, placeholders filled: what
+    /// [`Disc::active_patches`] gives with that choice the only one made.
+    pub fn choice_patches(&self, section: usize, option: usize, choice: usize, game_id: &str) -> Vec<Patch> {
+        let mut out = Vec::new();
+        if let Some(entry) = self.sections.get(section).and_then(|s| s.options.get(option)) {
+            self.fill_choice(&self.patch_index(), entry, choice, game_id, &mut out);
+        }
+        out
+    }
+
+    /// Each patch by its id, the first of an id (N-4054: each reference looked through every patch).
+    fn patch_index(&self) -> std::collections::HashMap<&str, &Patch> {
+        let mut index = std::collections::HashMap::new();
+        for patch in &self.patches {
+            index.entry(patch.id.as_str()).or_insert(patch);
+        }
+        index
+    }
+
+    fn fill_choice(&self, index: &std::collections::HashMap<&str, &Patch>, option: &OptionEntry, choice: usize, game_id: &str, active: &mut Vec<Patch>) {
+        let Some(chosen) = option.choices.get(choice) else { return };
+        for (r, reference) in chosen.patches.iter().enumerate() {
+            let Some(&patch) = index.get(reference.id.as_str()) else {
                 continue;
             };
-            for reference in &choice.patches {
-                let Some(patch) = self.patches.iter().find(|p| p.id == reference.id) else {
-                    continue;
-                };
-                let mut with: Vec<(String, String)> = vec![
-                    ("{$__gameid}".into(), game_id.get(..3).unwrap_or("").into()),
-                    ("{$__region}".into(), game_id.get(3..4).unwrap_or("").into()),
-                    ("{$__maker}".into(), game_id.get(4..6).unwrap_or("").into()),
-                ];
-                with.extend(reference.params.iter().map(|(k, v)| (format!("{{${k}}}"), v.clone())));
-                let fill = |text: &str| with.iter().fold(text.to_string(), |t, (from, to)| t.replace(from, to));
+            let value = |name: &str| match name {
+                "__gameid" => game_id.get(..3),
+                "__region" => game_id.get(3..4),
+                "__maker" => game_id.get(4..6),
+                _ => option.param(choice, r, name),
+            };
+            let fill = |text: &str| fill(text, &value);
+            {
                 let mut patch = patch.clone();
                 patch.root = fill(&patch.root);
                 for f in &mut patch.files {
@@ -388,8 +451,31 @@ impl Disc {
                 active.push(patch);
             }
         }
-        active
     }
+}
+
+/// `text` with each `{$name}` that `value` knows replaced, in one pass: a value is never read again for placeholders
+/// (N-4054: each param was replaced in turn over the whole text, so values naming other params doubled it at each,
+/// and each text took every param's time).
+fn fill<'v>(text: &str, value: &dyn Fn(&str) -> Option<&'v str>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("{$") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 2..];
+        match after.find('}').and_then(|end| value(&after[..end]).map(|v| (end, v))) {
+            Some((end, v)) => {
+                out.push_str(v);
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push_str("{$");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Riivolution's saved choices (`<riivolution version="2">`), by option key.
@@ -447,8 +533,9 @@ mod tests {
         assert_eq!(disc.target.regions, ["E", "P"]);
         assert_eq!(disc.sections[0].options.len(), 3);
         assert_eq!(disc.sections[0].options[2].name, "Extra copy");
-        assert_eq!(disc.sections[0].options[2].choices[0].patches[0].params["more"], "2");
-        assert_eq!(disc.sections[0].options[2].choices[0].patches[0].params["fromoption"], "1");
+        assert_eq!(disc.sections[0].options[2].param(0, 0, "more"), Some("2"));
+        assert_eq!(disc.sections[0].options[2].param(0, 0, "fromoption"), Some("1"));
+        assert_eq!(disc.sections[0].options[1].param(0, 0, "more"), None);
         let us = &disc.patches[1];
         assert_eq!(us.root, "/other");
         assert_eq!(us.files[0].offset, 0x10);
@@ -516,6 +603,50 @@ mod tests {
     fn a_default_past_the_choices_is_off() {
         let text = r#"<wiidisc version="1"><options><section name="S"><option name="A" default="7"><choice name="x"><patch id="p"/></choice></option></section></options><patch id="p"/></wiidisc>"#;
         assert_eq!(parse(text).unwrap().sections[0].options[0].selected, 0);
+    }
+
+    /// N-4054: params are found through their levels and filled in one pass; a pack of many params, patches and
+    /// macros reads in time that grows with it, and a value naming another param is not read again.
+    #[test]
+    fn params_patches_and_macros_stay_linear() {
+        let text = r#"<wiidisc version="1"><options><section name="S"><option name="O" default="1"><param name="a" value="{$b}{$b}"/><param name="b" value="x"/><choice name="C"><param name="c" value="choice"/><patch id="p"><param name="c" value="patch"/></patch></choice></option></section><macros id="none" name="M"/></options><patch id="p"><file disc="/{$a}/{$c}/{$__region}/{$zz}" external="/e"/></patch></wiidisc>"#;
+        let disc = parse(text).unwrap();
+        assert_eq!(disc.active_patches("RMGE01")[0].files[0].disc, "/{$b}{$b}/patch/E/{$zz}");
+        assert_eq!(disc.choice_patches(0, 0, 0, "RMGP01")[0].files[0].disc, "/{$b}{$b}/patch/P/{$zz}");
+        let pack = |n: usize, macros: usize| {
+            let mut x = String::from("<wiidisc version=\"1\"><options><section name=\"s\"><option id=\"o\" name=\"o\" default=\"1\">");
+            for i in 0..n {
+                x.push_str(&format!("<param name=\"p{i}\" value=\"{{$p{}}}{{$p{}}}\"/>", i + 1, i + 1));
+            }
+            x.push_str("<choice name=\"c\">");
+            for i in 0..n {
+                x.push_str(&format!("<patch id=\"q{i}\"/>"));
+            }
+            x.push_str("</choice></option></section>");
+            for _ in 0..macros {
+                x.push_str("<macros id=\"o\" name=\"m\"/>");
+            }
+            x.push_str("</options>");
+            for i in 0..n {
+                x.push_str(&format!("<patch id=\"q{i}\"><file disc=\"/{{$p0}}\" external=\"/b\"/></patch>"));
+            }
+            x.push_str("</wiidisc>");
+            x
+        };
+        let mut took = Vec::new();
+        for n in [1_000usize, 4_000] {
+            let x = pack(n, 0);
+            let start = std::time::Instant::now();
+            let disc = parse(&x).unwrap();
+            let active = disc.active_patches("RMGE01");
+            took.push(start.elapsed());
+            assert_eq!(active.len(), n);
+            assert_eq!(active[0].files[0].disc, "/{$p1}{$p1}");
+        }
+        // 2 000 macros of an option of 2 000 patches would copy 4 million: past the node limit.
+        assert!(parse(&pack(2_000, 2_000)).is_err());
+        assert_eq!(parse(&pack(100, 100)).unwrap().sections[0].options.len(), 101);
+        assert!(took[1] < took[0] * 8, "{took:?}");
     }
 
     #[test]

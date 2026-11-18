@@ -14,10 +14,24 @@ fn word(bytes: &[u8]) -> u32 {
     u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
-/// The pairs of words of a list, in order.
-fn read_pairs(pairs: &[(u32, u32)]) -> CodeList {
+/// The most bytes one list's writes come to: the whole of the 32 MiB a code's address can name. A list past it is
+/// damaged (a real one writes kilobytes); its further lines are counted, not read, so a small file can't make
+/// gigabytes of writes (N-4052).
+pub const LIST_BYTES: usize = 0x0200_0000;
+
+/// The pairs of words of a list, in order; `left`: how many bytes of writes the list may still make (LIST_BYTES
+/// for a whole list).
+fn read_pairs(pairs: &[(u32, u32)], left: &mut usize) -> CodeList {
     let mut list = CodeList::default();
     let mut at = 0;
+    let mut push = |list: &mut CodeList, address: u32, bytes: Vec<u8>| {
+        if bytes.len() > *left {
+            list.other += 1;
+            return;
+        }
+        *left -= bytes.len();
+        list.writes.push((address, bytes));
+    };
     while at < pairs.len() {
         let (first, second) = pairs[at];
         at += 1;
@@ -32,20 +46,12 @@ fn read_pairs(pairs: &[(u32, u32)]) -> CodeList {
             continue;
         }
         let address = 0x8000_0000 | (first & 0x01FF_FFFF);
+        // A fill (8 or 16 bits, 1 to 65 536 times) is one write of its whole run, as a run of bytes (06) is.
+        let times = (second >> 16) as usize + 1;
         match base {
-            0x00 => {
-                let times = (second >> 16) + 1;
-                for i in 0..times.min(0x1000) {
-                    list.writes.push((address + i, vec![second as u8]));
-                }
-            }
-            0x02 => {
-                let times = (second >> 16) + 1;
-                for i in 0..times.min(0x1000) {
-                    list.writes.push((address + i * 2, (second as u16).to_be_bytes().to_vec()));
-                }
-            }
-            0x04 => list.writes.push((address, second.to_be_bytes().to_vec())),
+            0x00 => push(&mut list, address, vec![second as u8; times]),
+            0x02 => push(&mut list, address, (second as u16).to_be_bytes().repeat(times)),
+            0x04 => push(&mut list, address, second.to_be_bytes().to_vec()),
             0x06 => {
                 // A run of bytes, in the pairs that follow.
                 let size = second as usize;
@@ -58,7 +64,7 @@ fn read_pairs(pairs: &[(u32, u32)]) -> CodeList {
                 }
                 at += lines;
                 bytes.truncate(size);
-                list.writes.push((address, bytes));
+                push(&mut list, address, bytes);
             }
             // Inserted code: its lines come after, and it's counted once.
             0xC2 | 0xF2 => {
@@ -75,7 +81,7 @@ fn read_pairs(pairs: &[(u32, u32)]) -> CodeList {
 pub fn from_gct(bytes: &[u8]) -> CodeList {
     let start = if bytes.len() >= 8 && bytes[..8] == [0x00, 0xD0, 0xC0, 0xDE, 0x00, 0xD0, 0xC0, 0xDE] { 8 } else { 0 };
     let pairs: Vec<(u32, u32)> = bytes[start..].chunks_exact(8).map(|p| (word(&p[..4]), word(&p[4..]))).collect();
-    read_pairs(&pairs)
+    read_pairs(&pairs, &mut LIST_BYTES.clone())
 }
 
 /// Where Nebula does a popular code natively.
@@ -209,16 +215,17 @@ pub fn ini_codes(text: &str) -> Vec<NamedCode> {
     codes
 }
 
-/// The writes of a list of pairs.
-pub fn from_pairs(pairs: &[(u32, u32)]) -> CodeList {
-    read_pairs(pairs)
+/// The writes of a list of pairs, one code of a list: `left` is shared by the list's codes (LIST_BYTES to start).
+pub fn from_pairs(pairs: &[(u32, u32)], left: &mut usize) -> CodeList {
+    read_pairs(pairs, left)
 }
 
 /// Dolphin's game settings: lines of two hex words under `[Gecko]`, and `[Gecko_Enabled]` saying which by their `$name`. A list with no enabled section has all on.
 pub fn from_ini(text: &str) -> CodeList {
     let mut list = CodeList::default();
+    let mut left = LIST_BYTES;
     for code in ini_codes(text).into_iter().filter(|c| c.enabled) {
-        let one = read_pairs(&code.pairs);
+        let one = read_pairs(&code.pairs, &mut left);
         list.writes.extend(one.writes);
         list.other += one.other;
     }
@@ -289,8 +296,16 @@ mod tests {
     /// A damaged list or program is read as far as it goes, never trusted for its sizes.
     #[test]
     fn damaged_sizes_are_not_trusted() {
-        let list = read_pairs(&[(0x0600_1000, 0xFFFF_FFFF), (0x1122_3344, 0x5566_7788)]);
+        let list = read_pairs(&[(0x0600_1000, 0xFFFF_FFFF), (0x1122_3344, 0x5566_7788)], &mut LIST_BYTES.clone());
         assert_eq!(list.writes, vec![(0x8000_1000, vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88])]);
+        // N-4052: a fill is one write of its whole run, up to 65 536 times (cut at 4 096 before, one write per
+        // byte, so a 1 MB list of fills made 500 million writes), and a list's writes stop at LIST_BYTES.
+        let list = read_pairs(&[(0x0000_2000, 0xFFFF_00AB), (0x0200_4000, 0x0002_1234)], &mut LIST_BYTES.clone());
+        assert_eq!(list.writes, vec![(0x8000_2000, vec![0xAB; 0x1_0000]), (0x8000_4000, [0x12, 0x34].repeat(3))]);
+        let fills = vec![(0x0200_0000, 0xFFFF_0000); 600];
+        let list = read_pairs(&fills, &mut LIST_BYTES.clone());
+        assert_eq!((list.writes.len(), list.other), (LIST_BYTES / 0x2_0000, 600 - LIST_BYTES / 0x2_0000));
+        assert_eq!(list.writes.iter().map(|w| w.1.len()).sum::<usize>(), LIST_BYTES);
         let mut original = vec![0u8; 0x200];
         original[0x48..0x4C].copy_from_slice(&0xFFFF_FFF0u32.to_be_bytes());
         original[0..4].copy_from_slice(&0x100u32.to_be_bytes());

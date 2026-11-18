@@ -649,13 +649,9 @@ impl Builder<'_> {
 
     /// What one choice of one option does, on its own.
     fn fragment(&self, disc: &Disc, section: usize, option: usize, choice: usize, file: &PatchFile, game_id: &str) -> Plan {
-        let mut alone = disc.clone();
-        for each in alone.sections.iter_mut().flat_map(|s| &mut s.options) {
-            each.selected = 0;
-        }
-        alone.sections[section].options[option].selected = choice + 1;
+        // That choice's patches alone (N-4054: the whole pack was copied for each choice to make it the only one).
         let mut part = Builder { plan: Plan::default(), store: self.store, spare: known_patches::SpareMemory::default(), comet_hook: None, version: 'E' };
-        for patch in alone.active_patches(game_id) {
+        for patch in disc.choice_patches(section, option, choice, game_id) {
             let patch_root = if patch.root.is_empty() {
                 file.xml.parent().unwrap_or(&file.sd_root).to_path_buf()
             } else {
@@ -1006,12 +1002,13 @@ pub fn build(layout: &Layout, game_id: &str, store: Option<&GameStore>) -> Resul
                         // A popular code by its name is one of Nebula's own samples: its memory writes mean nothing to the native
                         // game, so they are not read; the player is told which sample does it.
                         let mut writes = Vec::new();
+                        let mut left = crate::gecko::LIST_BYTES;
                         for one in crate::gecko::ini_codes(&text).into_iter().filter(|c| c.enabled) {
                             if let Some(known) = crate::gecko::known_code(&one.name) {
                                 builder.plan.note(Level::Lost, known.advice(&one.name));
                                 continue;
                             }
-                            let list = crate::gecko::from_pairs(&one.pairs);
+                            let list = crate::gecko::from_pairs(&one.pairs, &mut left);
                             for _ in 0..list.other {
                                 builder.plan.unknown_code.push(UnknownCode { kind: "code list", ..Default::default() });
                             }
