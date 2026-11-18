@@ -1,0 +1,71 @@
+{
+  "harness": 1,
+  "name": "kit-shop-keeper",
+  "about": "M-039: kit-shop-keeper's shop is kept by the stage's first Goomba, who says its title first (A closes the balloon); with the list open the mod kills the keeper, and the player takes row 0 (10 coins, the player has 50). The shop closes when its keeper is gone: the row taken then sells nothing (open gives none, no coins paid)",
+  "proves": [
+    "script.build",
+    "kit.shop"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-shop-keeper"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-shop-keeper.cue",
+        "is": 1
+      },
+      "timeout": 900,
+      "hold": [
+        "A"
+      ],
+      "frames": 3
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop-keeper.killed",
+        "is": true
+      },
+      "timeout": 600,
+      "picture": "list"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop-keeper.killed",
+        "is": true
+      },
+      "timeout": 600,
+      "hold": [
+        "A"
+      ],
+      "frames": 3
+    },
+    {
+      "after": {
+        "fact": "mod.kit-shop-keeper.paid",
+        "exists": true
+      },
+      "timeout": 600,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-shop-keeper.keeper_found",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-shop-keeper.sold",
+      "is": "none"
+    },
+    {
+      "fact": "mod.kit-shop-keeper.paid",
+      "is": 0
+    }
+  ]
+}

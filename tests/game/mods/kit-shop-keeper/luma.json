@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-shop-keeper",
+  "version": "1.0.0",
+  "name": "kit-shop-keeper",
+  "summary": "LumaKit shop conformance: the keeper killed while the list shows; a row taken then sells nothing.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

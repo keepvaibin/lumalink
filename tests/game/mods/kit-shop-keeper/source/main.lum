@@ -1,0 +1,58 @@
+// kit.shop conformance, the keeper (M-039; lumakit-modules.md row 21). The stage's first Goomba keeps a shop of one
+// ware (10 star bits for 10 coins) and says its title first; the mod has 50 coins. "cue" 1: the title's balloon is
+// up (the harness presses A); "killed": 90 frames later, with the list open, the mod kills the keeper; the harness
+// then takes row 0. A row taken after the keeper went sells nothing: "sold" is "none" and "paid" 0.
+use kit.shop
+use kit.item
+
+var staged = false
+
+fn goomba() -> ref<LiveActor>? {
+    if let o = NameObjFinder::find("クリボー") {
+        if let a = as_class<LiveActor>(o) {
+            return ref(a)
+        }
+    }
+    return none
+}
+
+task cues(k: ref<LiveActor>) {
+    wait 60 frames
+    log fact "cue" 1
+    wait 90 frames
+    guard holds("stage") else { return }
+    if let a = k.get() {
+        a.kill()
+    }
+    log fact "killed" true
+}
+
+task run() {
+    wait 300 frames
+    guard holds("player") else { return }
+    guard let g = goomba() else {
+        log fact "keeper_found" false
+        return
+    }
+    log fact "keeper_found" true
+    MR::incCoin(50 - MR::getCoinNum())
+    let s = shop.Shop { title: "Keeper", wares: [shop.Ware { name: "Bits", price: 10, gives: item.Gives.StarBits(10) }],
+                        currency: shop.Currency.Coins, keeper: g }
+    let before = MR::getCoinNum()
+    start cues(g)
+    let got = wait shop.open(s)
+    guard holds("stage") else { return }
+    if let w = got {
+        log fact "sold" w.name
+    } else {
+        log fact "sold" "none"
+    }
+    log fact "paid" before - MR::getCoinNum()
+}
+
+on stage "EggStarGalaxy" {
+    if not staged {
+        staged = true
+        start run()
+    }
+}
