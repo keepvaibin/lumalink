@@ -411,6 +411,9 @@ struct Checker<'a> {
     member_index: MemberIndexes,
     /// The mod's state machines by class and name, made the first time a `go` or `is_state` asks ([`Machines`]).
     machines: std::cell::OnceCell<Machines>,
+    /// The names of the classes of the mod and of the libraries it uses, in ASCII lower case, made the first time a
+    /// `make` asks (N-4046).
+    class_names: std::cell::OnceCell<std::collections::HashSet<String>>,
 }
 
 /// The mod's `states` items, found once a check: each `go` and `is_state` finds its machine and state in constant time,
@@ -427,7 +430,7 @@ pub(crate) struct Machines {
 
 /// Checks a mod's modules (part b) against its libraries and facts.
 pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> Checked {
-    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default(), member_index: Default::default(), machines: Default::default() };
+    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default(), member_index: Default::default(), machines: Default::default(), class_names: Default::default() };
     c.out.option_index = c.facts.options.iter().enumerate().map(|(i, o)| (o.key.clone(), i as u32)).collect();
     if let Some(content) = c.facts.content {
         if let Some(models) = content.names.get("model") {

@@ -69,7 +69,6 @@ fn list(t: Ty) -> Ty {
     Ty::List(Box::new(t))
 }
 
-/// The builtin method `name` of a value of type `t` (language.md 6.2, 11.1).
 /// Every name [`builtin`] knows, of any type (a test reads `builtin`'s arms against it).
 const METHOD_NAMES: &[&str] = &[
     "len", "push", "pop", "insert", "remove", "get", "contains", "indexed", "first", "last", "sort", "map", "filter", "any", "all", "sum",
@@ -88,6 +87,7 @@ pub(crate) fn builtins_of(t: &Ty) -> Vec<(&'static str, Vec<(String, Ty)>, Ty, b
         .collect()
 }
 
+/// The builtin method `name` of a value of type `t` (language.md 6.2, 11.1).
 fn builtin(t: &Ty, name: &str) -> Option<Builtin> {
     let b = |name: &'static str, params: Vec<P>, ret: Ty| Builtin { name, params, ret, mutates: false, closure: None, needs: None };
     let m = |name: &'static str, params: Vec<P>, ret: Ty| Builtin { name, params, ret, mutates: true, closure: None, needs: None };
@@ -224,8 +224,6 @@ pub(super) fn method_known(t: &Ty, name: &str) -> bool {
     builtin(t, name).is_some()
 }
 
-/// A game parameter as a script passes it: the type an argument has, whether it is a `var` argument
-/// (a pointer or reference to a number, vector or enum the game writes), whether `none` may be passed.
 /// A game type without its `?`.
 fn unopt(g: &GameTy) -> &GameTy {
     match g {
@@ -272,6 +270,8 @@ pub(super) fn none_crosses(g: &GameTy) -> bool {
     }
 }
 
+/// A game parameter as a script passes it: the type an argument has, whether it is a `var` argument
+/// (a pointer or reference to a number, vector or enum the game writes), whether `none` may be passed.
 pub(super) fn game_param(g: &GameTy) -> (Ty, bool, bool) {
     match g {
         GameTy::Opt(inner) => {
@@ -1367,8 +1367,17 @@ impl<'w, 'a> Walk<'w, 'a> {
     /// Whether a class of the mod or of a library it uses is named `name` (the factory makes it by that name once
     /// defined; case is ignored, as the factory ignores it).
     fn class_named(&self, name: &str) -> bool {
-        let named = |m: &crate::check::Source| m.module.items.iter().any(|i| matches!(&i.kind, ast::ItemKind::Class(c) if c.name.name.eq_ignore_ascii_case(name)));
-        self.c.modules.iter().any(named) || self.c.libraries.iter().any(|l| l.modules.iter().any(named))
+        // Found once a check: a look through every item for each `make` made each cost the mod's size (N-4046).
+        let c: &crate::check::Checker<'a> = self.c;
+        let names = c.class_names.get_or_init(|| {
+            let modules = c.modules.iter().chain(c.libraries.iter().flat_map(|l| l.modules.iter()));
+            let classes = modules.flat_map(|m| m.module.items.iter()).filter_map(|i| match &i.kind {
+                ast::ItemKind::Class(cd) => Some(cd.name.name.to_ascii_lowercase()),
+                _ => None,
+            });
+            classes.collect()
+        });
+        names.contains(&name.to_ascii_lowercase())
     }
 
     /// Whether `same(a, b)` compares these: views of related records, the mod's object and its base's view,

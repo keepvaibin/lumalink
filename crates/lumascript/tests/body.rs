@@ -1089,6 +1089,33 @@ on frame {
 "), vec![]);
 }
 
+/// Many classes of the mod, each made by its name: each name is found in time that does not grow with the mod's items
+/// (N-4046: each `make` with a literal name looked through every item of every module for a class of that name).
+#[test]
+fn make_by_a_class_name_stays_linear() {
+    let mut game = small_game();
+    game.factory = Some(vec![("Plain".into(), Some("LiveActor".into()))]);
+    let mut took = Vec::new();
+    for n in [2_000usize, 8_000] {
+        let mut text = String::new();
+        for i in 0..n {
+            text.push_str(&format!("class C{i} : LiveActor made by Plain {{\n}}\n"));
+        }
+        text.push_str("on frame {\n");
+        // The last classes, written last: a look through the items finds them at the end.
+        for i in 0..4 * n {
+            text.push_str(&format!("    make(\"c{}\", MakePlace {{ at: vec3(0.0, 0.0, 0.0) }})\n", n - 1 - i % 2));
+        }
+        text.push_str("}\n");
+        let start = std::time::Instant::now();
+        let said: Said = full_in(&game, &text).into_iter().filter(|d| d.0 != code::NOT_DESCRIBED).collect();
+        took.push(start.elapsed());
+        assert_eq!(said, vec![]);
+    }
+    eprintln!("2000: {:?}, 8000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
+
 #[test]
 fn nullable_where_nothing_else_crosses_takes_none() {
     // A kept address, and a `void *`, marked nullable: the script leaves it out.

@@ -203,6 +203,24 @@ fn bodies_stay_linear() {
     assert!(took[1] < took[0] * 8, "{took:?}");
 }
 
+/// A text of many `\u{...}` escapes: each is checked where it is, in time that does not grow with the text after it
+/// (N-4047: each copied the rest of the text).
+#[test]
+fn many_escapes_stay_linear() {
+    let mut took = Vec::new();
+    for n in [5_000usize, 20_000] {
+        let src = format!("let x = \"{}\"\non start {{\n    log x\n}}\n", "\\u{41}\\u{1F600}".repeat(n));
+        let (t, said) = check_timed(&src);
+        assert!(said.is_empty(), "{said:?}");
+        took.push(t);
+    }
+    eprintln!("5000: {:?}, 20000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+    // A wrong one is still said as written.
+    let (_, said) = check_timed("let x = \"a\\u{110000}b\"\n");
+    assert_eq!(said.iter().map(|d| (d.code, d.args.clone())).collect::<Vec<_>>(), [(code::BAD_ESCAPE, vec![("found", lumascript::Arg::Text("\\u{110000}".into()))])]);
+}
+
 /// A body of 200,000 waits: its list of waits is let go of one by one, not by a recursion as deep as the list.
 #[test]
 fn a_long_list_of_waits_is_let_go_of() {

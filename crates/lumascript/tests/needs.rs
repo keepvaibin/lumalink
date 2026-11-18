@@ -341,6 +341,22 @@ fn many_waits_after_a_proof_stay_linear() {
     assert!(took[1] < took[0] * 8, "{took:?}");
 }
 
+/// An `if` of many arms, each proving by not holding what the arms after it and its `else` have: each need is carried
+/// once, not once for each arm before (N-4048: arm k copied the k proofs before it).
+#[test]
+fn many_arms_that_prove_stay_linear() {
+    let mut took = Vec::new();
+    for n in [2_000usize, 8_000] {
+        let arms = "    } else if not can(MR::useScene) {\n        log 1\n".repeat(n);
+        let text = format!("on frame {{\n    if not can(MR::useScene) {{\n        log 0\n{arms}    }} else {{\n        MR::useScene()\n    }}\n}}\n");
+        let (t, said) = needs_timed(&text);
+        assert_eq!(said, vec![]);
+        took.push(t);
+    }
+    eprintln!("2000: {:?}, 8000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
+
 /// A game of `n` overrides of LiveActor::control (every other one through the one before it) among `filler` other
 /// rows.
 fn game_with_overrides(n: usize, filler: usize) -> Game {

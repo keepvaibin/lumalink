@@ -42,7 +42,6 @@ pub(super) fn array_element(of: &GameTy, extents: &[u64]) -> Ty {
     }
 }
 
-/// A game type where a value is read: numbers and vectors as LumaScript's, a place's referent, a pointer's `?`.
 /// `-N` with N a number literal that is not 0 (through `( )`).
 fn negative_literal(e: &Expr) -> bool {
     let ExprKind::Neg(x) = &e.kind else { return false };
@@ -67,6 +66,7 @@ fn number_text(e: &Expr) -> String {
     }
 }
 
+/// A game type where a value is read: numbers and vectors as LumaScript's, a place's referent, a pointer's `?`.
 pub(super) fn from_game_place(g: &GameTy) -> Ty {
     match g {
         GameTy::Unit => Ty::Unit,
@@ -283,15 +283,17 @@ fn bad_escape(text: &str, bytes: bool) -> Option<String> {
                 i += 4;
             }
             'u' => {
-                let rest: String = chars.iter().skip(i + 2).collect();
-                let close = rest.find('}');
-                let ok = rest.starts_with('{')
-                    && close.is_some_and(|c| (2..=7).contains(&c) && u32::from_str_radix(&rest[1..c], 16).ok().and_then(char::from_u32).is_some());
+                // Read in place: a copy of the rest of the text for each escape made a text of many cost their square
+                // (N-4047).
+                let rest = &chars[i + 2..];
+                let close = rest.iter().position(|c| *c == '}');
+                let ok = rest.first() == Some(&'{')
+                    && close.is_some_and(|c| (2..=7).contains(&c) && u32::from_str_radix(&rest[1..c].iter().collect::<String>(), 16).ok().and_then(char::from_u32).is_some());
                 if !ok {
-                    let shown: String = rest.chars().take_while(|c| *c != '}').take(9).collect();
+                    let shown: String = rest.iter().take_while(|c| **c != '}').take(9).collect();
                     return Some(format!("\\u{shown}{}", if close.is_some() { "}" } else { "" }));
                 }
-                i += 2 + rest[..=close.unwrap_or(0)].chars().count();
+                i += 3 + close.unwrap_or(0);
             }
             other => return Some(format!("\\{other}")),
         }
@@ -1001,8 +1003,21 @@ impl<'w, 'a> Walk<'w, 'a> {
             self.prove(otherwise_proved.clone());
             self.conds(conds);
             if let [ast::Cond { pattern: None, value }] = conds.as_slice() {
-                self.given_by(value, false, &mut otherwise_given);
-                self.proved_by(value, false, &mut otherwise_proved);
+                // Each once: an arm copies them, and a copy of every arm's before it made an `if` of many arms cost
+                // their square (N-4048).
+                let (mut given, mut proved) = (Vec::new(), Vec::new());
+                self.given_by(value, false, &mut given);
+                self.proved_by(value, false, &mut proved);
+                for g in given {
+                    if !otherwise_given.contains(&g) {
+                        otherwise_given.push(g);
+                    }
+                }
+                for p in proved {
+                    if !otherwise_proved.contains(&p) {
+                        otherwise_proved.push(p);
+                    }
+                }
             }
             base = self.path_waits();
             let leaves = self.arm_block(block, arm_want, &mut joined);
