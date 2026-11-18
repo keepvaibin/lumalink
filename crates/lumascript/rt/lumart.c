@@ -3518,6 +3518,47 @@ double lumart_atan2(double y, double x) {
     }
 }
 
+/* x - n*y with n = x/y rounded toward zero, exactly (the result is always representable): the significands' long
+   division one bit at a time, as `%` on integers truncates. The sign is x's; NaN for y 0, x infinite or a NaN. */
+double lumart_fmod(double x, double y) {
+    uint64_t ux = f64_bits(x), uy = f64_bits(y);
+    int ex = (int)((ux >> 52) & 0x7FF), ey = (int)((uy >> 52) & 0x7FF);
+    const uint64_t sign = ux & 0x8000000000000000ull;
+    if ((uy << 1) == 0 || y != y || ex == 0x7FF) return (x * y) / (x * y);
+    if ((ux << 1) <= (uy << 1)) return (ux << 1) == (uy << 1) ? 0.0 * x : x;
+    /* The significands as integers with their leading 1 at bit 52; a subnormal's shifted up, its exponent below 1. */
+    if (ex == 0) {
+        for (uint64_t i = ux << 12; (i >> 63) == 0; i <<= 1) ex--;
+        ux <<= 1 - ex;
+    } else {
+        ux = (ux & 0x000FFFFFFFFFFFFFull) | 0x0010000000000000ull;
+    }
+    if (ey == 0) {
+        for (uint64_t i = uy << 12; (i >> 63) == 0; i <<= 1) ey--;
+        uy <<= 1 - ey;
+    } else {
+        uy = (uy & 0x000FFFFFFFFFFFFFull) | 0x0010000000000000ull;
+    }
+    for (; ex > ey; ex--) {
+        if (ux >= uy) {
+            ux -= uy;
+            if (ux == 0) return 0.0 * x;
+        }
+        ux <<= 1;
+    }
+    if (ux >= uy) {
+        ux -= uy;
+        if (ux == 0) return 0.0 * x;
+    }
+    for (; (ux >> 52) == 0; ux <<= 1) ex--;
+    if (ex > 0) {
+        ux = (ux - 0x0010000000000000ull) | ((uint64_t)ex << 52);
+    } else {
+        ux >>= 1 - ex;
+    }
+    return f64_from(ux | sign);
+}
+
 /* ---------------------------------------------------------------- tasks */
 
 uint64_t lumart_now_frame;

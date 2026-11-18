@@ -467,6 +467,12 @@ static inline float lumart_cosf(float x) {
 static inline float lumart_atan2f(float y, float x) {
     return (float)lumart_atan2((double)y, (double)x);
 }
+/* `%` on floats: x - n*y with n = x/y rounded toward zero, exact, x's sign (as `%` on integers truncates); NaN for y 0,
+   x infinite or a NaN. The f32 form is exact through f64: a remainder of two floats is a float. */
+double lumart_fmod(double x, double y);
+static inline float lumart_fmodf(float x, float y) {
+    return (float)lumart_fmod((double)x, (double)y);
+}
 
 /* ---------------------------------------------------------------- handles (docs/modding/language/language.md, section 6.2; docs/modding/language/compiled-form.md, section 7.3) */
 /* A handle: a slot of the mod's table and the slot's generation then. {0, 0} is the empty handle. */

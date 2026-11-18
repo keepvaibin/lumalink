@@ -367,8 +367,9 @@ impl<'a> Gen<'a> {
                     },
                     // `a?.f` reads its field where the optional's value is known (expr.rs).
                     crate::ast::ExprKind::Member { optional: true, .. } => return None,
-                    // A field named alone: `self`'s, in a hook.
+                    // A field named alone: `self`'s, in a hook or a class's own function.
                     _ if fx.hook.is_some() => "call->args[0]".to_string(),
+                    _ if fx.self_c.is_some() => fx.self_c.clone().unwrap_or_default(),
                     _ => return Some(self.not_yet(fx, e, ny!("SelfFieldOutsideHook"))),
                 };
                 let of = self.ty(m, e);

@@ -359,6 +359,9 @@ pub mod code {
     /// A `match` too large to check that its arms cover every value (the coverage's steps past MATCH_STEPS): `else`
     /// covers what is left.
     pub const MATCH_TOO_LARGE: u16 = 158;
+    /// A task's `var` parameter (`task f(var n: i32)`): the task runs on after the call, when the caller's place may be
+    /// gone, so nothing it writes could reach it; the task gives the value back as its result (11.1a).
+    pub const TASK_VAR_PARAM: u16 = 161;
     /// The back end does not write `{what}` yet; the build stops here rather than guess.
     pub const BACKEND_NOT_YET: u16 = 800;
 
@@ -520,6 +523,7 @@ pub mod code {
         HOLDS_WHAT,
         OPTIONAL_SVC_UNTESTED,
         MATCH_TOO_LARGE,
+        TASK_VAR_PARAM,
         BACKEND_NOT_YET,
     ];
 
@@ -611,6 +615,7 @@ pub fn args_of(code: u16) -> &'static [&'static str] {
         code::GO_UNKNOWN => &["found", "machine"],
         code::GO_NAME_MACHINE => &["what", "found", "machine"],
         code::STATE_PART_TWICE => &["found", "line"],
+        code::TASK_VAR_PARAM => &["found"],
         _ => &[],
     }
 }
@@ -824,7 +829,6 @@ pub const NOT_YET: &[(&str, &[&str])] = &[
     ("Script.NotYet.GoState", &[]),
     ("Script.NotYet.Guard", &[]),
     ("Script.NotYet.HookEveryOverride", &["on", "target"]),
-    ("Script.NotYet.HookInClass", &[]),
     ("Script.NotYet.HookNoCross", &[]),
     ("Script.NotYet.HookParam", &["type"]),
     ("Script.NotYet.HookReturning", &["type"]),
@@ -847,7 +851,6 @@ pub const NOT_YET: &[(&str, &[&str])] = &[
     ("Script.NotYet.ListLiteral", &[]),
     ("Script.NotYet.ListLiteralType", &[]),
     ("Script.NotYet.LiteralPattern", &["type"]),
-    ("Script.NotYet.LocalFn", &[]),
     ("Script.NotYet.LocalOfType", &["type"]),
     ("Script.NotYet.Log", &[]),
     ("Script.NotYet.LowBitsType", &[]),
@@ -856,7 +859,6 @@ pub const NOT_YET: &[(&str, &[&str])] = &[
     ("Script.NotYet.MatchOn", &["type"]),
     ("Script.NotYet.Member", &[]),
     ("Script.NotYet.MemberPlaceKind", &[]),
-    ("Script.NotYet.MethodFnValue", &["type", "name"]),
     ("Script.NotYet.MethodOf", &["type", "name"]),
     ("Script.NotYet.Minus", &[]),
     ("Script.NotYet.MinusOnType", &[]),
@@ -894,7 +896,6 @@ pub const NOT_YET: &[(&str, &[&str])] = &[
     ("Script.NotYet.ProceedOutsideWrap", &[]),
     ("Script.NotYet.RefCall", &[]),
     ("Script.NotYet.RefOfValue", &[]),
-    ("Script.NotYet.RemOnFloats", &[]),
     ("Script.NotYet.RequestTakeSize", &[]),
     ("Script.NotYet.Result", &[]),
     ("Script.NotYet.ResultOfNone", &[]),
@@ -932,7 +933,6 @@ pub const NOT_YET: &[(&str, &[&str])] = &[
     ("Script.NotYet.StructLiteral", &[]),
     ("Script.NotYet.TaskGiving", &[]),
     ("Script.NotYet.TaskParam", &[]),
-    ("Script.NotYet.TaskVar", &[]),
     ("Script.NotYet.TextArgNoName", &[]),
     ("Script.NotYet.TextKeyRuntime", &[]),
     ("Script.NotYet.TextNotLiteral", &[]),

@@ -740,6 +740,26 @@ impl<'w, 'a> Walk<'w, 'a> {
                     Ty::Error
                 }
             },
+            // A class's own function with no `self`: `W.f(...)`.
+            ast::ItemKind::Class(cd) => match cd.members.iter().find_map(|m| match m {
+                ast::ClassMember::Fn(f) if f.name.name == name.name && !f.params.iter().any(|p| p.is_self) => Some(f),
+                _ => None,
+            }) {
+                Some(f) => {
+                    let key = format!(".{}", f.name.name);
+                    let (ps, r) = self.fn_params(item, &key, &f.params, f.ret.is_some());
+                    self.res.insert(e.id, Resolved::Member { owner: item, name: f.name.name.clone() });
+                    let shown = format!("{type_name}.{}", f.name.name);
+                    self.mod_needs(e.at, (item, key), shown.clone());
+                    self.args_against(&shown, &ps, args, e.at);
+                    r
+                }
+                None => {
+                    self.say(Diagnostic::new(code::NO_MEMBER, name.at).with("name", Arg::Text(name.name.clone())).with("found", Arg::Text(type_name)));
+                    self.args_any(args);
+                    Ty::Error
+                }
+            },
             _ => {
                 self.say(Diagnostic::new(code::NO_MEMBER, name.at).with("name", Arg::Text(name.name.clone())).with("found", Arg::Text(type_name)));
                 self.args_any(args);

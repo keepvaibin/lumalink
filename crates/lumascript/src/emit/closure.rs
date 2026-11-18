@@ -13,9 +13,18 @@
 //! (docs/modding/concepts/when-a-mod-fails.md, "A fault in another mod's code").
 
 use super::{c_string, counted, lost, Ex, Fx, Gen};
-use crate::ast::{self, Block, Expr};
+use crate::ast::{self, Block, Expr, Pos};
 use crate::check::{LocalId, Resolved, Ty};
 use std::fmt::Write as _;
+
+/// How a list method's function argument is run for each item (`list.map(f)`, `filter`, `any`, `all`, `sum`,
+/// `sort_by`).
+pub(super) enum Apply<'x> {
+    /// A closure written as the argument: its body in place.
+    Inline(&'x [ast::Param], &'x Block),
+    /// Any other function value: worked out once into `f`, called for each item.
+    Value { f: String, ps: Vec<Ty>, r: Ty, src: String, at: Pos },
+}
 
 impl<'a> Gen<'a> {
     /// The C function type of a value of type `fn(ps) -> r`, as a cast: `int32_t (*)(lumart_fn, P..., R*)`.
@@ -82,10 +91,11 @@ impl<'a> Gen<'a> {
     }
 
     /// A closure written where a value goes: its C function and, when it captures, its block's type, maker and drop,
-    /// written into the module's code; here, the value made.
-    pub(super) fn closure_value(&mut self, fx: &mut Fx, e: &Expr, params: &[ast::Param], body: &Block, t: &Ty) -> Ex {
+    /// written into the module's code; here, the value made. `own` is a local function's name (`fn f(..) { }` in a
+    /// body): inside, `f` is the closure being run (`lm_fn`), so it may call itself, never a copy made before it was.
+    pub(super) fn closure_value(&mut self, fx: &mut Fx, at: Pos, params: &[ast::Param], body: &Block, t: &Ty, own: Option<LocalId>) -> Ex {
         let m = fx.module;
-        let Ty::Fn(_, r) = t else { return self.not_yet(fx, e, ny!("ClosureType")) };
+        let Ty::Fn(_, r) = t else { return self.say_at(fx, at, ny!("ClosureType")) };
         let r = (**r).clone();
         let n = self.closure_n;
         self.closure_n += 1;
@@ -114,6 +124,10 @@ impl<'a> Gen<'a> {
             head.push(format!("{ct}* lm_ret"));
             inner.ret = Some((ct, r.clone()));
         }
+        if let Some(id) = own {
+            inner.places.insert(id, "lm_fn".into());
+            inner.declared.insert(id);
+        }
         // Every local around it, read through the block (only those the body names are kept).
         let mut outer: Vec<LocalId> = fx.declared.iter().copied().chain(fx.places.keys().copied()).collect();
         outer.sort_unstable();
@@ -127,7 +141,7 @@ impl<'a> Gen<'a> {
         self.block(&mut inner, body);
         self.out_defers(&mut inner);
         let head = format!("int32_t {name}({})", head.join(", "));
-        let text = inner.function(&head, e.at);
+        let text = inner.function(&head, at);
         // The captures: the locals whose block place the body's C reads.
         let mut caps: Vec<(LocalId, String)> = Vec::new();
         for id in &outer {
@@ -181,7 +195,7 @@ impl<'a> Gen<'a> {
         let tmp = fx.take("lumart_fn");
         fx.emit(format!("{tmp} = {name}_mk({});", vals.join(", ")));
         let src = c_string("closure");
-        fx.fail_if(&format!("{tmp} == 0 && lumart_raise({}, {}, 911, 1, (const char* const[]){{{src}}})", c_string(&fx.file), e.at.line));
+        fx.fail_if(&format!("{tmp} == 0 && lumart_raise({}, {}, 911, 1, (const char* const[]){{{src}}})", c_string(&fx.file), at.line));
         Ok(tmp)
     }
 
@@ -226,36 +240,66 @@ impl<'a> Gen<'a> {
     pub(super) fn call_fn_value(&mut self, fx: &mut Fx, e: &Expr, callee: &Expr, args: &[ast::Arg]) -> Ex {
         let m = fx.module;
         let Ty::Fn(ps, r) = self.ty(m, callee) else { return self.not_yet(fx, e, ny!("CallValue")) };
-        let cast = self.fn_cast(&ps, &r).ok_or_else(lost)?;
         let v = self.expr(fx, callee)?;
         let f = fx.temp("lumart_fn", &v);
-        let mut cs = vec![f.clone()];
         let mut xs = Vec::new();
-        for (a, p) in args.iter().zip(ps.iter()) {
+        for a in args {
             let at = self.ty(m, &a.value);
             let x = self.expr(fx, &a.value)?;
-            let x = self.coerce(fx, &x, &at, p, a.at)?;
+            xs.push((x, at, a.at));
+        }
+        self.call_value_with(fx, &f, &ps, &r, &xs, &super::expr_text(callee), e.at)
+    }
+
+    /// One call of the function value `f` (a `lumart_fn` already worked out) with these C values, each of its type,
+    /// given to the parameters' types: a plain C call for this mod's value, LumaCore.call_mod for another's. Its
+    /// result (empty for none); a null value is the script error naming `src`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn call_value_with(&mut self, fx: &mut Fx, f: &str, ps: &[Ty], r: &Ty, args: &[(String, Ty, Pos)], src: &str, at: Pos) -> Ex {
+        let cast = self.fn_cast(ps, r).ok_or_else(lost)?;
+        let mut cs = vec![f.to_string()];
+        let mut xs = Vec::new();
+        for ((x, from, xat), p) in args.iter().zip(ps.iter()) {
+            let x = self.coerce(fx, x, from, p, *xat)?;
             cs.push(x.clone());
             xs.push(x);
         }
         let out = if *r != Ty::Unit {
-            let ct = self.c_type(&r).ok_or_else(lost)?;
+            let ct = self.c_type(r).ok_or_else(lost)?;
             let o = fx.fresh(&ct);
             cs.push(format!("&{o}"));
             Some(o)
         } else {
             None
         };
-        let src = c_string(&super::expr_text(callee));
-        fx.fail_if(&format!("{f} == 0 && lumart_raise({}, {}, 906, 1, (const char* const[]){{{src}}})", c_string(&fx.file), e.at.line));
+        let src = c_string(src);
+        fx.fail_if(&format!("{f} == 0 && lumart_raise({}, {}, 906, 1, (const char* const[]){{{src}}})", c_string(&fx.file), at.line));
         let place = out.as_ref().map_or_else(|| "0".to_string(), |o| format!("&{o}"));
         let plain = format!("if ((({cast})({f}->code))({}) != 0) {{ lm_st = 1; goto lm_out; }}", cs.join(", "));
-        let lines = self.fn_value_call(&f, &ps, &xs, &place, &plain).ok_or_else(lost)?;
+        let lines = self.fn_value_call(f, ps, &xs, &place, &plain).ok_or_else(lost)?;
         fx.emit("{".into());
         for line in lines {
             fx.emit(format!("    {line}"));
         }
         fx.emit("}".into());
         Ok(out.unwrap_or_default())
+    }
+
+    /// A list method's function argument for each item: a closure written there, run in place, or a function value,
+    /// called (its result given to the type the method wants).
+    pub(super) fn apply(&mut self, fx: &mut Fx, how: &Apply, args: &[(String, Ty)], ret: &Ty) -> Ex {
+        match how {
+            Apply::Inline(params, body) => self.inline_closure(fx, params, body, args, ret),
+            Apply::Value { f, ps, r, src, at } => {
+                let xs: Vec<(String, Ty, Pos)> = args.iter().map(|(x, t)| (x.clone(), t.clone(), *at)).collect();
+                let v = self.call_value_with(fx, f, ps, r, &xs, src, *at)?;
+                if *ret == Ty::Unit {
+                    return Ok(v);
+                }
+                let v = self.coerce(fx, &v, r, ret, *at)?;
+                let ct = self.c_type(ret).ok_or_else(lost)?;
+                Ok(fx.temp(&ct, &v))
+            }
+        }
     }
 }

@@ -495,6 +495,12 @@ struct Fx {
     made: Vec<(String, String)>,
 }
 
+/// A hook written in a class: its data struct (when it has fields) and its number's global, for `is_a`.
+struct HookClass {
+    data: Option<String>,
+    number: String,
+}
+
 #[derive(Clone, Debug)]
 struct HookFx {
     kind: HookKind,
@@ -1214,7 +1220,7 @@ impl<'a> Gen<'a> {
                 ItemKind::Binding(b) => {
                     // A module `let` or `var`: a global of the mod, set by the module's initialiser in order.
                     let ast::PatternKind::Path { path, args: None, fields: None } = &b.pattern.kind else {
-                        self.say(m, b.at, ny!("ModulePattern"));
+                        self.module_pattern(m, me, b, &mut out, &mut init);
                         continue;
                     };
                     let name = &path[0];
@@ -1401,6 +1407,12 @@ impl<'a> Gen<'a> {
         let mut locals = Vec::new();
         let mut self_c = None;
         for (i, p) in f.params.iter().enumerate() {
+            if p.is_self && matches!(self.item(item).kind, ItemKind::Class(_)) {
+                // A class's `self`: the object (its fields are in the class's data, not in a value).
+                params.push("void* lm_self".to_string());
+                self_c = Some("lm_self".to_string());
+                continue;
+            }
             if p.is_self {
                 // A struct's `self`: its value, or its place's address for `var self`.
                 let ct = self.c_type(&Ty::Struct(item))?;
@@ -1453,6 +1465,12 @@ impl<'a> Gen<'a> {
         format!("{}__{f}", self.item_c(item, &s.name.name))
     }
 
+    /// A class's own function's C name (`_fn`: apart from its overrides' `_ob` and `_ov`).
+    fn class_fn_c(&self, item: ItemRef, f: &str) -> String {
+        let ItemKind::Class(c) = &self.item(item).kind else { return String::new() };
+        format!("{}__{f}_fn", self.item_c(item, &c.name.name))
+    }
+
     fn function(&mut self, m: usize, me: ItemRef, key: &str, c_name: &str, f: &ast::FnDecl, file: &str) -> Option<String> {
         let Some((head, params, ret, self_c)) = self.fn_head(me, key, c_name, f) else {
             self.say(m, f.name.at, ny!("FnSignatureType"));
@@ -1477,7 +1495,15 @@ impl<'a> Gen<'a> {
 
     /// One hook item: its body function, added to its (function, kind) group.
     fn hook(&mut self, m: usize, me: ItemRef, h: &ast::Hook, file: &str) -> Option<String> {
-        let target = self.checked.hooks.get(&(me, String::new()))?.clone();
+        self.hook_in(m, me, "", h, None, file)
+    }
+
+    /// A hook, at the top of a module or in a class (`class`): a class's runs on the class's own objects only. Its
+    /// registered function tests `this` (`is_a`) and passes any other object on as if the hook were not there (a
+    /// before does not skip, a wrap or replace proceeds); the body has `self` the object and its fields in the
+    /// class's data (`lm_d`).
+    fn hook_in(&mut self, m: usize, me: ItemRef, key: &str, h: &ast::Hook, class: Option<HookClass>, file: &str) -> Option<String> {
+        let target = self.checked.hooks.get(&(me, key.to_string()))?.clone();
         let fnty = match self.game.hook_signature(&target.signature) {
             Ok(f) => f,
             Err(_) => {
@@ -1510,8 +1536,16 @@ impl<'a> Gen<'a> {
         // docs/modding/language/compiled-form.md, section 2: `lm_hook_<n>`, n counting the mod's hooks in written order (modules in order).
         let c_name = format!("lm_hook_{}", self.hooks_written);
         self.hooks_written += 1;
+        // A class's hook: the body is `<name>_of`, called by the registered function for the class's objects.
+        let body_name = if class.is_some() { format!("{c_name}_of") } else { c_name.clone() };
         let mut fx = Fx::new(file, m);
         fx.hook = Some(HookFx { kind: h.kind, result_c: result_c.clone(), texts: Vec::new(), outs: Vec::new(), name: h.target.text.clone(), line: h.at.line });
+        if let Some(HookClass { data: Some(d), number }) = &class {
+            fx.decl(format!("{d}* lm_d;"));
+            fx.emit(format!("lm_d = ({d}*)luma_rt_core->class_data(luma_rt_self, call->args[0], {number});"));
+            fx.fail_if("lm_d == 0");
+            fx.class_data = Some(me);
+        }
         // The parameters: each a place in the call's arguments (docs/modding/language/compiled-form.md, section 4, addition 3).
         if let Some(params) = &h.params {
             for (i, p) in params.iter().enumerate() {
@@ -1575,11 +1609,12 @@ impl<'a> Gen<'a> {
             }
         }
         self.block(&mut fx, &h.body);
-        let head = match h.kind {
-            HookKind::Before => format!("int32_t {c_name}(LumaCall* call, uint8_t* lm_skip)"),
-            HookKind::After => format!("int32_t {c_name}(LumaCall* call)"),
-            HookKind::Wrap | HookKind::Replace => format!("int32_t {c_name}(LumaCall* call, uint8_t* lm_proceeded, int32_t (*lm_next)(LumaCall*))"),
+        let head = |name: &str| match h.kind {
+            HookKind::Before => format!("int32_t {name}(LumaCall* call, uint8_t* lm_skip)"),
+            HookKind::After => format!("int32_t {name}(LumaCall* call)"),
+            HookKind::Wrap | HookKind::Replace => format!("int32_t {name}(LumaCall* call, uint8_t* lm_proceeded, int32_t (*lm_next)(LumaCall*))"),
         };
+        let (outer, head) = (head(&c_name), head(&body_name));
         self.out_defers(&mut fx);
         fx.place_args_tail();
         // A before hook's changed texts go to the call on every way out but a script error's (the game's function
@@ -1602,8 +1637,18 @@ impl<'a> Gen<'a> {
                 self.kept.push((file.to_string(), h.at.line, p));
             }
         }
-        let text = fx.function(&head, h.at);
+        let mut text = fx.function(&head, h.at);
         self.protos.push(format!("{head};"));
+        if let Some(HookClass { number, .. }) = &class {
+            let (args, pass) = match h.kind {
+                HookKind::Before => ("call, lm_skip", "        return 0;"),
+                HookKind::After => ("call", "        return 0;"),
+                HookKind::Wrap | HookKind::Replace => ("call, lm_proceeded, lm_next", "        *lm_proceeded = 1;\n        return lm_next(call);"),
+            };
+            let _ = writeln!(text, "#line {} {}", h.at.line, c_string(file));
+            let _ = writeln!(text, "{outer} {{\n    if (!luma_rt_core->is_a(call->args[0], {number})) {{\n{pass}\n    }}\n    return {body_name}({args});\n}}\n");
+            self.protos.push(format!("{outer};"));
+        }
         let group = self.groups.entry(key).or_insert_with(|| Group { result_c: result_c.clone(), bodies: Vec::new() });
         group.bodies.push(Body { c_name: c_name.clone(), file: file.to_string(), line: h.at.line });
         // `every override of` (docs/modding/language/compiled-form.md, section 4): the same body on each override's row
@@ -2524,6 +2569,65 @@ impl Fx {
         }
         out.push_str("    return lm_st;\n}\n\n");
         out
+    }
+}
+
+impl<'a> Gen<'a> {
+    /// A module `let (a, b) = v` (a tuple of names, the checker's module pattern): a global of the mod for each name,
+    /// set by the module's initialiser in order from the value worked out once; `_` keeps nothing.
+    fn module_pattern(&mut self, m: usize, me: ItemRef, b: &ast::Binding, out: &mut String, init: &mut Fx) {
+        let t = self.checked.types.get(&(me, String::new())).cloned().or_else(|| b.value.as_ref().map(|v| self.ty(m, v))).unwrap_or(Ty::Error);
+        let mut leaves = Vec::new();
+        if !leaf_names(&b.pattern, &t, String::new(), &mut leaves) {
+            self.say(m, b.pattern.at, ny!("ModulePattern"));
+            return;
+        }
+        let mut globals = Vec::new();
+        for (name, lt, part) in leaves {
+            let Some(ct) = self.c_type(&lt) else {
+                let what = ny!("ModuleValue", "type" => self.ty_text(&lt));
+                self.say(m, b.at, what);
+                return;
+            };
+            let g = global_name(m, &name);
+            if counted(&ct) {
+                self.counted_globals.push((g.clone(), ct.clone()));
+            }
+            self.globals.push(format!("extern {ct} {g};"));
+            let _ = writeln!(out, "{ct} {g};");
+            globals.push((g, ct, part));
+        }
+        let Some(v) = &b.value else { return };
+        let Some(whole) = self.c_type(&t) else {
+            let what = ny!("ModuleValue", "type" => self.ty_text(&t));
+            self.say(m, b.at, what);
+            return;
+        };
+        init.line_marker(b.at);
+        let Ok(x) = self.expr(init, v) else { return };
+        let from = self.ty(m, v);
+        let Ok(x) = self.coerce(init, &x, &from, &t, v.at) else { return };
+        let value = init.temp(&whole, &x);
+        for (g, ct, part) in globals {
+            init.set(&g, &format!("{value}{part}"), &ct);
+        }
+    }
+}
+
+/// The names of a module pattern (names and tuples of names), each with its type and its part of the value (`._0._1`);
+/// false for a pattern of another kind or a type that does not match it (the checker said so).
+fn leaf_names(p: &ast::Pattern, t: &Ty, part: String, out: &mut Vec<(String, Ty, String)>) -> bool {
+    match (&p.kind, t) {
+        (ast::PatternKind::Path { path, args: None, fields: None }, _) if path.len() == 1 => {
+            if path[0].name != "_" {
+                out.push((path[0].name.clone(), t.clone(), part));
+            }
+            true
+        }
+        (ast::PatternKind::Tuple(ps), Ty::Tuple(ts)) if ps.len() == ts.len() => {
+            ps.iter().zip(ts).enumerate().all(|(i, (sp, st))| leaf_names(sp, st, format!("{part}._{i}"), out))
+        }
+        _ => false,
     }
 }
 

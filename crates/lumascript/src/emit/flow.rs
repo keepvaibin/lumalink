@@ -130,6 +130,7 @@ impl<'a> Gen<'a> {
                 }
             },
             StmtKind::Binding(b) => self.binding(fx, b),
+            StmtKind::Fn(f) => self.local_fn(fx, f),
             StmtKind::Assign { target, op, value } => self.assign(fx, target, *op, value, s.at),
             StmtKind::While { cond, body } => {
                 fx.emit("for (;;) {".into());
@@ -294,6 +295,20 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// `fn f(params) -> R { body }` in a body: the local `f` holds a closure of the body, made where the statement is, as
+    /// `let f = fn(params) -> R { body }` (5.4), except that inside it `f` is the closure itself (it may call itself).
+    fn local_fn(&mut self, fx: &mut Fx, f: &ast::FnDecl) {
+        let m = fx.module;
+        let Some(Resolved::Local(id)) = self.checked.named.get(&(m, f.name.at)).cloned() else {
+            self.say(m, f.name.at, ny!("ThisConstruct"));
+            return;
+        };
+        let t = self.checked.locals[id as usize].ty.clone();
+        let Some(place) = self.declare_local(fx, id, f.name.at) else { return };
+        let Ok(v) = self.closure_value(fx, f.name.at, &f.params, &f.body, &t, Some(id)) else { return };
+        fx.set(&place, &v, "lumart_fn");
+    }
+
     /// A local's C place, declared at the function's top the first time.
     pub(super) fn declare_local(&mut self, fx: &mut Fx, id: crate::check::LocalId, at: Pos) -> Option<String> {
         if fx.declared.insert(id) {
@@ -441,6 +456,10 @@ impl<'a> Gen<'a> {
     pub(super) fn place(&mut self, fx: &mut Fx, e: &Expr) -> Ex {
         let m = fx.module;
         fx.writing = true;
+        // The receiver `?.` has found already (`a?.push(x)`): the option's value, in its place.
+        if self.pre_read.as_ref().is_some_and(|(id, _)| *id == e.id) {
+            return Ok(self.pre_read.take().map(|(_, v)| v).unwrap_or_default());
+        }
         match self.game_place_of(fx, e) {
             Some(Ok(GamePlace::Lvalue(l))) => return Ok(l),
             Some(Ok(_)) => return self.not_yet(fx, e, ny!("GamePlaceWhole")),
@@ -451,9 +470,9 @@ impl<'a> Gen<'a> {
             return p;
         }
         match &e.kind {
-            ExprKind::Name { .. } => match self.resolved(m, e) {
+            ExprKind::Name { name, .. } => match self.resolved(m, e) {
                 Some(Resolved::Local(id)) => Ok(fx.local(*id)),
-                Some(Resolved::Item(item)) => Ok(self.item_value(*item)),
+                Some(Resolved::Item(item)) => Ok(self.item_value(*item, &name.name)),
                 _ => self.not_yet(fx, e, ny!("PlaceKind")),
             },
             ExprKind::Result => match fx.hook.as_ref().and_then(|h| h.result_c.clone()) {
@@ -984,7 +1003,7 @@ fn all(tests: Vec<String>) -> String {
 pub(super) fn stmt_name(s: &StmtKind) -> Ny {
     match s {
         StmtKind::Binding(_) => ny!("LetOrVar"),
-        StmtKind::Fn(_) => ny!("LocalFn"),
+        StmtKind::Fn(_) => ny!("ThisConstruct"),
         StmtKind::Return(_) => ny!("Return"),
         StmtKind::Break => ny!("Break"),
         StmtKind::Continue => ny!("Continue"),

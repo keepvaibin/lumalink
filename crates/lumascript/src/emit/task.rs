@@ -73,7 +73,7 @@ impl<'a> Gen<'a> {
             let t = self.checked.locals[id as usize].ty.clone();
             let ct = self.c_type(&t)?;
             if var {
-                self.say(m, f.name.at, ny!("TaskVar"));
+                self.say(m, f.name.at, ny!("ThisConstruct")); // S0161 refuses it first
                 return None;
             }
             fx.decl(format!("{ct} l{id};"));

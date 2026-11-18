@@ -3,6 +3,7 @@
 //! and JSON as log and facts write them.
 
 use super::Ny;
+use super::closure::Apply;
 use super::{lost, counted, c_string, c_bytes, components, f32_c, f64_c, float_bounds, int_fits, is_view, limit_c, scalar_c, scalar_name, signed, unescape, value_c, Ex, Fx, Gen, NotWritten};
 use crate::ast::{self, BinOp, Expr, ExprKind, ItemKind, Pos, StrPart, StrPrefix};
 use crate::check::{ItemRef, Owner, Resolved, Ty};
@@ -22,12 +23,11 @@ impl<'a> Gen<'a> {
         Err(NotWritten)
     }
 
-    pub(super) fn item_value(&self, item: ItemRef) -> String {
-        let ItemKind::Binding(b) = &self.item(item).kind else { return "0".into() };
-        match &b.pattern.kind {
-            ast::PatternKind::Path { path, .. } => super::global_name(item.module, &path[0].name),
-            _ => "0".into(),
-        }
+    /// A module value's global by the name it is read by: a `let` or `var` of one name, or one name of a module pattern
+    /// (`let (a, b) = ..`), each its own global.
+    pub(super) fn item_value(&self, item: ItemRef, name: &str) -> String {
+        let ItemKind::Binding(_) = &self.item(item).kind else { return "0".into() };
+        super::global_name(item.module, name)
     }
 
     /// `v` of type `from` where a `to` goes: the same, or a value put in an option. Other differences the
@@ -176,9 +176,9 @@ impl<'a> Gen<'a> {
                 (None, Some(_)) => Ok("call->args[0]".into()),
                 (None, None) => self.not_yet(fx, e, ny!("SelfHere")),
             },
-            ExprKind::Name { .. } => match self.resolved(m, e) {
+            ExprKind::Name { name, .. } => match self.resolved(m, e) {
                 Some(Resolved::Local(id)) => Ok(fx.local(*id)),
-                Some(Resolved::Item(item)) if item.owner == Owner::Mod && matches!(self.item(*item).kind, ItemKind::Binding(_)) => Ok(self.item_value(*item)),
+                Some(Resolved::Item(item)) if item.owner == Owner::Mod && matches!(self.item(*item).kind, ItemKind::Binding(_)) => Ok(self.item_value(*item, &name.name)),
                 // A function of the mod as a value (5.4): its static block.
                 Some(Resolved::Item(item)) if item.owner == Owner::Mod && matches!(self.item(*item).kind, ItemKind::Fn(_)) => {
                     let item = *item;
@@ -447,7 +447,7 @@ impl<'a> Gen<'a> {
             }
             ExprKind::Call { callee, args } => self.call(fx, e, callee, args, &t),
             // A closure where a value goes (5.4; closure.rs); one given to a builtin is written in place (flow.rs).
-            ExprKind::Closure { params, body, .. } => self.closure_value(fx, e, params, body, &t),
+            ExprKind::Closure { params, body, .. } => self.closure_value(fx, e.at, params, body, &t, None),
             // In a wrap: the next body of this mod's wraps on the function, at the last the game's own code (docs/modding/language/compiled-form.md, section 4).
             ExprKind::Proceed => match fx.hook.as_ref().map(|h| h.kind) {
                 Some(ast::HookKind::Wrap) => {
@@ -644,7 +644,12 @@ impl<'a> Gen<'a> {
                 let o = binop_text(op);
                 Ok(fx.temp(scalar_c(*s), &format!("{l} {o} {r}")))
             }
-            (BinOp::Rem, Ty::Float(_), _) => self.say_at(fx, at, ny!("RemOnFloats")),
+            // As `%` on integers: the remainder of the quotient rounded toward zero, with the left side's sign (lumart's
+            // own, exact; no C library is linked).
+            (BinOp::Rem, Ty::Float(s), Ty::Float(_)) => {
+                let (ct, f) = if matches!(s, Scalar::F64) { ("double", "lumart_fmod") } else { ("float", "lumart_fmodf") };
+                Ok(fx.temp(ct, &format!("{f}(({ct}){l}, ({ct}){r})")))
+            }
             (BinOp::Add | BinOp::Sub, Ty::Value(v), Ty::Value(_)) if !components(*v).is_empty() => {
                 let o = binop_text(op);
                 let parts: Vec<String> = components(*v).iter().map(|c| format!("{l}.{c} {o} {r}.{c}")).collect();
@@ -812,7 +817,7 @@ impl<'a> Gen<'a> {
                             continue;
                         }
                         Some(Resolved::Item(item)) => {
-                            args.push((ident.clone(), Err(self.item_value(*item))));
+                            args.push((ident.clone(), Err(self.item_value(*item, &ident.name))));
                             continue;
                         }
                         _ => return self.not_yet(fx, e, ny!("ShorthandField")),
@@ -983,6 +988,34 @@ impl<'a> Gen<'a> {
                 };
                 self.call_fn(fx, e, owner, &format!(".{name}"), &c_name, f, receiver, args)
             }
+            // A class's own function: `obj.f(...)`, `self.f(...)`, or `f(...)` in the class's body (self the object).
+            Some(Resolved::Member { owner, name }) if owner.owner == Owner::Mod && matches!(self.item(owner).kind, ItemKind::Class(_)) => {
+                let ItemKind::Class(cd) = &self.item(owner).kind else { return Err(lost()) };
+                let Some(f) = cd.members.iter().find_map(|mb| match mb {
+                    ast::ClassMember::Fn(f) if f.name.name == name => Some(f),
+                    _ => None,
+                }) else {
+                    if matches!(self.ty(m, callee), Ty::Fn(..)) {
+                        return self.call_fn_value(fx, e, callee, args);
+                    }
+                    return self.not_yet(fx, e, ny!("ClassOwnFn"));
+                };
+                let c_name = self.class_fn_c(owner, &f.name.name);
+                // One with no `self` (`W.f()`) takes no object.
+                let receiver = if !f.params.iter().any(|p| p.is_self) {
+                    None
+                } else {
+                    Some(match &callee.kind {
+                        ExprKind::Member { base, .. } if matches!(self.ty(m, base), Ty::Class(_)) => Recv::Expr(base),
+                        _ => match (&fx.self_c, &fx.hook) {
+                            (Some(c), _) => Recv::Value(c.clone()),
+                            (None, Some(_)) => Recv::Value("call->args[0]".into()),
+                            (None, None) => return self.not_yet(fx, e, ny!("SelfHere")),
+                        },
+                    })
+                };
+                self.call_fn(fx, e, owner, &format!(".{name}"), &c_name, f, receiver, args)
+            }
             Some(Resolved::GameFn { name, signature }) => {
                 let receiver = match &callee.kind {
                     ExprKind::Member { base, .. } => Some(Recv::Expr(base)),
@@ -1053,6 +1086,15 @@ impl<'a> Gen<'a> {
                 };
                 Target::Method { name, inner }
             }
+            // A list's, map's, set's or bytes' method (`xs?.len()`, `xs?.push(v)`): an option it gives stays one.
+            Some(Resolved::Method(name)) if matches!(x, Ty::List(_) | Ty::Map(..) | Ty::Set(_) | Ty::Bytes) => {
+                let gives_opt = matches!((&x, name), (Ty::List(_), "get" | "pop" | "first" | "last") | (Ty::Map(..), "get" | "remove"));
+                let inner = match t {
+                    Ty::Opt(y) if !gives_opt => (**y).clone(),
+                    _ => t.clone(),
+                };
+                Target::Method { name, inner }
+            }
             // A handle's method (`h?.get()`): get gives an option already (none for an emptied handle).
             Some(Resolved::Method(name)) if matches!(x, Ty::Ref(_)) => {
                 let inner = match t {
@@ -1065,6 +1107,8 @@ impl<'a> Gen<'a> {
         };
         // The value: a view is its address; an option of a value is read once, or by its place for `var self`.
         let var_self = matches!(target, Target::Struct { var_self: true, .. });
+        // A method that writes its container (`push`, `add`, `write_u32` ..) writes the option's value where it is.
+        let writes = matches!(&target, Target::Method { name, .. } if receiver_writes(&x, name));
         let (has, value) = if is_view(&x) {
             let b = self.expr(fx, base)?;
             let a = fx.temp("void*", &b);
@@ -1072,6 +1116,9 @@ impl<'a> Gen<'a> {
         } else if var_self {
             let p = self.place(fx, base)?;
             (format!("{p}.some"), format!("&{p}.value"))
+        } else if writes {
+            let p = self.place(fx, base)?;
+            (format!("{p}.some"), format!("{p}.value"))
         } else {
             let ct = self.c_type(&bt).ok_or_else(lost)?;
             let b = self.expr(fx, base)?;
@@ -1151,7 +1198,8 @@ impl<'a> Gen<'a> {
                 Some(Recv::Value(v)) => v,
                 Some(Recv::Expr(base)) => {
                     let st = self.ty(m, base);
-                    if sp.var {
+                    // A class's object is passed as it is: its `self` is the object, never a copy or a place.
+                    if sp.var && !matches!(st, Ty::Class(_)) {
                         format!("&{}", self.place(fx, base)?)
                     } else {
                         let v = self.expr(fx, base)?;
@@ -2153,7 +2201,7 @@ impl<'a> Gen<'a> {
     /// A method of a list, map or set (language.md). The receiver is read first (its place, for one that writes
     /// it), then the arguments in order.
     fn container_method(&mut self, fx: &mut Fx, e: &Expr, base: &Expr, bt: &Ty, name: &str, args: &[ast::Arg], t: &Ty) -> Ex {
-        let writes = matches!((bt, name), (Ty::List(_), "push" | "pop" | "insert" | "remove" | "sort" | "sort_by") | (Ty::Map(..), "remove") | (Ty::Set(_), "add" | "remove"));
+        let writes = receiver_writes(bt, name);
         let ct = self.c_type(bt).ok_or_else(lost)?;
         let mark = fx.rechecks.len();
         let b = if writes {
@@ -2206,7 +2254,7 @@ impl<'a> Gen<'a> {
             },
             _ => return self.not_yet(fx, e, ny!("MethodOf", "type" => "bytes".to_string(), "name" => name.to_string())),
         };
-        let writes = name == "push" || name.starts_with("write_");
+        let writes = receiver_writes(&Ty::Bytes, name);
         let mark = fx.rechecks.len();
         let b = if writes {
             self.place(fx, base)?
@@ -2385,8 +2433,16 @@ impl<'a> Gen<'a> {
                     }
                     "map" | "filter" | "any" | "all" | "sum" | "sort_by" => {
                         let Some(arg) = args.first() else { return Err(lost()) };
-                        let ExprKind::Closure { params, body, .. } = &strip(&arg.value).kind else {
-                            return self.not_yet(fx, e, ny!("MethodFnValue", "type" => "list".to_string(), "name" => name.to_string()));
+                        // A closure written here runs in place; any other function value is worked out once and
+                        // called for each item.
+                        let how = match &strip(&arg.value).kind {
+                            ExprKind::Closure { params, body, .. } => Apply::Inline(params, body),
+                            _ => {
+                                let Ty::Fn(ps, r) = self.ty(m, &arg.value) else { return Err(lost()) };
+                                let v = self.expr(fx, &arg.value)?;
+                                let f = fx.temp("lumart_fn", &v);
+                                Apply::Value { f, ps, r: *r, src: expr_text(&arg.value), at: arg.value.at }
+                            }
                         };
                         let i = fx.fresh("uint64_t");
                         let item = Self::list_elem(&ec, &b, &i);
@@ -2400,7 +2456,7 @@ impl<'a> Gen<'a> {
                                 fx.fail_if(&format!("lumart_list_own(&{r}, {ud}, {n}, {file}, {line})"));
                                 fx.emit(format!("for ({i} = 0; {i} < {n}; {i}++) {{"));
                                 fx.depth += 1;
-                                let v = self.inline_closure(fx, params, body, &[(item, x.clone())], &u)?;
+                                let v = self.apply(fx, &how, &[(item, x.clone())], &u)?;
                                 fx.fail_if(&format!("lumart_list_push(&{r}, {ud}, &{v}, {file}, {line})"));
                                 fx.depth -= 1;
                                 fx.emit("}".into());
@@ -2411,7 +2467,7 @@ impl<'a> Gen<'a> {
                                 fx.emit(format!("lm_rel_lumart_list(&{r});"));
                                 fx.emit(format!("for ({i} = 0; {i} < {n}; {i}++) {{"));
                                 fx.depth += 1;
-                                let ok = self.inline_closure(fx, params, body, &[(item, x.clone())], &Ty::Bool)?;
+                                let ok = self.apply(fx, &how, &[(item, x.clone())], &Ty::Bool)?;
                                 fx.fail_if(&format!("{ok} && lumart_list_push(&{r}, {d}, lumart_list_at({b}, {i}), {file}, {line})"));
                                 fx.depth -= 1;
                                 fx.emit("}".into());
@@ -2424,7 +2480,7 @@ impl<'a> Gen<'a> {
                                 fx.emit(format!("{r} = {start};"));
                                 fx.emit(format!("for ({i} = 0; {i} < {n} && {go}; {i}++) {{"));
                                 fx.depth += 1;
-                                let ok = self.inline_closure(fx, params, body, &[(item, x.clone())], &Ty::Bool)?;
+                                let ok = self.apply(fx, &how, &[(item, x.clone())], &Ty::Bool)?;
                                 fx.emit(format!("{r} = {ok};"));
                                 fx.depth -= 1;
                                 fx.emit("}".into());
@@ -2436,7 +2492,7 @@ impl<'a> Gen<'a> {
                                 fx.emit(format!("{r} = 0;"));
                                 fx.emit(format!("for ({i} = 0; {i} < {n}; {i}++) {{"));
                                 fx.depth += 1;
-                                let v = self.inline_closure(fx, params, body, &[(item, x.clone())], t)?;
+                                let v = self.apply(fx, &how, &[(item, x.clone())], t)?;
                                 let acc = self.binary_values(fx, BinOp::Add, &r, t, &v, t, t, &expr_text(e), e.at)?;
                                 fx.set(&r, &acc, &nc);
                                 fx.depth -= 1;
@@ -2453,7 +2509,7 @@ impl<'a> Gen<'a> {
                                 fx.emit(format!("while (lumart_sorter_next(&{s}, {y_first})) {{"));
                                 fx.depth += 1;
                                 let (y, xv) = (format!("(*({ec}*){s}.y)"), format!("(*({ec}*){s}.x)"));
-                                let before = self.inline_closure(fx, params, body, &[(y, x.clone()), (xv, x.clone())], &Ty::Bool)?;
+                                let before = self.apply(fx, &how, &[(y, x.clone()), (xv, x.clone())], &Ty::Bool)?;
                                 fx.emit(format!("{y_first} = {before};"));
                                 fx.depth -= 1;
                                 fx.emit("}".into());
@@ -3246,6 +3302,17 @@ fn text_literal_arg(e: &Expr) -> bool {
 }
 
 /// A number literal's text without `_` and without a `f32`/`f64`/integer suffix: (digits, radix).
+/// Whether a builtin method of a list, map, set or bytes writes its receiver (it is given the receiver's place).
+fn receiver_writes(t: &Ty, name: &str) -> bool {
+    match t {
+        Ty::List(_) => matches!(name, "push" | "pop" | "insert" | "remove" | "sort" | "sort_by"),
+        Ty::Map(..) => name == "remove",
+        Ty::Set(_) => matches!(name, "add" | "remove"),
+        Ty::Bytes => name == "push" || name.starts_with("write_"),
+        _ => false,
+    }
+}
+
 pub(super) fn number_text(text: &str) -> (String, u32) {
     let t: String = text.chars().filter(|c| *c != '_').collect();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
@@ -3254,7 +3321,8 @@ pub(super) fn number_text(text: &str) -> (String, u32) {
     if let Some(b) = t.strip_prefix("0b").or_else(|| t.strip_prefix("0B")) {
         return (b.to_string(), 2);
     }
-    let t = t.trim_end_matches("f32").trim_end_matches("f64").to_string();
+    // A decimal number's suffix (G.1: any of the lexer's, `7u8` as `2.5f32`); `0x` and `0b` numbers take none.
+    let t = crate::lex::SUFFIXES.iter().find_map(|s| t.strip_suffix(s)).unwrap_or(&t).to_string();
     (t, 10)
 }
 

@@ -1391,6 +1391,14 @@ impl Checker<'_> {
             ItemKind::Struct(s) => s.name.name.clone(),
             ItemKind::Enum(e) => e.name.name.clone(),
             ItemKind::Class(c) => c.name.name.clone(),
+            // Calls name their callee by it: a function, task, C function, option or module value (one name).
+            ItemKind::Fn(f) => f.name.name.clone(),
+            ItemKind::Task { name, .. } | ItemKind::Extern { name, .. } | ItemKind::Export { name, .. } => name.name.clone(),
+            ItemKind::Option { key, .. } => key.name.clone(),
+            ItemKind::Binding(b) => match &b.pattern.kind {
+                ast::PatternKind::Path { path, args: None, fields: None } if path.len() == 1 => path[0].name.clone(),
+                _ => String::new(),
+            },
             _ => String::new(),
         }
     }
@@ -1516,7 +1524,11 @@ impl Checker<'_> {
                 }
             }
             ItemKind::Fn(f) => self.fn_decl(m, me, "", f),
-            ItemKind::Task { params, ret, .. } => {
+            ItemKind::Task { name, params, ret, .. } => {
+                for p in params.iter().filter(|p| p.var) {
+                    let at = p.name.as_ref().map_or(p.at, |n| n.at);
+                    self.say(m, Diagnostic::new(code::TASK_VAR_PARAM, at).with("found", Arg::Text(name.name.clone())));
+                }
                 self.params(m, me, "", params);
                 if let Some(r) = ret {
                     let ty = self.resolve(m, r);

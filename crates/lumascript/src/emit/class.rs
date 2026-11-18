@@ -6,8 +6,11 @@
 //! A field may hold text or a container: `gone` gives its count back before the kernel frees the data.
 //!
 //! A first value that needs code (a call, a text made, a container) is written by `<class>_first`, which `made` runs on
-//! the game thread only; an object a mod's C makes off it keeps those fields zero (M-018). Not written yet (S0800,
-//! each named): a class's own `fn` and its hooks.
+//! the game thread only; an object a mod's C makes off it keeps those fields zero (M-018).
+//!
+//! A class's own `fn` is a C function of the mod (`<class>__<name>_fn`) whose `self` is the object: its fields are read
+//! through `class_data` as an override's are. A hook written in a class is the mod's hook on that game function, run
+//! for the class's own objects only (`own_class` of `this`), `self` the object.
 
 use super::{assign_line, c_string, counted, Body, Ex, Fx, Gen, HookFx};
 use crate::ast::{self, ClassMember, Expr, ExprKind, HookKind, ItemKind};
@@ -112,15 +115,7 @@ impl Gen<'_> {
                     };
                     fields.push((name, ct, first));
                 }
-                ClassMember::Fn(f) => {
-                    self.say(m, f.name.at, ny!("ClassOwnFn"));
-                    ok = false;
-                }
-                ClassMember::Hook(h) => {
-                    self.say(m, h.at, ny!("HookInClass"));
-                    ok = false;
-                }
-                ClassMember::Override(_) => {}
+                ClassMember::Fn(_) | ClassMember::Hook(_) | ClassMember::Override(_) => {}
             }
         }
         if !ok {
@@ -258,6 +253,20 @@ impl Gen<'_> {
             );
             table.push(format!("    {{{}, {}, {hook}, 0}},", c_string(&target.name), c_string(&target.signature)));
         }
+        // Its hooks: each the mod's hook on that game function, run for the class's own objects only.
+        for (n, member) in c.members.iter().enumerate() {
+            let ClassMember::Hook(h) = member else { continue };
+            let class = super::HookClass { data: has_data.then(|| data.clone()), number: number.clone() };
+            let text = self.hook_in(m, me, &format!(".hook{n}"), h, Some(class), file)?;
+            out.push_str(&text);
+        }
+        // Its own functions (called on one of its objects: `self.f()`, `obj.f()`, or `f()` in its body).
+        for member in &c.members {
+            let ClassMember::Fn(f) = member else { continue };
+            let c_name = self.class_fn_c(me, &f.name.name);
+            let text = self.class_fn(m, me, f, &c_name, has_data.then_some((data.as_str(), number.as_str())), file)?;
+            out.push_str(&text);
+        }
         let table_name = format!("{cname}_ovt");
         if !table.is_empty() {
             let _ = writeln!(out, "static const LumaOverride {table_name}[{}] = {{\n{}\n}};\n", table.len(), table.join("\n"));
@@ -355,6 +364,36 @@ impl Gen<'_> {
         let head = format!("static int32_t {c_name}(LumaCall* call, uint8_t* lm_proceeded, int32_t (*lm_next)(LumaCall*))");
         self.out_defers(&mut fx);
         fx.place_args_tail();
+        Some(fx.function(&head, f.name.at))
+    }
+
+    /// A class's own function: `self` the object (`lm_self`), its fields in the class's data (`lm_d`).
+    fn class_fn(&mut self, m: usize, me: ItemRef, f: &ast::FnDecl, c_name: &str, data: Option<(&str, &str)>, file: &str) -> Option<String> {
+        let key = format!(".{}", f.name.name);
+        let Some((head, params, ret, self_c)) = self.fn_head(me, &key, c_name, f) else {
+            self.say(m, f.name.at, ny!("FnSignatureType"));
+            return None;
+        };
+        let mut fx = Fx::new(file, m);
+        for (id, var) in params {
+            fx.declared.insert(id);
+            if var {
+                fx.places.insert(id, format!("(*l{id})"));
+            }
+        }
+        fx.ret = ret;
+        // One with no `self` (`W.f()`) has no object and so no fields of one.
+        let data = data.filter(|_| self_c.is_some());
+        fx.self_c = self_c;
+        if let Some((d, number)) = data {
+            fx.decl(format!("{d}* lm_d;"));
+            fx.emit(format!("lm_d = ({d}*)luma_rt_core->class_data(luma_rt_self, lm_self, {number});"));
+            fx.fail_if("lm_d == 0");
+            fx.class_data = Some(me);
+        }
+        self.block(&mut fx, &f.body);
+        self.protos.push(format!("{head};"));
+        self.out_defers(&mut fx);
         Some(fx.function(&head, f.name.at))
     }
 

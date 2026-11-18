@@ -1243,3 +1243,12 @@ fn an_error_in_a_chain_is_at_its_own_part() {
 ");
     assert_eq!(said.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(), vec![(4, 14)], "{said:?}");
 }
+
+/// S0161: a task runs on after its call returns, when the caller's variable may be gone, so it takes no `var`
+/// parameter. S0056 names the function called with an argument missing.
+#[test]
+fn a_task_takes_no_var_parameter_and_a_missing_argument_names_its_function() {
+    assert_eq!(said("task grow(var n: i32) {\n    n += 1\n}\n"), vec![code::TASK_VAR_PARAM]);
+    let s = full("fn f(a: i32, b: i32) -> i32 { return a + b }\non start {\n    log \"{f(1)}\"\n}\n");
+    assert!(s.iter().any(|(c, _, _, args)| *c == code::ARG_MISSING && args.iter().any(|(_, v)| v == "f")), "{s:?}");
+}

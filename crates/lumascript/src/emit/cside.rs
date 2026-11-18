@@ -7,9 +7,10 @@
 //! Across, by value: integers, floats, `bool` (C `_Bool`), `vec2` to `vec4`, `quat`, `mat34` and `color` (lumart.h's
 //! `lm_vec3` and the rest), a `c struct` (the C struct of its name as written, its fields any of these but text and
 //! bytes), and `ref<C>` (a `lumart_ref`: the handle as it is, which C may keep; `lm_ref_get_<C>` gives the object, or
-//! null once it is gone). `text` and `bytes` cross as (pointer, length) for the call's duration (an extern's
-//! parameters; an export's text parameters, copied into a text of the script's own). A fault in the C is the guard's,
-//! not a script error.
+//! null once it is gone). `text`, `bytes` and a `list` of any of the by-value types cross as (pointer, length) for the
+//! call's duration: an extern reads the script's own storage; an export's are copied into values of the script's own.
+//! A `var` parameter of a by-value type crosses as a pointer to the place (an extern writes the script's variable; an
+//! export's writes go to the C's). A fault in the C is the guard's, not a script error.
 
 use super::{c_string, scalar_c, value_c, Ex, Fx, Gen, Ny};
 use crate::ast::{self, Expr, Ident, ItemKind, Param};
@@ -24,6 +25,8 @@ enum Side {
     Bool,
     Text,
     Bytes,
+    /// A list of by-value elements (never a list of texts or lists): the element's side and its script type.
+    List(Box<Side>, Ty),
 }
 
 /// A parameter as C declares it: one or two C parameters.
@@ -33,6 +36,24 @@ fn c_param(s: &Side, name: &str) -> String {
         Side::Bool => format!("_Bool {name}"),
         Side::Text => format!("const char* {name}, uint64_t {name}_len"),
         Side::Bytes => format!("const uint8_t* {name}, uint64_t {name}_len"),
+        Side::List(x, _) => format!("const {}* {name}, uint64_t {name}_len", elem_c(x)),
+    }
+}
+
+/// A list element's C type: as it is, `bool` as C's.
+fn elem_c(s: &Side) -> String {
+    match s {
+        Side::Plain(ct) => ct.clone(),
+        _ => "_Bool".to_string(),
+    }
+}
+
+/// A `var` parameter as C declares it: a pointer to the place (by-value types only).
+fn c_var_param(s: &Side, name: &str) -> Option<String> {
+    match s {
+        Side::Plain(ct) => Some(format!("{ct}* {name}")),
+        Side::Bool => Some(format!("_Bool* {name}")),
+        _ => None,
     }
 }
 
@@ -55,6 +76,10 @@ impl<'a> Gen<'a> {
             Ty::Bool => Side::Bool,
             Ty::Text => Side::Text,
             Ty::Bytes => Side::Bytes,
+            Ty::List(x) => match self.side(x)? {
+                e @ (Side::Plain(_) | Side::Bool) => Side::List(Box::new(e), (**x).clone()),
+                _ => return None,
+            },
             _ => return None,
         })
     }
@@ -64,7 +89,7 @@ impl<'a> Gen<'a> {
         match self.side(t)? {
             Side::Plain(ct) => Some(ct),
             Side::Bool => Some("bool".into()),
-            Side::Text | Side::Bytes => None,
+            Side::Text | Side::Bytes | Side::List(..) => None,
         }
     }
 
@@ -100,7 +125,7 @@ impl<'a> Gen<'a> {
         }
         let t = self.declared_ty(item, "->");
         match self.side(&t) {
-            Some(Side::Text) | Some(Side::Bytes) => Err(ny!("CResult", "type" => self.ty_text(&t))),
+            Some(Side::Text | Side::Bytes | Side::List(..)) => Err(ny!("CResult", "type" => self.ty_text(&t))),
             Some(s) => Ok(Some((s, t))),
             None if t == Ty::Unit => Ok(None),
             None => Err(ny!("CResult", "type" => self.ty_text(&t))),
@@ -117,11 +142,6 @@ impl<'a> Gen<'a> {
     pub(super) fn extern_fn(&mut self, m: usize, me: ItemRef, name: &Ident, params: &[Param], ret: bool) {
         let mut ps = Vec::new();
         for (i, p) in params.iter().enumerate() {
-            // The C gets a copy: a var's write-back would be lost without a word.
-            if p.var {
-                self.say(m, name.at, ny!("ExternVar"));
-                return;
-            }
             let pn = Self::param_name(p, i);
             let t = self.declared_ty(me, &format!("({pn})"));
             let Some(s) = self.side(&t) else {
@@ -129,6 +149,15 @@ impl<'a> Gen<'a> {
                 self.say(m, name.at, what);
                 return;
             };
+            if p.var {
+                // A pointer to the script's variable, which the C writes.
+                let Some(c) = c_var_param(&s, &format!("p{i}")) else {
+                    self.say(m, name.at, ny!("ExternVar"));
+                    return;
+                };
+                ps.push(c);
+                continue;
+            }
             ps.push(c_param(&s, &format!("p{i}")));
         }
         let r = match self.c_result(me, ret) {
@@ -157,6 +186,16 @@ impl<'a> Gen<'a> {
         let mut list = Vec::new();
         for (i, (a, p)) in args.iter().zip(params).enumerate() {
             let pt = self.declared_ty(item, &format!("({})", Self::param_name(p, i)));
+            // A `var` of a by-value type: the place's address. Any other was refused at the declaration (ExternVar);
+            // the call is written as for a value so that one fault is said once.
+            if p.var && matches!(self.side(&pt), Some(Side::Plain(_) | Side::Bool)) {
+                let place = self.place(fx, &a.value)?;
+                list.push(match self.side(&pt) {
+                    Some(Side::Bool) => format!("(_Bool*)&{place}"),
+                    _ => format!("&{place}"),
+                });
+                continue;
+            }
             let v = self.expr(fx, &a.value)?;
             let from = self.ty(m, &a.value);
             let v = self.coerce(fx, &v, &from, &pt, a.value.at)?;
@@ -171,6 +210,12 @@ impl<'a> Gen<'a> {
                 Side::Bytes => {
                     let t = fx.temp("lumart_bytes", &v);
                     format!("({t} != 0 ? (const uint8_t*)lumart_bytes_p({t}) : (const uint8_t*)0), lumart_list_n({t})")
+                }
+                Side::List(x, _) => {
+                    // The list's own storage, its elements one after another (bools as one byte, 0 or 1).
+                    let t = fx.temp("lumart_list", &v);
+                    let ec = elem_c(&x);
+                    format!("({t} != 0 ? (const {ec}*)lumart_list_at({t}, 0) : (const {ec}*)0), lumart_list_n({t})")
                 }
             });
         }
@@ -196,7 +241,9 @@ impl<'a> Gen<'a> {
         let mut c_ps = Vec::new();
         let mut pre = String::new();
         // The script's own copies of the text arguments, given back after the call.
-        let mut texts: Vec<String> = Vec::new();
+        let mut texts: Vec<(String, &'static str)> = Vec::new();
+        // The `var bool` parameters, written back to the C's place after the call.
+        let mut bools_back: Vec<usize> = Vec::new();
         let mut call = Vec::new();
         let (src, line) = (c_string(file), f.name.at.line);
         let r = match self.c_result(me, f.ret.is_some()) {
@@ -218,8 +265,24 @@ impl<'a> Gen<'a> {
             let pn = Self::param_name(p, i);
             let t = self.declared_ty(me, &format!("({pn})"));
             if p.var {
-                self.say(m, f.name.at, ny!("ExportVar"));
-                return None;
+                // The C's pointer: the script writes the C's place (a bool through one of its own, written back).
+                // A null pointer is the call's zero result, the body not run.
+                let side = self.side(&t);
+                let Some(c) = side.as_ref().and_then(|x| c_var_param(x, &format!("p{i}"))) else {
+                    self.say(m, f.name.at, ny!("ExportVar"));
+                    return None;
+                };
+                c_ps.push(c);
+                let fail: String = texts.iter().map(|(t, ct)| format!("lm_rel_{ct}(&{t}); ")).collect();
+                let _ = writeln!(pre, "    if (p{i} == 0) {{ {fail}{back} }}");
+                if matches!(side, Some(Side::Bool)) {
+                    let _ = writeln!(pre, "    uint8_t v{i} = (uint8_t)(*p{i} != 0);");
+                    call.push(format!("&v{i}"));
+                    bools_back.push(i);
+                } else {
+                    call.push(format!("p{i}"));
+                }
+                continue;
             }
             match self.side(&t) {
                 Some(Side::Plain(ct)) => {
@@ -233,9 +296,32 @@ impl<'a> Gen<'a> {
                 Some(Side::Text) => {
                     c_ps.push(format!("const char* p{i}, uint64_t p{i}_len"));
                     // On a failed copy (S0911, reported) the copies made so far are given back.
-                    let fail: String = texts.iter().map(|t| format!("lm_rel_lumart_text(&{t}); ")).collect();
+                    let fail: String = texts.iter().map(|(t, ct)| format!("lm_rel_{ct}(&{t}); ")).collect();
                     let _ = writeln!(pre, "    lumart_text a{i} = 0;\n    if (lumart_text_make(&a{i}, p{i}, p{i}_len, {src}, {line}) != 0) {{ {fail}{back} }}");
-                    texts.push(format!("a{i}"));
+                    texts.push((format!("a{i}"), "lumart_text"));
+                    call.push(format!("a{i}"));
+                }
+                Some(Side::Bytes) => {
+                    c_ps.push(format!("const uint8_t* p{i}, uint64_t p{i}_len"));
+                    let fail: String = texts.iter().map(|(t, ct)| format!("lm_rel_{ct}(&{t}); ")).collect();
+                    let _ = writeln!(pre, "    lumart_bytes a{i} = 0;\n    if (lumart_bytes_from(&a{i}, p{i}, p{i} != 0 ? p{i}_len : 0, {src}, {line}) != 0) {{ {fail}{back} }}");
+                    texts.push((format!("a{i}"), "lumart_bytes"));
+                    call.push(format!("a{i}"));
+                }
+                Some(Side::List(x, et)) => {
+                    // A list of the script's own: each element copied (a bool as 0 or 1); a null pointer an empty list.
+                    let ec = elem_c(&x);
+                    c_ps.push(format!("const {ec}* p{i}, uint64_t p{i}_len"));
+                    let d = self.desc(&et)?;
+                    let fail: String = texts.iter().map(|(t, ct)| format!("lm_rel_{ct}(&{t}); ")).collect();
+                    let _ = writeln!(pre, "    lumart_list a{i} = 0;\n    uint64_t n{i} = p{i} != 0 ? p{i}_len : 0;");
+                    let _ = writeln!(pre, "    if (n{i} != 0 && lumart_list_own(&a{i}, {d}, n{i}, {src}, {line}) != 0) {{ {fail}{back} }}");
+                    let item = match *x {
+                        Side::Bool => format!("uint8_t e = (uint8_t)(p{i}[k] != 0);"),
+                        _ => format!("{ec} e = p{i}[k];"),
+                    };
+                    let _ = writeln!(pre, "    for (uint64_t k = 0; k < n{i}; k++) {{\n        {item}\n        if (lumart_list_push(&a{i}, {d}, &e, {src}, {line}) != 0) {{ lm_rel_lumart_list(&a{i}); {fail}{back} }}\n    }}");
+                    texts.push((format!("a{i}"), "lumart_list"));
                     call.push(format!("a{i}"));
                 }
                 _ => {
@@ -258,8 +344,11 @@ impl<'a> Gen<'a> {
         }
         out.push_str(&pre);
         let _ = writeln!(out, "    (void){internal}({});", call.join(", "));
-        for t in &texts {
-            let _ = writeln!(out, "    lm_rel_lumart_text(&{t});");
+        for i in &bools_back {
+            let _ = writeln!(out, "    *p{i} = v{i} != 0;");
+        }
+        for (t, ct) in &texts {
+            let _ = writeln!(out, "    lm_rel_{ct}(&{t});");
         }
         match &r {
             Some((Side::Bool, _)) => out.push_str("    return (_Bool)(r != 0);\n"),

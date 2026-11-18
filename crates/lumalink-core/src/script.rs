@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn what_s0800_names_reads_in_every_language() {
         use lumascript::check::{check, ModFacts, Source};
-        let text = "extern c fn bump(var n: i32)\nextern c fn many() -> list<i32>\n\non start {\n    var n = 1\n    bump(var n)\n}\n";
+        let text = "extern c fn bump(var t: text)\nextern c fn many() -> list<i32>\n\non start {\n    var t = \"a\"\n    bump(var t)\n}\n";
         let (module, parsed) = lumascript::parse_module(text);
         assert!(parsed.is_empty(), "{parsed:?}");
         let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];

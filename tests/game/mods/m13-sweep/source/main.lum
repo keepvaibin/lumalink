@@ -1,0 +1,141 @@
+// M13 conformance, the back end's sweep M13: a class's own functions (`fn f(self)`, called as obj.f(), self.f() and
+// f() in its body, and W.f() with no self) and hooks written in a class (run for the class's own objects only: every
+// Goomba is a Walker, so Walker's hook runs as often as the mod's own; Unused has no objects in the stage, so its
+// before and wrap run for none, and every Goomba's control still runs); a list method given
+// a function value; lists, bytes and `var` places across to the mod's own C both ways; `%` on floats; a local fn that
+// calls itself; a module `let` of a tuple pattern; `?.` calls on containers; numbers with a type suffix.
+
+use c "side.h"
+
+extern c fn m13_total(xs: list<i32>) -> i32
+extern c fn m13_lit(xs: list<bool>) -> i32
+extern c fn m13_spots(xs: list<vec3>) -> f32
+extern c fn m13_grow(var n: i32, var lamp: bool, var at: vec3)
+extern c fn m13_run_c() -> i32
+
+export c fn m13_back(xs: list<i32>, b: bytes, var out: i32, var flag: bool, name: text) -> i32 {
+    out = xs.len() + b.len() + name.len()
+    flag = not flag
+    var s = 0
+    for x in xs {
+        s += x
+    }
+    return s
+}
+
+export c fn m13_flags(xs: list<bool>) -> i32 {
+    return xs.filter(fn(x: bool) -> bool { return x }).len()
+}
+
+let (lo, hi) = (1, 10)
+let (x0, (y0, z0)) = (2.5, ("a", true))
+
+var logged = false
+var walker_calls = 0
+var unused_calls = 0
+var all_calls = 0
+var frames = 0
+
+class Walker : Kuribo replaces Kuribo {
+    var hits: i32 = 0
+    var ticks = 0
+    fn bump(self, by: i32) -> i32 {
+        self.hits += by
+        return hits
+    }
+    fn twice(self) -> i32 {
+        bump(1)
+        return self.bump(2)
+    }
+    fn alive(self) -> bool {
+        return not mFlag.mIsDead
+    }
+    fn base_hits() -> i32 {
+        return 100
+    }
+    hook before Kuribo::control() {
+        walker_calls += 1
+        ticks += 1
+        if ticks == 30 and not logged {
+            logged = true
+            let a = self.twice()
+            let b = poke(self)
+            log fact "class_fn" (a, b, hits, alive(), Walker.base_hits())
+        }
+    }
+}
+
+class Unused : Kuribo {
+    hook before Kuribo::control() {
+        unused_calls += 1
+    }
+    wrap Kuribo::control() {
+        unused_calls += 1
+        proceed()
+    }
+}
+
+hook before Kuribo::control() {
+    all_calls += 1
+}
+
+fn poke(w: Walker) -> i32 {
+    return w.bump(5)
+}
+
+fn double(x: i32) -> i32 {
+    return x * 2
+}
+
+fn big(x: i32) -> bool {
+    return x > 2
+}
+
+fn after(a: i32, b: i32) -> bool {
+    return a > b
+}
+
+on start {
+    var a = [1, 2, 3, 4]
+    let f = double
+    let b = a.map(f)
+    let c = a.map(double)
+    let d = a.filter(big)
+    let e = a.any(big) and not a.all(big)
+    let s = a.sum(double)
+    a.sort_by(after)
+    let k = 3
+    let near = fn(x: i32) -> bool { return x == k }
+    let g = a.filter(near)
+    log fact "fn_values" (b[3], c[0], d.len(), e, s, a[0], g.len())
+
+    var n = 4
+    var lamp = false
+    var at = vec3(1.0, 2.0, 3.0)
+    m13_grow(var n, var lamp, var at)
+    log fact "c" (m13_total([1, 2, 3]), m13_lit([true, false, true]), m13_spots([vec3(1.0, 0.0, 0.0), vec3(0.0, 2.0, 0.0)]), n, lamp, at.x, m13_run_c())
+
+    fn fact(n: i32) -> i32 {
+        if n <= 1 {
+            return 1
+        }
+        return n * fact(n - 1)
+    }
+    var xs: list<i32>? = [1, 2]
+    xs?.push(3)
+    var none_list: list<i32>? = none
+    none_list?.push(3)
+    var m: map<text, i32>? = {"a": 1}
+    var bs: bytes? = b"abc"
+    log fact "sweep" (fact(5), 7.5f32 % 2.0, -7.5f64 % 2.0, xs?.len() ?? 0, none_list?.len() ?? -1, m?.len() ?? 0, bs?.len() ?? 0, 7u8 % 2u8, 300u16, lo + hi, x0, y0, z0)
+}
+
+// Ten frames after a Walker's check (every hook of those frames finished): the counts.
+on frame {
+    if logged and frames < 10 {
+        frames += 1
+        if frames == 10 {
+            log fact "class_hook" (walker_calls == all_calls, all_calls > 0, unused_calls)
+        }
+    }
+}

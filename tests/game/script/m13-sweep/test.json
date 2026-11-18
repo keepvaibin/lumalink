@@ -1,0 +1,85 @@
+{
+  "harness": 1,
+  "name": "m13-sweep",
+  "about": "The back end's sweep M13: a class's own functions (obj.f(), self.f(), f() in its body, W.f() with no self; fields through the class's data, a game field named alone through the object) and hooks written in a class (Walker's before hook on Kuribo::control runs for every Goomba, all of them Walkers; Unused's before and wrap run for none, and each Goomba's control still runs); list methods given function values; lists, bytes and var places across to the mod's own C both ways (a null place runs nothing); % on floats; a local fn that calls itself; module tuple patterns; ?. calls on containers; numbers with a type suffix",
+  "proves": [
+    "script.build",
+    "kernel.classes.define",
+    "kernel.hook.before"
+  ],
+  "mods": [
+    "../../mods/m13-sweep"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 200,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.m13-sweep.class_fn",
+      "is": [
+        3,
+        8,
+        8,
+        true,
+        100
+      ]
+    },
+    {
+      "fact": "mod.m13-sweep.class_hook",
+      "is": [
+        true,
+        true,
+        0
+      ]
+    },
+    {
+      "fact": "mod.m13-sweep.fn_values",
+      "is": [
+        8,
+        2,
+        2,
+        true,
+        20,
+        4,
+        1
+      ]
+    },
+    {
+      "fact": "mod.m13-sweep.c",
+      "is": [
+        6,
+        2,
+        3.0,
+        5,
+        true,
+        10.0,
+        218081
+      ]
+    },
+    {
+      "fact": "mod.m13-sweep.sweep",
+      "is": [
+        120,
+        1.5,
+        -1.5,
+        3,
+        -1,
+        1,
+        3,
+        1,
+        300,
+        11,
+        2.5,
+        "a",
+        true
+      ]
+    }
+  ]
+}

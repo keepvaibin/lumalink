@@ -558,12 +558,28 @@ fn vectors_c_structs_and_handles_cross_to_c() {
     assert!(said.contains(&"a c struct field of type text".to_string()), "{said:?}");
 }
 
-/// C gets a copy, so a `var` parameter on either side would lose its write-back without a word: refused.
+/// A `var` parameter of a number, vector or bool crosses as a pointer to the place: an extern writes the script's
+/// variable, an export the C's (a bool through one of the script's own, written back; a null pointer runs nothing).
+/// A list of such values crosses as (pointer, length): an extern reads the list's own storage, an export's is copied
+/// into a list of the script's own; bytes into an export likewise. A `var` text has no C form: refused.
 #[test]
-fn a_c_var_parameter_is_refused() {
-    let said = build("extern c fn bump(var n: i32)\n\non start {\n    var n = 1\n    bump(var n)\n}\n").unwrap_err();
+fn lists_and_var_places_cross_to_c() {
+    let src = "extern c fn grow(var n: i32, var lamp: bool, var at: vec3)\nextern c fn total(xs: list<i32>, lit: list<bool>, at: list<vec3>) -> i32\nexport c fn back(xs: list<i32>, b: bytes, var out: i32, var flag: bool, fs: list<bool>) -> i32 {\n    out = xs.len() as i32 + b.len() as i32 + fs.len() as i32\n    flag = not flag\n    return xs[0]\n}\n\non start {\n    var n = 4\n    var lamp = false\n    var at = vec3()\n    grow(var n, var lamp, var at)\n    log \"{total([1, 2], [true], [at])} {n} {lamp}\"\n}\n";
+    let h = build_file(src, "lum/lm.h").unwrap();
+    assert!(h.contains("void grow(int32_t* p0, _Bool* p1, lm_vec3* p2);"), "{h}");
+    assert!(h.contains("int32_t total(const int32_t* p0, uint64_t p0_len, const _Bool* p1, uint64_t p1_len, const lm_vec3* p2, uint64_t p2_len);"), "{h}");
+    let x = build_file(src, "lum/lm_exports.h").unwrap();
+    assert!(x.contains("int32_t back(const int32_t* p0, uint64_t p0_len, const uint8_t* p1, uint64_t p1_len, int32_t* p2, _Bool* p3, const _Bool* p4, uint64_t p4_len);"), "{x}");
+    let c = build(src).unwrap();
+    assert!(c.contains("grow(&l") && c.contains(", (_Bool*)&l"), "the places' addresses:\n{c}");
+    assert!(c.contains("(const int32_t*)lumart_list_at(t") && c.contains("(const lm_vec3*)lumart_list_at(t"), "the lists' storage:\n{c}");
+    assert!(c.contains("if (lumart_list_push(&a0, ") && c.contains("uint8_t e = (uint8_t)(p4[k] != 0);"), "each element copied:\n{c}");
+    assert!(c.contains("lumart_bytes_from(&a1, p1, p1 != 0 ? p1_len : 0, "), "{c}");
+    assert!(c.contains("    if (p2 == 0) { lm_rel_lumart_list(&a0); lm_rel_lumart_bytes(&a1); return 0; }"), "a null place runs nothing:\n{c}");
+    assert!(c.contains("    *p3 = v3 != 0;") && c.contains("    lm_rel_lumart_list(&a4);"), "{c}");
+    let said = build("extern c fn name(var t: text)\n\non start {\n    var t = \"a\"\n    name(var t)\n}\n").unwrap_err();
     assert!(said.contains(&"an extern C function's var parameter".to_string()), "{said:?}");
-    let said = build("export c fn bump(var n: i32) {\n    n += 1\n}\n").unwrap_err();
+    let said = build("export c fn name(var t: text) {\n    t = \"b\"\n}\n").unwrap_err();
     assert!(said.contains(&"an exported C function's var parameter".to_string()), "{said:?}");
 }
 
@@ -732,7 +748,33 @@ fn a_class_is_defined_at_start_with_its_overrides() {
     // A field of another object is read through class_data; what the back end cannot write yet is named.
     let other = build("class W : Actor {\n    var n = 0\n    override fn control() {\n        let w = self\n        n = w.n + 2\n    }\n}\n").unwrap();
     assert!(other.contains("luma_rt_core->class_data(luma_rt_self, t") && other.contains("lm_d->n = "), "{other}");
-    assert_eq!(build("class W : Actor {\n    fn f() { }\n}\n").unwrap_err(), vec!["a class's own fn".to_string()]);
+    // A class's own function with no `self` is a plain function of the mod's, called by the class's name.
+    let c = build("class W : Actor {\n    fn f() -> i32 { return 2 }\n    override fn control() {\n        log \"{W.f()}\"\n    }\n}\n").unwrap();
+    assert!(c.contains("int32_t lm_main__W__f_fn(int32_t* lm_ret) {") && c.contains("lm_main__W__f_fn(&t"), "{c}");
+}
+
+/// A class's own functions (`fn f(self)`): a C function of the mod with `self` the object, its fields through
+/// `class_data`, a game field named alone read through the object; called as `obj.f()`, `self.f()` or `f()` in the
+/// class's body. A hook written in a class runs its body for the class's own objects only (`is_a` of `this`); any other
+/// object passes as if the hook were not there: a before does not skip, a wrap proceeds.
+#[test]
+fn a_classs_own_functions_and_hooks_run_on_its_objects() {
+    let src = "class W : Actor {\n    var hits = 0\n    fn bump(self, by: i32) -> i32 {\n        hits += by\n        return self.hits + mCount\n    }\n    fn twice(self) -> i32 {\n        bump(1)\n        return self.bump(2)\n    }\n    hook before Actor::kill() {\n        hits += twice()\n    }\n    wrap Actor::control() {\n        hits += 1\n        proceed()\n    }\n}\nfn poke(w: W) -> i32 { return w.bump(5) }\n";
+    let c = build(src).unwrap();
+    for want in [
+        "int32_t lm_main__W__bump_fn(void* lm_self, int32_t ",
+        "lm_d = (lm_main__W_d*)luma_rt_core->class_data(luma_rt_self, lm_self, lm_main__W_n);",
+        "(char*)lm_self + ",
+        "lm_main__W__bump_fn(lm_self, ",
+        "lm_main__W__twice_fn(call->args[0], ",
+        "int32_t lm_hook_0(LumaCall* call, uint8_t* lm_skip) {\n    if (!luma_rt_core->is_a(call->args[0], lm_main__W_n)) {\n        return 0;\n    }\n    return lm_hook_0_of(call, lm_skip);\n}",
+        "    if (!luma_rt_core->is_a(call->args[0], lm_main__W_n)) {\n        *lm_proceeded = 1;\n        return lm_next(call);\n    }\n    return lm_hook_1_of(call, lm_proceeded, lm_next);",
+        "lm_d = (lm_main__W_d*)luma_rt_core->class_data(luma_rt_self, call->args[0], lm_main__W_n);",
+    ] {
+        assert!(c.contains(want), "no {want:?} in:\n{c}");
+    }
+    let poke = &c[c.find("int32_t lm_main__poke(").expect("poke")..];
+    assert!(poke.contains("lm_main__W__bump_fn(t"), "{poke}");
 }
 
 /// A class's state machine (docs/modding/language/language.md, section 11.2): kept in the class's data, run from `control` (an override the back
@@ -2876,4 +2918,26 @@ fn struct_chains_are_held_to_the_depth_limit() {
         ring.push_str(&format!("struct R{i} {{\n    next: list<R{}>\n}}\n", (i + 1) % 600));
     }
     assert_eq!(chain_built(&ring), Err(vec![(code::TOO_DEEP, 1)]));
+}
+
+/// A list method given a function value that is not a closure written in the call (`xs.map(f)`, a fn of the mod's, a
+/// closure kept in a local): worked out once, called for each item through its C function or, another mod's, through
+/// LumaCore.call_mod.
+#[test]
+fn a_list_method_takes_any_function_value() {
+    let c = build("fn double(x: i32) -> i32 { return x * 2 }\nfn big(x: i32) -> bool { return x > 2 }\nfn after(a: i32, b: i32) -> bool { return a > b }\n\non start {\n    var xs = [1, 2, 3]\n    let f = double\n    let k = 2\n    let near = fn(x: i32) -> bool { return x == k }\n    xs.sort_by(after)\n    log \"{xs.map(f)} {xs.filter(big)} {xs.any(near)} {xs.all(big)} {xs.sum(double)}\"\n}\n").unwrap();
+    assert_eq!(c.matches("lumart_call_other(t").count(), 6, "each of the six calls, another mod's value too:\n{c}");
+    assert!(!c.contains("goto lm_cl"), "no closure written in place:\n{c}");
+}
+
+/// Sweep M13 of the back end: `%` on floats (lumart's fmod, no C library), a local `fn` that calls itself, a module
+/// `let` of a tuple pattern, `?.` calls on a list, map and bytes (one that writes, writing the optional's own value),
+/// and a number with a type suffix.
+#[test]
+fn the_m13_constructs_are_written() {
+    let c = build("let (lo, hi) = (1, 10)\nlet (x0, (y0, z0)) = (2.5, (\"a\", true))\n\non start {\n    fn fact(n: i32) -> i32 {\n        if n <= 1 { return 1 }\n        return n * fact(n - 1)\n    }\n    let a = 7.5f32 % 2.0\n    let b = -7.5f64 % 2.0\n    var xs: list<i32>? = [1]\n    xs?.push(2)\n    var m: map<text, i32>? = {}\n    var bs: bytes? = b\"ab\"\n    log \"{fact(5)} {a} {b} {xs?.len() ?? 0} {m?.len() ?? 0} {bs?.len() ?? 0} {7u8 % 2u8} {lo + hi} {x0} {y0} {z0}\"\n}\n").unwrap();
+    assert!(c.contains("lumart_fmodf((float)") && c.contains("lumart_fmod((double)"), "{c}");
+    assert!(c.contains("lumart_list_push(&") && c.contains(".value, "), "the optional's own list:\n{c}");
+    let h = build_file("let (lo, hi) = (1, 10)\non start {\n    log \"{lo + hi}\"\n}\n", "lum/lm.h").unwrap();
+    assert!(h.contains("lm_g0_lo") && h.contains("lm_g0_hi"), "{h}");
 }
