@@ -321,8 +321,8 @@ on mods.stopped(gone) {
             shot_bursting[i] = 0
             if let h = shot_obj[i] {
                 if let o = h.get() {
-                    // One killed elsewhere is not counted or killed again.
-                    if not MR::isDead(o) {
+                    // One killed elsewhere is not counted or killed again; a stage that ended took it with it.
+                    if not MR::isDead(o) and holds("stage") {
                         o.kill()
                         killed += 1
                     }

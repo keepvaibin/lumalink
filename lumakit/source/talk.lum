@@ -71,8 +71,9 @@ pub fn saying(who: LiveActor) -> bool {
 }
 
 fn start_line(who: ref<LiveActor>, line: text) -> bool {
+    // A line is said in a stage, to its player.
     let a = who.get()
-    if a == none {
+    if a == none or not holds("player") {
         return false
     }
     next_line += 1
@@ -112,9 +113,9 @@ pub task say(who: ref<LiveActor>, line: text) {
     wait until talk_done()
 }
 
-// The game's talk run a frame: true when it ended, or its speaker is gone.
+// The game's talk run a frame: true when it ended, its speaker is gone, or its stage ended.
 fn talk_done() -> bool {
-    if speaker == none or ctrl == none {
+    if speaker == none or ctrl == none or not holds("player") {
         return true
     }
     // Gone, or killed (a killed actor stays reachable until the scene drops it).

@@ -45,6 +45,7 @@ hook after SysInfoWindow::exeWait() {
 
 task run() {
     wait 60 frames
+    guard holds("system") else { return }
     guard let key = item.find("key") else {
         log fact "key_found" false
         return
@@ -67,9 +68,14 @@ task run() {
     progress.number_set(kept, 40)
     log fact "first_number" progress.number_get(kept)
     saving = true
+    guard holds("system") else { return }
     GameSequenceFunction::startGameDataSaveSequence(false, false)
     wait 2 frames
-    while GameSequenceFunction::isActiveSaveDataHandleSequence() {
+    while true {
+        guard holds("system") else { return }
+        if not GameSequenceFunction::isActiveSaveDataHandleSequence() {
+            break
+        }
         wait 1 frames
     }
     saving = false

@@ -788,7 +788,23 @@ impl<'a> Parser<'a> {
             OnEvent::Option(self.ident("Script.Want.Key")?)
         } else if word(self, "stage") {
             self.take();
-            OnEvent::Stage(self.string()?)
+            // `on stage ready`, `on stage ended`, `on stage "NAME"`.
+            if self.at_word("ready") {
+                self.take();
+                OnEvent::StageReady
+            } else if self.at_word("ended") {
+                self.take();
+                OnEvent::StageEnded
+            } else {
+                OnEvent::Stage(self.string()?)
+            }
+        } else if word(self, "play") {
+            self.take();
+            OnEvent::Play
+        } else if word(self, "player") && self.peek(1).text == "ready" {
+            self.take();
+            self.take();
+            OnEvent::PlayerReady
         } else if self.at_word("draw") && self.peek(1).kind == Kind::Id {
             // `on draw <point>`; `on draw.<event>` is an event of the module draw.
             self.take();

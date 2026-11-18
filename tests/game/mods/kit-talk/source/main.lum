@@ -69,6 +69,7 @@ fn goomba() -> ref<LiveActor>? {
 
 task kill_later(k: ref<LiveActor>) {
     wait 30 frames
+    guard holds("stage") else { return }
     if let a = k.get() {
         a.kill()
     }

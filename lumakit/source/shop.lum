@@ -159,14 +159,15 @@ pub task open(s: Shop) -> Ware? {
         }
     }
     while open_shop == mine and not closed_by_stop {
-        if keeper_gone(s) {
+        // The shop closes with its stage (the player fell, the stage changed).
+        if keeper_gone(s) or not holds("player") {
             return none
         }
         let taken = wait screen.choose("{s.title}   {held(s.currency)}", rows_of(owner, s))
         guard let i = taken else {
             return none
         }
-        if open_shop != mine or closed_by_stop {
+        if open_shop != mine or closed_by_stop or not holds("player") {
             return none
         }
         if i < 0 or i >= s.wares.len() {

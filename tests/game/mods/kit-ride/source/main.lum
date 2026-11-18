@@ -63,6 +63,7 @@ task run() {
     log fact "board_mounted" ridden() != none
     ride.dismount()
     wait 10 frames
+    guard holds("stage") else { return }
     log fact "board_left" ridden() == none
     // The board taken away: the rider jumped straight up and would land on it again (a mount is ridden by landing on it).
     if let b = board_made?.get() {

@@ -154,8 +154,9 @@ fn settle() {
             view.main_eye(none)
             main_held = false
         }
-    } else if control_rigs[controls.len() - 1] != none {
-        // The rig on top now, at once (the world may be held; a free camera starts at the next pose).
+    } else if control_rigs[controls.len() - 1] != none and holds("stage") {
+        // The rig on top now, at once (the world may be held; a free camera starts at the next pose). With no stage
+        // there is no camera to place: the next stage's first pose places it.
         place(vec3(0.0, 0.0, 0.0))
     }
 }
@@ -442,6 +443,10 @@ hook after CameraDirector::calcPose() {
     let shaking = shake_now()
     if shake_left > 0 {
         shake_left -= 1
+    }
+    // While a stage is made or taken down the director poses with no stage around it: nothing is placed.
+    if not holds("stage") {
+        return
     }
     if controls.len() > 0 {
         place(shaking)

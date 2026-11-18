@@ -71,12 +71,15 @@ var making: u32 = 0
 
 // Gives `g` to the player now: coins and star bits counted as the game counts its own, a life each (99 at most, the
 // game's most), health as the game's heart pickups give it, a form through kit.player.form, a mod's function with the
-// player. Carry is counted by the item that gives it (give_item, a pickup); given bare it is nothing.
+// player. Carry is counted by the item that gives it (give_item, a pickup); given bare it is nothing. Lives are given once
+// the game's files are read; the rest only to a player in a stage (nothing otherwise).
 pub fn give(g: Gives) {
     match g {
-        Gives.Coins(n) => MR::incCoin(n as i32)
-        Gives.StarBits(n) => MR::addStarPiece(n as i32)
         Gives.Lives(n) => {
+            // The game's files hold them: a stage need not be there, the files must have been read.
+            if not holds("system") {
+                return
+            }
             // The game holds at most 99 lives (GameDataPlayerStatus cMaxPlayerLeft): past that a one-up adds
             // nothing, and a large n would hold the frame.
             var k = n
@@ -87,9 +90,22 @@ pub fn give(g: Gives) {
                 MR::incPlayerLeft()
             }
         }
+        Gives.Carry(n) => {}
+        else => {
+            // The rest is the player's in a stage: nothing is given while there is none.
+            if holds("player") {
+                give_player(g)
+            }
+        }
+    }
+}
+
+fn give_player(g: Gives) {
+    match g {
+        Gives.Coins(n) => MR::incCoin(n as i32)
+        Gives.StarBits(n) => MR::addStarPiece(n as i32)
         Gives.Health(n) => MR::incPlayerLife(n)
         Gives.Form(f) => form.set(f)
-        Gives.Carry(n) => {}
         Gives.Call(f) => {
             if let p = MR::getPlayerDemoActor() {
                 if let m = as_class<MarioActor>(p) {
@@ -97,6 +113,7 @@ pub fn give(g: Gives) {
                 }
             }
         }
+        else => {}
     }
 }
 
@@ -629,8 +646,11 @@ on mods.stopped(gone) {
         i -= 1
         let k = (obj_item[i] - 1) as int
         if def_owner[k] == gone {
-            if let a = obj_ref[i].get() {
-                a.kill()
+            // Killed while its stage lives; a stage that ended took it with it.
+            if holds("stage") {
+                if let a = obj_ref[i].get() {
+                    a.kill()
+                }
             }
             obj_ref.remove(i)
             obj_item.remove(i)

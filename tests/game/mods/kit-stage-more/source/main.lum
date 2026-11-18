@@ -31,6 +31,7 @@ on start {
 task run() {
     // `on stage` fires before the opening ends and the player takes input: settle first.
     wait 300 frames
+    guard holds("system") else { return }
     log fact "built_runs" built
 
     // listed_after_20: the helper galaxy below gives this file 20 stars of the mod's own.

@@ -241,6 +241,12 @@ static inline void lm_cp_lumart_fn(lumart_fn* d, lumart_fn s) {
    script error, said in its maker's log): `out` holds what it had, zero as the caller made it unless written. */
 int32_t lumart_call_other(lumart_fn f, void* const* argv, void* out);
 
+/* LumaScript's `can(F)`: LumaCore.can_call of each row slot (0 for a null slot, or a kernel without it). */
+uint8_t lumart_can_call(const LumaFunction* f);
+/* Whether the set `name` holds now (LumaCore.holds): 1, 0, or -1 for a kernel without it or no such set. The
+   handlers of a stage, the player and play run when it is not 0; `on stage ended` when it is 0. */
+int32_t lumart_holds(const char* name);
+
 /* A function value given to a service that calls it back (draw.at's fn): its count taken once, kept until the mod
    ends (the service may call it until replaced, and a call site cannot know when another replaced it). The same block
    twice is kept once. 0, or 1 when no memory is left (S0911 at file:line). */

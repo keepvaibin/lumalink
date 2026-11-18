@@ -1,0 +1,60 @@
+// K12 conformance, the handlers that prove a set (Nebula docs/plan/M2-NEEDS-PROOF.md): `on stage ready`, `on stage
+// "NAME"`, `on player ready`, `on play` and `on stage ended` run when their set holds, in that order in each stage, and
+// the calls in them that need the set are made (no Call.NotNow in the log).
+
+var order = ""
+var eggs = 0
+var plays = 0
+var least_plays = -1
+var cams = 0
+var places = 0
+var alive = 0
+
+on stage ready {
+    order = "{order}R"
+    plays = 0
+    // CameraContext: `stage`.
+    let cam = MR::getCamPos()
+    if cam.x != 0.0 or cam.y != 0.0 or cam.z != 0.0 {
+        cams += 1
+    }
+    log fact "cams" cams
+    log fact "order" order
+}
+
+on stage "EggStarGalaxy" {
+    eggs += 1
+    log fact "eggs" eggs
+}
+
+on player ready {
+    order = "{order}P"
+    // MarioActor: `player`.
+    let at = MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+    if at.x != 0.0 or at.y != 0.0 or at.z != 0.0 {
+        places += 1
+    }
+    if not MR::isPlayerDead() {
+        alive += 1
+    }
+    log fact "places" places
+    log fact "alive" alive
+    log fact "order" order
+}
+
+on play {
+    plays += 1
+    let at = MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
+    if at.x == 0.0 and at.y == 0.0 and at.z == 0.0 {
+        log fact "play_at_zero" true
+    }
+}
+
+on stage ended {
+    order = "{order}E"
+    if least_plays < 0 or plays < least_plays {
+        least_plays = plays
+    }
+    log fact "least_plays" least_plays
+    log fact "order" order
+}

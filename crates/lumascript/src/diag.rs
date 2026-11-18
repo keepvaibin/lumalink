@@ -345,6 +345,12 @@ pub mod code {
     /// docs/modding/language/objects.md: `as_class` sees a game object as a class of its own line: `{found}` is not
     /// of `{expected}`'s.
     pub const AS_CLASS: u16 = 153;
+    /// Part (g): `{found}` needs `{needs}` (luma_functions.json), which nothing proves here; `{how}` says what would.
+    pub const NEEDS_NOT_PROVED: u16 = 154;
+    /// Part (g): `can` takes one game function's name (`can(MR::isPlayerDead)`, a quoted row).
+    pub const CAN_WHAT: u16 = 155;
+    /// Part (g): `holds` takes the name of a set the game proves (`{sets}`), as `holds("player")`.
+    pub const HOLDS_WHAT: u16 = 156;
     /// The back end does not write `{what}` yet; the build stops here rather than guess.
     pub const BACKEND_NOT_YET: u16 = 800;
 
@@ -501,6 +507,9 @@ pub mod code {
         TABLE_PLACE,
         TABLE_INDEX,
         AS_CLASS,
+        NEEDS_NOT_PROVED,
+        CAN_WHAT,
+        HOLDS_WHAT,
         BACKEND_NOT_YET,
     ];
 
@@ -585,6 +594,8 @@ pub fn args_of(code: u16) -> &'static [&'static str] {
         code::TABLE_PLACE => &["found", "why"],
         code::TABLE_INDEX => &["found", "count"],
         code::AS_CLASS => &["found", "expected"],
+        code::NEEDS_NOT_PROVED => &["found", "needs", "how"],
+        code::HOLDS_WHAT => &["sets"],
         code::BASE_CALL => &["found", "name"],
         code::GO_UNKNOWN => &["found", "machine"],
         code::GO_NAME_MACHINE => &["what", "found", "machine"],
@@ -681,6 +692,10 @@ pub const PHRASES: &[&str] = &[
     "Script.Keep.State",
     "Script.Wait.Where",
     "Script.Wait.Inside",
+    // What would prove a call's needs (S0154).
+    "Script.Needs.Stage",
+    "Script.Needs.Player",
+    "Script.Needs.Can",
     // Why `result`, `proceed()` or `self` cannot be where they are (S0120, S0121, S0128).
     "Script.Result.Before",
     "Script.Result.NotHook",

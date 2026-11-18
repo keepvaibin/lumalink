@@ -21,8 +21,11 @@
 
 mod call;
 mod expr;
+mod needs;
 mod pat;
 mod service;
+
+pub(crate) use needs::Needs;
 
 pub(crate) use service::{answer_ty, event_name, sty as service_sty};
 pub(crate) use call::{builtins_of, STD_NAMES};
@@ -98,6 +101,10 @@ pub enum Resolved {
     BaseCall,
     /// An optional service's alias tested against `none` (`use optional svc.<name>`): whether the service was given.
     ServiceGiven(String),
+    /// `can(F)`: whether everything each of F's rows needs is there now (LumaCore.can_call of each).
+    Can { name: String, signatures: Vec<String> },
+    /// `holds("SET")`: LumaCore.holds of a set the game proves (luma_functions.json "guarantees").
+    Holds { set: String },
 }
 
 /// A hook's game function as part (e) chose it (4.3 writes the hook's row from it).
@@ -229,6 +236,11 @@ struct Frame {
     event: Option<&'static str>,
     /// An `override fn`'s own body (docs/modding/language/language.md, section 5.5): what `base.<name>(...)` calls.
     pub(super) override_of: Option<OverrideCx>,
+    /// Part (g): the needs proved here, each with its tick, and where each open scope's start them.
+    proved: Vec<(String, u32)>,
+    proved_marks: Vec<usize>,
+    /// Part (g): the function of the mod this body is (or runs at once inside), when its callers prove its needs.
+    fn_key: Option<needs::FnKey>,
 }
 
 /// The virtual an `override fn` replaces, as `base.` calls it: its name, parameter types, result (None: none).
@@ -260,6 +272,9 @@ impl Frame {
             machine: None,
             event: None,
             override_of: None,
+            proved: Vec::new(),
+            proved_marks: Vec::new(),
+            fn_key: None,
         }
     }
 }
@@ -276,6 +291,8 @@ struct LoopMark {
     rounds: Option<Path>,
     /// The paths that leave by `break`.
     exits: Option<Path>,
+    /// Part (g): the calls kept from the loop's start on.
+    sites: usize,
 }
 
 /// Adds the waits of `from` that `into` lacks, keeping tick order.
@@ -363,6 +380,8 @@ pub(super) struct Walk<'w, 'a> {
     /// `given_marks`; its end forgets what it learned. A service given at load stays given, so no wait undoes it.
     given: Vec<String>,
     given_marks: Vec<usize>,
+    /// The next body walked is this function of the mod's (part g).
+    next_fn_key: Option<needs::FnKey>,
 }
 
 /// Part (c) over the mod's modules. Libraries are read only where the mod uses them (a module `let`'s type).
@@ -406,6 +425,7 @@ pub(super) fn bodies(c: &mut Checker<'_>) {
         }
         w.finish();
     }
+    needs::say(c);
 }
 
 /// Every name a script may write for a game enum's value.
@@ -459,6 +479,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             whole_wait: None,
             given: Vec::new(),
             given_marks: Vec::new(),
+            next_fn_key: None,
         }
     }
 
@@ -505,12 +526,18 @@ impl<'w, 'a> Walk<'w, 'a> {
     }
 
     fn scope_push(&mut self) {
-        self.frame_mut().scopes.push(HashMap::new());
+        let frame = self.frame_mut();
+        frame.scopes.push(HashMap::new());
+        frame.proved_marks.push(frame.proved.len());
         self.given_marks.push(self.given.len());
     }
 
     fn scope_pop(&mut self) {
-        self.frame_mut().scopes.pop();
+        let frame = self.frame_mut();
+        frame.scopes.pop();
+        if let Some(n) = frame.proved_marks.pop() {
+            frame.proved.truncate(n);
+        }
         if let Some(n) = self.given_marks.pop() {
             self.given.truncate(n);
         }
@@ -753,7 +780,8 @@ impl<'w, 'a> Walk<'w, 'a> {
     fn loop_start(&mut self) {
         let start = self.next_tick();
         let entry = self.frame().path.clone();
-        self.frame_mut().loop_marks.push(LoopMark { start, broke: false, uses: Vec::new(), entry, rounds: None, exits: None });
+        let sites = self.sites_mark();
+        self.frame_mut().loop_marks.push(LoopMark { start, broke: false, uses: Vec::new(), entry, rounds: None, exits: None, sites });
     }
 
     /// The place where the loop may end without a `break` (after a `while`'s condition, at a `for`'s start): its path.
@@ -789,6 +817,10 @@ impl<'w, 'a> Walk<'w, 'a> {
             Path::join(&mut round, &end);
         }
         let first_wait = round.as_ref().and_then(|r| r.waits.iter().find(|(t, _)| *t > mark.start).map(|(_, p)| *p));
+        // Part (g): what was proved before the loop does not stand the next time round.
+        if first_wait.is_some() {
+            self.loop_waited(mark.sites, mark.start);
+        }
         // A `proceed()` in the loop on a path back round runs again the next time round (S0122).
         if let (Some(p), None) = (round.as_ref().and_then(|r| r.proceeded), mark.entry.proceeded) {
             self.say(Diagnostic::new(code::PROCEED_TWICE, p).with("line", Arg::Text(p.line.to_string())));
@@ -958,6 +990,7 @@ impl<'w, 'a> Walk<'w, 'a> {
     /// A function of the module (`key` ""), of a struct (`.name`, `self_ty` the struct) or of a class.
     fn function(&mut self, owner: ItemRef, key: &str, f: &'a ast::FnDecl, self_ty: Option<Ty>, members: Option<Members>) {
         let ret = f.ret.as_ref().map(|_| self.declared(owner, &format!("{key}->")));
+        self.next_fn_key = Some((owner, key.to_string()));
         self.body_with_params(Kind::Fn, ret, owner, key, &f.params, &f.body, self_ty, members);
     }
 
@@ -975,6 +1008,9 @@ impl<'w, 'a> Walk<'w, 'a> {
         frame.self_ty = self_ty;
         frame.waits_ok = kind == Kind::Task;
         self.frames.push(frame);
+        if let Some(k) = self.next_fn_key.take() {
+            self.needs_are_callers(k);
+        }
         for (i, p) in params.iter().enumerate() {
             if p.is_self {
                 self.frame_mut().self_var = p.var;
@@ -1173,6 +1209,12 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
         frame.override_of = Some(OverrideCx { name: f.name.name.clone(), params: types, ret: ret.clone() });
         self.frames.push(frame);
+        // Part (g): the game is calling the virtual's row on the class's object: what it needs is there. And the
+        // object exists only while the scene's objects of the set `stage` do (needs.rs, `prove_object`).
+        if let Some((n, s)) = &row {
+            self.prove_rows(&[(n.clone(), s.clone())]);
+        }
+        self.prove_object();
         for (p, ty, var) in binds {
             if let Some(name) = &p.name {
                 let id = self.bind(name, ty, var);
@@ -1405,6 +1447,12 @@ impl<'w, 'a> Walk<'w, 'a> {
         frame.path.given = !matches!(h.kind, ast::HookKind::Wrap | ast::HookKind::Replace) || result.is_none();
         frame.hook = Some(HookCx { kind: h.kind, name: name.clone(), result: result.clone(), not_yet_said: false });
         self.frames.push(frame);
+        // Part (g): the game is calling the row (each override with `every override of`): what it needs is there.
+        if let Some((n, row, _)) = &chosen {
+            let mut rows = vec![(n.clone(), row.clone())];
+            rows.extend(overrides.iter().cloned());
+            self.prove_rows(&rows);
+        }
         if let Some(params) = &h.params {
             let expected = fnty.as_ref().map(|f| f.params.len());
             if let Some(n) = expected.filter(|n| *n != params.len()) {
@@ -1804,13 +1852,17 @@ impl<'w, 'a> Walk<'w, 'a> {
         let mut frame = Frame::new(Kind::Handler, ret.clone());
         // The compiler makes a task of a handler of start, a stage, an option or an event that waits; the others
         // run inside one call (stop, frame, load, draw, layers, step).
-        frame.waits_ok = matches!(on.event, ast::OnEvent::Start | ast::OnEvent::Stage(_) | ast::OnEvent::Option(_) | ast::OnEvent::Event { .. });
+        frame.waits_ok = matches!(
+            on.event,
+            ast::OnEvent::Start | ast::OnEvent::Stage(_) | ast::OnEvent::StageReady | ast::OnEvent::StageEnded | ast::OnEvent::PlayerReady | ast::OnEvent::Option(_) | ast::OnEvent::Event { .. }
+        );
         frame.event = match on.event {
             ast::OnEvent::Start => Some("start"),
             ast::OnEvent::Stop => Some("stop"),
             _ => None,
         };
         self.frames.push(frame);
+        self.prove_handler(&on.event);
         // `on option x`: an option of the mod's luma.json (docs/modding/language/language.md, section 10).
         if let ast::OnEvent::Option(key) = &on.event {
             if !self.c.facts.options.iter().any(|o| o.key == key.name) {
@@ -2305,6 +2357,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         frame.self_ty = self_ty;
         frame.runs_now = std::mem::take(&mut self.next_runs_now);
         self.frames.push(frame);
+        self.closure_inherits();
         for (p, t) in params.iter().zip(tys.iter()) {
             if p.is_self {
                 self.say(Diagnostic::new(code::SELF_OUTSIDE, p.at));
@@ -2332,6 +2385,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                     let mut shown = Vec::new();
                     self.given_by(&c.value, true, &mut shown);
                     self.given.extend(shown);
+                    let mut proved = Vec::new();
+                    self.proved_by(&c.value, true, &mut proved);
+                    self.prove(proved);
                 }
                 Some(p) => {
                     let t = self.expr(&c.value, Want::Any);
@@ -2352,6 +2408,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                             self.pattern(p, &other, false);
                         }
                     }
+                    // Part (g): `if let x = G()`: what G's result is null without.
+                    let proved = self.proved_by_let(&c.value);
+                    self.prove(proved);
                 }
             }
         }

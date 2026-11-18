@@ -800,9 +800,12 @@ fn drop_puppet(i: int) {
         return
     }
     pup_live[i] = false
-    if let r = pup_actor[i] {
-        if let a = r.get() {
-            a.kill()
+    // Killed while its stage lives; a stage that ended took it with it.
+    if holds("stage") {
+        if let r = pup_actor[i] {
+            if let a = r.get() {
+                a.kill()
+            }
         }
     }
     pup_actor[i] = none
@@ -991,6 +994,10 @@ fn rewind_at(r: Rewind) -> int? {
 
 // The player put at a pose: place, turn and animation (a recorded start, a rewind). Nothing where no player exists.
 pub fn put_player(p: Pose) {
+    // Only a player in a stage is put anywhere.
+    if not holds("player") {
+        return
+    }
     guard let pa = MarioAccess::getPlayerActor() else {
         return
     }

@@ -15,7 +15,7 @@ pub(crate) const STD_NAMES: &[&str] = &[
     "min", "max", "abs", "clamp", "lerp", "sqrt", "sin", "cos", "atan2", "dot", "cross", "length", "normal", "hash32", "same", "low_bits", "vec2", "vec3", "vec4",
     "quat", "color", "json", "is_state", "keep", "kept", "caller", "model_named", "effect_named", "sound_named", "layout_named", "font_named",
     "movie_named", "make", "mat34", "alias_class", "placement_of", "placed_at", "make_gravity", "set_number", "set_table", "table",
-    "as_class",
+    "as_class", "can", "holds",
 ];
 
 const INT: Ty = Ty::Int(Scalar::I32);
@@ -242,7 +242,7 @@ fn strip_parens(e: &Expr) -> &Expr {
 }
 
 /// A text literal with nothing interpolated: its text.
-fn literal_text(e: &Expr) -> Option<String> {
+pub(super) fn literal_text(e: &Expr) -> Option<String> {
     match &strip_parens(e).kind {
         ExprKind::Str(l) if !l.interpolates() => Some(l.parts.iter().map(|p| if let ast::StrPart::Text(t) = p { t.as_str() } else { "" }).collect()),
         _ => None,
@@ -503,6 +503,9 @@ impl<'w, 'a> Walk<'w, 'a> {
         };
         self.res.insert(e.id, Resolved::Item(item));
         self.res.insert(callee.id, Resolved::Item(item));
+        if let ast::ItemKind::Fn(f) = &self.item_of(item).kind {
+            self.mod_needs(e.at, (item, String::new()), f.name.name.clone());
+        }
         self.args_against(&name, &ps, args, e.at);
         r
     }
@@ -576,6 +579,7 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
         let (ps, r) = self.fn_params(owner, &key, &f.params, f.ret.is_some());
         self.res.insert(e.id, Resolved::Member { owner, name: f.name.name.clone() });
+        self.mod_needs(e.at, (owner, key), shown.clone());
         self.args_against(&shown, &ps, args, e.at);
         r
     }
@@ -718,7 +722,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                     let key = format!(".{}", f.name.name);
                     let (ps, r) = self.fn_params(item, &key, &f.params, f.ret.is_some());
                     self.res.insert(e.id, Resolved::Member { owner: item, name: f.name.name.clone() });
-                    self.args_against(&format!("{type_name}.{}", f.name.name), &ps, args, e.at);
+                    let shown = format!("{type_name}.{}", f.name.name);
+                    self.mod_needs(e.at, (item, key), shown.clone());
+                    self.args_against(&shown, &ps, args, e.at);
                     r
                 }
                 _ => {
@@ -912,6 +918,10 @@ impl<'w, 'a> Walk<'w, 'a> {
             // Its table and field names are read at build time to lay the bytes out.
             "set_table" | "table" => return self.table_call(e, s, args),
             "as_class" => return self.as_class_call(e, targs, args),
+            // Its argument is a game function's name, not a value (part g).
+            "can" => return self.can_call(e, args),
+            // Its argument is a set's name, a plain string (part g).
+            "holds" => return self.holds_call(e, args),
             _ => {}
         }
         let counts: &[usize] = match s {
@@ -1649,6 +1659,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 }
             }
         }
+        self.game_needs(at, name, row);
         self.res.insert(e.id, Resolved::GameFn { name: name.to_string(), signature: row.to_string() });
         self.game_result(e, &f.result)
     }

@@ -37,6 +37,7 @@ task watch_first() {
     wait until cutscene.active()
     let first = camera.now()
     wait 100 frames
+    guard holds("stage") else { return }
     log fact "active_during" cutscene.active()
     log fact "camera_moved" far(camera.now().eye, first.eye) > 100.0
     log fact "letterbox_on" MR::isStopCinemaFrame()
@@ -48,6 +49,7 @@ task watch_first() {
 
 task kill_later(k: ref<LiveActor>) {
     wait 30 frames
+    guard holds("stage") else { return }
     if let a = k.get() {
         a.kill()
     }

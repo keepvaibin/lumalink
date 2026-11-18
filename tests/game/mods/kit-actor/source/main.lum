@@ -105,6 +105,7 @@ task run() {
     var drop_mid = vec3(0.0, 0.0, 0.0)
     if let r = dropped { if let a = r.get() { drop_mid = a.mPosition } }
     wait 60 frames
+    guard holds("player") else { return }
     if let r = stand {
         if let a = r.get() {
             log fact "stand_from_place" length(a.mPosition - placed_at)
@@ -165,6 +166,7 @@ task run() {
         // 20 frames: closer, and still far from the player (its attack sensor would hurt the player and knock the
         // player back through the cases after this one).
         wait 20 frames
+        guard holds("stage") else { return }
         if let now = r.get() {
             log fact "walks_closer" length(now.mPosition - here()) < far_then
             var four = now.getSensor("body") != none
@@ -180,6 +182,7 @@ task run() {
     // stomped, drops_coins: the harness jumps and lands on it (it is put under the player during the jump).
     let soft = actor.define(actor.Kind { name: "soft", look: model "Walker", defeated_by: [actor.Attack.Trample],
         drops: item.Gives.Coins(3), on_attacked: hit, sensors: [actor.Sensor.Body(60.0)] })
+    guard holds("player") else { return }
     let coins = MR::getCoinNum()
     var soft_ref: ref<LiveActor>? = none
     // The harness jumps; the kind is put on the ground under the player once the player is 80 units up, so the
@@ -198,6 +201,7 @@ task run() {
     var waited = 0
     while waited < 240 and actor.all(soft).len() > 0 {
         wait 1 frames
+        guard holds("player") else { return }
         waited += 1
     }
     log fact "stomped_gone" actor.all(soft).len()
@@ -210,6 +214,7 @@ task run() {
             drop_at = a.mPosition
         }
         for t in 0..180 {
+            guard holds("player") else { return }
             var left = 0
             if let a = r.get() {
                 if let holder = MR::getCoinHolder() {
@@ -228,6 +233,7 @@ task run() {
             wait 1 frames
         }
     }
+    guard holds("player") else { return }
     log fact "coins_more" MR::getCoinNum() - coins
     MR::setPlayerPos(drop_at)
     wait 30 frames

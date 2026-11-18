@@ -1927,6 +1927,79 @@ fn on_stage_runs_once_the_stage_is_ready() {
     assert!(!c[..ready].contains("lm_stage_loaded = 0;"), "{c}");
 }
 
+/// `on stage ready`, `on player ready`, `on stage ended` and `on play` (Nebula's docs/plan/M2-NEEDS-PROOF.md): each
+/// run by the frame handler when its set holds (lumart_holds, LumaCore.holds): a ready stage once its opening is over,
+/// its player once, its end once (a BOOT or LOADING frame, or `stage` no longer holding), play each PLAY frame the
+/// player holds. `on stage "<name>"` is ready the same way.
+#[test]
+fn the_stage_handlers_run_when_their_set_holds() {
+    let src = "on stage ready {
+    log \"ready\"
+}
+on player ready {
+    log \"player\"
+}
+on stage ended {
+    log \"ended\"
+}
+on play {
+    log \"play\"
+}
+on stage \"EggStarGalaxy\" {
+    log \"egg\"
+}
+";
+    let c = build_file(src, "lum/mod.c").unwrap_or_else(|e| panic!("{e:?}"));
+    let at = |want: &str| c.find(want).unwrap_or_else(|| panic!("no {want:?} in:
+{c}"));
+    // The end first, so a stage that ends and is ready again in one pass runs both in order.
+    let ended = at("if (lm_stage_on && (now->state == LUMA_TIME_BOOT || now->state == LUMA_TIME_LOADING || lumart_holds(\"stage\") == 0)) {");
+    let ended_call = at("(void)lm_on_stage_ended_0_0();");
+    let ready = at("} else if (now->state == LUMA_TIME_PLAY && lm_stage_loaded && lumart_holds(\"stage\") != 0) {");
+    let opening = at("if (lm_starting == 0 && lm_opening == 0) {");
+    let egg = at("lm_stage_is(lm_stage, \"EggStarGalaxy\")");
+    let ready_call = at("(void)lm_on_stage_ready_0_0();");
+    let player = at("if (lm_stage_on && !lm_player_on && now->state == LUMA_TIME_PLAY && lumart_holds(\"player\") != 0) {");
+    let player_call = at("(void)lm_on_player_ready_0_0();");
+    let play = at("if (now->state == LUMA_TIME_PLAY && lumart_holds(\"player\") != 0) {");
+    let play_call = at("(void)lm_on_play_0_0();");
+    assert!(ended < ended_call && ended_call < ready && ready < opening && opening < egg && egg < ready_call, "{c}");
+    assert!(ready_call < player && player < player_call && player_call < play && play < play_call, "{c}");
+    assert!(c[opening..ready_call].contains("lm_stage_on = 1;"), "{c}");
+    assert!(c[ended..ended_call].contains("lm_stage_on = 0;") && c[player..player_call].contains("lm_player_on = 1;"), "{c}");
+    // `on play` alone needs no stage state.
+    let c = build_file("on play {
+    log \"play\"
+}
+", "lum/mod.c").unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(c.contains("lumart_holds(\"player\") != 0") && !c.contains("lm_stage_on"), "{c}");
+}
+
+/// `can(F)` (part g): LumaCore.can_call of each of F's rows, through lumart_can_call.
+#[test]
+fn can_asks_the_kernel_for_each_row() {
+    let c = build("on frame {
+    if can(MR::actor) {
+        log \"yes\"
+    }
+}
+").unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(c.contains("((uint8_t)(lumart_can_call(lm_fn_"), "{c}");
+    let imports = build_file("on frame {
+    log can(MR::actor)
+}
+", "lum/imports.c").unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(imports.contains("\"MR::actor\""), "{imports}");
+    // `holds("SET")`: LumaCore.holds, 1 only (a kernel without it says -1).
+    let c = build("on frame {
+    if holds(\"player\") {
+        log \"yes\"
+    }
+}
+").unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(c.contains("((uint8_t)(lumart_holds(\"player\") == 1))"), "{c}");
+}
+
 /// docs/modding/language/objects.md: a member the facts mark virtual, called on an object, runs the object's own class's function (import
 /// kind 8, LumaCore.method; args[0] the object as the row's record, through core->as_class when the static type does
 /// not say it is at the object's address): on a view, on `self` in a mod's class (an override of the class's own,

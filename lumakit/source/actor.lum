@@ -785,9 +785,12 @@ pub fn alive(h: Attached) -> bool {
 }
 
 fn detach(i: int) {
-    if let o = att_obj[i] {
-        if let a = o.get() {
-            a.kill()
+    // Killed while its stage lives; a stage that ended took it with it.
+    if holds("stage") {
+        if let o = att_obj[i] {
+            if let a = o.get() {
+                a.kill()
+            }
         }
     }
     att_obj[i] = none
@@ -820,7 +823,11 @@ fn read_data() {
 
 on frame {
     read_data()
-    // Each attached model to its joint; one whose object went is taken away.
+    // Each attached model to its joint, while a stage lives (none outlives its stage); one whose object went is taken
+    // away.
+    if not holds("stage") {
+        return
+    }
     for i in 0..att_obj.len() {
         guard let o = att_obj[i] else {
             continue
@@ -896,8 +903,11 @@ on mods.stopped(gone) {
     while j > 0 {
         j -= 1
         if obj_owner[j] == gone {
-            if let a = obj_ref[j].get() {
-                a.kill()
+            // Killed while its stage lives; a stage that ended took it with it.
+            if holds("stage") {
+                if let a = obj_ref[j].get() {
+                    a.kill()
+                }
             }
             obj_ref.remove(j)
             obj_kind.remove(j)

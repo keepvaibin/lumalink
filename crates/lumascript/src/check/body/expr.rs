@@ -992,13 +992,17 @@ impl<'w, 'a> Walk<'w, 'a> {
         // What the arms before shows given by not holding (`if x == none { } else { x... }`): an arm with one plain
         // condition runs only when it held, so the later arms and the `else` run where it did not.
         let mut otherwise_given: Vec<String> = Vec::new();
+        // And what they prove by not holding (`if !can(F) { } else { F() }`, part g).
+        let mut otherwise_proved: Vec<String> = Vec::new();
         for (conds, block) in arms {
             self.arm_waits(&base);
             self.scope_push();
             self.given.extend(otherwise_given.iter().cloned());
+            self.prove(otherwise_proved.clone());
             self.conds(conds);
             if let [ast::Cond { pattern: None, value }] = conds.as_slice() {
                 self.given_by(value, false, &mut otherwise_given);
+                self.proved_by(value, false, &mut otherwise_proved);
             }
             base = self.path_waits();
             let leaves = self.arm_block(block, arm_want, &mut joined);
@@ -1015,6 +1019,9 @@ impl<'w, 'a> Walk<'w, 'a> {
                 let mut shown = Vec::new();
                 self.given_by(value, false, &mut shown);
                 self.given.extend(shown);
+                let mut proved = Vec::new();
+                self.proved_by(value, false, &mut proved);
+                self.prove(proved);
             }
         }
         self.arm_waits(&base);
@@ -1022,6 +1029,7 @@ impl<'w, 'a> Walk<'w, 'a> {
             Some(b) => {
                 self.scope_push();
                 self.given.extend(otherwise_given);
+                self.prove(otherwise_proved);
                 let leaves = self.arm_block(b, arm_want, &mut joined);
                 self.scope_pop();
                 all_leave &= leaves;
@@ -1139,7 +1147,14 @@ impl<'w, 'a> Walk<'w, 'a> {
         match op {
             BinOp::And | BinOp::Or => {
                 self.expr(l, Want::Ty(&Ty::Bool));
+                // The right side runs only when the left is true (`and`) or false (`or`): what that proves (part g)
+                // holds in it.
+                let mut proved = Vec::new();
+                self.proved_by(l, op == BinOp::And, &mut proved);
+                let mark = self.frame().proved.len();
+                self.prove(proved);
                 self.expr(r, Want::Ty(&Ty::Bool));
+                self.frame_mut().proved.truncate(mark);
                 Ty::Bool
             }
             BinOp::Coalesce => {
@@ -1489,7 +1504,11 @@ impl<'w, 'a> Walk<'w, 'a> {
         let t = match kind {
             ast::ItemKind::Binding(_) => self.module_name_ty(item, name, e.at),
             ast::ItemKind::Option { .. } => self.declared(item, ""),
-            ast::ItemKind::Fn(f) => self.fn_type(item, "", &f.params, f.ret.is_some()),
+            ast::ItemKind::Fn(f) => {
+                // Given away: no caller the checker sees proves its needs (part g).
+                self.given_away(item);
+                self.fn_type(item, "", &f.params, f.ret.is_some())
+            }
             ast::ItemKind::Extern { params, ret, .. } | ast::ItemKind::Export { params, ret, .. } => self.fn_type(item, "", params, ret.is_some()),
             ast::ItemKind::Task { .. } => return self.not_a_value(e.at, name, "Script.Kind.Task"),
             _ => return self.not_a_value(e.at, name, "Script.Kind.Type"),
