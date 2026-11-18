@@ -418,8 +418,10 @@ impl Server {
                 if styled == text {
                     return Ok(json!([]));
                 }
-                let lines = text.split('\n').count() - 1;
-                let last = text.rsplit('\n').next().unwrap_or("").encode_utf16().count();
+                // The old text's end as the editor counts it (N-4064: a file of lone CRs was one line here).
+                let shown = Lines::new(&text);
+                let lines = shown.count() - 1;
+                let last = shown.line(shown.count() as u32).encode_utf16().count();
                 Ok(json!([{ "range": { "start": { "line": 0, "character": 0 }, "end": { "line": lines, "character": last } }, "newText": styled }]))
             }
             _ if method.starts_with("$/") => Ok(Value::Null),

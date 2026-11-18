@@ -188,7 +188,8 @@ impl Analysis {
             Spot::Comment | Spot::Str => Completions::default(),
             Spot::Game { from } => self.game_names(&c.text(c.offset(from), p), from, at, game),
             Spot::Code => {
-                let line_start = c.starts[at.line as usize - 1];
+                // A place past the text's end (a question about a text the editor has changed since) is its end.
+                let line_start = c.starts.get(at.line.saturating_sub(1) as usize).copied().unwrap_or(c.chars.len()).min(stem_start);
                 let head = c.text(line_start, stem_start);
                 if let Some(items) = self.complete_use(m, &head, &c, stem_start, at, game) {
                     return Completions { items, incomplete: false };

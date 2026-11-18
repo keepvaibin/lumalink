@@ -162,9 +162,10 @@ pub fn modules(root: &Path, open: &HashMap<PathBuf, String>) -> Vec<Module> {
         }
         let rel = file.strip_prefix(&source).unwrap_or(file).with_extension("");
         let path = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+        // As the compiler reads it, so the places it gives are places in this text (N-4064).
         let text = match open.get(file) {
-            Some(text) => text.clone(),
-            None => std::fs::read_to_string(file).unwrap_or_default(),
+            Some(text) => as_lexed(text),
+            None => as_lexed(&std::fs::read_to_string(file).unwrap_or_default()),
         };
         out.push(Module { path, file: file.to_path_buf(), text });
     }
@@ -173,7 +174,7 @@ pub fn modules(root: &Path, open: &HashMap<PathBuf, String>) -> Vec<Module> {
         if file.starts_with(&source) && file.extension().is_some_and(|e| e == "lum") && !out.iter().any(|m| &m.file == file) {
             let rel = file.strip_prefix(&source).unwrap_or(file).with_extension("");
             let path = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
-            out.push(Module { path, file: file.clone(), text: text.clone() });
+            out.push(Module { path, file: file.clone(), text: as_lexed(text) });
         }
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -298,27 +299,40 @@ pub fn name_len(text: &str, at: Pos) -> u32 {
     Lines::new(text).name_len(at)
 }
 
-/// A text's lines, found once: a place's line is then had without reading the text from its start, so the names and
-/// places of a whole module cost time in step with its size (N-4063: each was found from the start, and a module of
-/// 20,000 lines took 5.5 seconds to read where one of 5,000 took 0.3).
-pub struct Lines<'a> {
-    text: &'a str,
+/// A text as the compiler reads it (lumascript::lex) and an editor shows it: a leading byte-order mark left off, and CR LF
+/// and a lone CR each a line end, made LF. The compiler's places are places in this text (N-4064: the editor read the
+/// text as written, so on a file with a byte-order mark each place on line 1 was one character off and a rename there
+/// changed one letter of the name; on a file of lone CRs every line was the first, and completion stopped the server).
+pub fn as_lexed(text: &str) -> String {
+    text.strip_prefix('\u{feff}').unwrap_or(text).replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// A text's lines ([`as_lexed`]), found once: a place's line is then had without reading the text from its start, so
+/// the names and places of a whole module cost time in step with its size (N-4063: each was found from the start, and
+/// a module of 20,000 lines took 5.5 seconds to read where one of 5,000 took 0.3).
+pub struct Lines {
+    text: String,
     /// The byte where each line starts.
     starts: Vec<usize>,
 }
 
-impl<'a> Lines<'a> {
-    pub fn new(text: &'a str) -> Lines<'a> {
+impl Lines {
+    pub fn new(text: &str) -> Lines {
+        let text = as_lexed(text);
         let starts = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1)).collect();
         Lines { text, starts }
     }
 
-    /// Line `n` (from 1) without its end (`\n`, and a `\r` before it); "" past the last.
-    pub fn line(&self, n: u32) -> &'a str {
+    /// Line `n` (from 1) without its end; "" past the last.
+    pub fn line(&self, n: u32) -> &str {
         let Some(&start) = self.starts.get(n.saturating_sub(1) as usize) else { return "" };
         let end = self.starts.get(n as usize).map_or(self.text.len(), |next| next - 1);
-        let line = &self.text[start..end.max(start)];
-        line.strip_suffix('\r').unwrap_or(line)
+        &self.text[start..end.max(start)]
+    }
+
+    /// How many lines: one more than its line ends.
+    pub fn count(&self) -> usize {
+        self.starts.len()
     }
 
     /// The length in characters of the name written at `at` ([`name_len`]).
@@ -665,6 +679,25 @@ mod tests {
             })
             .collect();
         assert!(took[1] < took[0] * 8.0, "{took:?}");
+    }
+
+    /// N-4064: the editor's places are the compiler's on a file saved with a byte-order mark or with lone CRs. Before,
+    /// a rename of a name on line 1 after a byte-order mark covered one letter of it, and completion in a file of lone
+    /// CRs stopped the server.
+    #[test]
+    fn places_are_the_compilers_on_a_text_with_a_byte_order_mark_or_lone_crs() {
+        let game = GameView::default();
+        let (_d, a) = analysis("\u{feff}fn speed() {}\nfn f() {\n    speed()\n}\n");
+        let places = a.rename(0, Pos { line: 3, col: 5 }, "pace", &game).unwrap();
+        assert!(places.iter().any(|p| p.at == Pos { line: 1, col: 4 } && p.end == Pos { line: 1, col: 9 }), "{places:?}");
+        let (_d, a) = analysis("fn f() {\r    var count = 1\r    count = count + 1\r    let a = `MR::isD`\r}\r");
+        let target = a.at(0, Pos { line: 3, col: 5 }).expect("count on line 3");
+        let places = a.references(&target, &game);
+        assert_eq!(places.len(), 3, "{places:?}");
+        assert!(places.iter().all(|p| p.end.col - p.at.col == 5), "{places:?}");
+        // In backquotes, and past the end of the text: whatever is found, the server goes on.
+        let _ = a.complete(0, Pos { line: 4, col: 20 }, &game);
+        let _ = a.complete(0, Pos { line: 40, col: 3 }, &game);
     }
 
     #[test]
