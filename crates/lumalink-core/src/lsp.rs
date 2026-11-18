@@ -5,7 +5,7 @@
 //! interface, an SDK header, or the game's reference page), references, rename, signature help, a module's outline,
 //! a search of the mod's and the game's names, and formatting in the one style.
 
-use crate::editor::{self, Analysis, GameView, Kind, Place, RenameRefused};
+use crate::editor::{self, Analysis, GameView, Kind, Lines, Place, RenameRefused};
 use lumascript::ast::Pos;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -112,13 +112,21 @@ pub fn to_pos(text: &str, line: u64, character: u64) -> Pos {
 
 /// The compiler's place as the protocol's.
 pub fn from_pos(text: &str, at: Pos) -> Value {
-    let l = text.split('\n').nth(at.line.saturating_sub(1) as usize).unwrap_or("").trim_end_matches('\r');
-    let units: usize = l.chars().take(at.col.saturating_sub(1) as usize).map(char::len_utf16).sum();
+    from_pos_in(&Lines::new(text), at)
+}
+
+/// [`from_pos`] on a text's lines found once (N-4063: each place was found from the text's start).
+fn from_pos_in(lines: &Lines, at: Pos) -> Value {
+    let units: usize = lines.line(at.line).chars().take(at.col.saturating_sub(1) as usize).map(char::len_utf16).sum();
     json!({ "line": at.line.saturating_sub(1), "character": units })
 }
 
 fn range(text: &str, from: Pos, to: Pos) -> Value {
-    json!({ "start": from_pos(text, from), "end": from_pos(text, to) })
+    range_in(&Lines::new(text), from, to)
+}
+
+fn range_in(lines: &Lines, from: Pos, to: Pos) -> Value {
+    json!({ "start": from_pos_in(lines, from), "end": from_pos_in(lines, to) })
 }
 
 /// CompletionItemKind and SymbolKind number them differently.
@@ -311,7 +319,7 @@ impl Server {
                         places.retain(|p| *p != def);
                     }
                 }
-                Ok(Value::Array(places.iter().map(|p| self.location(p)).collect()))
+                Ok(Value::Array(self.locations(&places)))
             }
             "textDocument/prepareRename" => {
                 let Some((a, m, pos, text)) = self.place(file.as_deref(), at()) else { return Ok(Value::Null) };
@@ -330,9 +338,9 @@ impl Server {
                 let Some((a, m, pos, _)) = self.place(file.as_deref(), at()) else { return Ok(Value::Null) };
                 let places = a.rename(m, pos, new, &self.game).map_err(|why| (-32602, self.refusal(why)))?;
                 let mut changes: serde_json::Map<String, Value> = serde_json::Map::new();
+                let texts = self.texts_of(&places);
                 for p in &places {
-                    let text = self.text_of(&p.file);
-                    let edit = json!({ "range": range(&text, p.at, p.end), "newText": new });
+                    let edit = json!({ "range": range_in(&Lines::new(&texts[&p.file]), p.at, p.end), "newText": new });
                     changes.entry(path_uri(&p.file)).or_insert_with(|| json!([])).as_array_mut().expect("a list").push(edit);
                 }
                 Ok(json!({ "changes": changes }))
@@ -379,7 +387,8 @@ impl Server {
             }
             "textDocument/documentSymbol" => {
                 let Some((a, m, _, text)) = self.place(file.as_deref(), (0, 0)) else { return Ok(json!([])) };
-                Ok(Value::Array(a.outline(m).iter().map(|s| symbol(&text, s)).collect()))
+                let lines = Lines::new(&text);
+                Ok(Value::Array(a.outline(m).iter().map(|s| symbol(&lines, s)).collect()))
             }
             "workspace/symbol" => {
                 let query = params.get("query").and_then(Value::as_str).unwrap_or("");
@@ -436,6 +445,24 @@ impl Server {
         json!({ "uri": path_uri(&p.file), "range": range(&text, p.at, p.end) })
     }
 
+    /// Each file of `places` read once (N-4063: a file was read again for each place in it).
+    fn texts_of(&self, places: &[Place]) -> HashMap<PathBuf, String> {
+        let mut texts = HashMap::new();
+        for p in places {
+            if !texts.contains_key(&p.file) {
+                texts.insert(p.file.clone(), self.text_of(&p.file));
+            }
+        }
+        texts
+    }
+
+    /// The locations of `places`, each file read and its lines found once.
+    fn locations(&self, places: &[Place]) -> Vec<Value> {
+        let texts = self.texts_of(places);
+        let lines: HashMap<&PathBuf, Lines> = texts.iter().map(|(file, text)| (file, Lines::new(text))).collect();
+        places.iter().map(|p| json!({ "uri": path_uri(&p.file), "range": range_in(&lines[&p.file], p.at, p.end) })).collect()
+    }
+
     /// The mod's reading, the module and the compiler's place for a request at (line, character) in `file`; None for a
     /// file that is no module of a mod (no luma.json above it, or not under its `source/`).
     fn place(&self, file: Option<&Path>, (line, character): (u64, u64)) -> Option<(&Analysis, usize, Pos, String)> {
@@ -453,10 +480,10 @@ impl Server {
         let modules = editor::modules(&root, &self.open);
         let analysis = Analysis::new(&root, modules, &self.game);
         let mut now = Vec::new();
-        let diagnostic = |text: &str, d: &lumascript::Diagnostic| {
-            let len = editor::name_len(text, d.at);
+        let diagnostic = |lines: &Lines, d: &lumascript::Diagnostic| {
+            let len = lines.name_len(d.at);
             json!({
-                "range": range(text, d.at, Pos { line: d.at.line, col: d.at.col + len }),
+                "range": range_in(lines, d.at, Pos { line: d.at.line, col: d.at.col + len }),
                 "severity": if lumascript::diag::is_note(d.code) { 3 } else { 1 },
                 "code": format!("S{:04}", d.code),
                 "source": "lumalink",
@@ -464,17 +491,19 @@ impl Server {
             })
         };
         for (m, module) in analysis.modules.iter().enumerate() {
-            let diagnostics: Vec<Value> = analysis.diags[m].iter().map(|d| diagnostic(&module.text, d)).collect();
+            let lines = Lines::new(&module.text);
+            let diagnostics: Vec<Value> = analysis.diags[m].iter().map(|d| diagnostic(&lines, d)).collect();
             notes.push(json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": path_uri(&module.file), "diagnostics": diagnostics } }));
             now.push(module.file.clone());
         }
         let manifest = root.join("luma.json");
         let manifest_text = self.text_of(&manifest);
+        let manifest_lines = Lines::new(&manifest_text);
         let outside: Vec<Value> = analysis
             .outside
             .iter()
             .map(|(what, d)| {
-                let mut v = diagnostic(&manifest_text, d);
+                let mut v = diagnostic(&manifest_lines, d);
                 v["message"] = json!(format!("{what}: {}", v["message"].as_str().unwrap_or("")));
                 v
             })
@@ -503,15 +532,15 @@ fn word_start(text: &str, at: Pos) -> Pos {
     Pos { line: at.line, col: col as u32 + 1 }
 }
 
-fn symbol(text: &str, s: &editor::OutlineItem) -> Value {
-    let selection = range(text, s.name_at, Pos { line: s.name_at.line, col: s.name_at.col + s.name_len });
-    let whole = range(text, s.start.min(s.name_at), s.end.max(Pos { line: s.name_at.line, col: s.name_at.col + s.name_len }));
+fn symbol(lines: &Lines, s: &editor::OutlineItem) -> Value {
+    let selection = range_in(lines, s.name_at, Pos { line: s.name_at.line, col: s.name_at.col + s.name_len });
+    let whole = range_in(lines, s.start.min(s.name_at), s.end.max(Pos { line: s.name_at.line, col: s.name_at.col + s.name_len }));
     let mut v = json!({ "name": s.name, "kind": kind_number(s.kind, false), "range": whole, "selectionRange": selection });
     if !s.detail.is_empty() {
         v["detail"] = json!(s.detail);
     }
     if !s.children.is_empty() {
-        v["children"] = Value::Array(s.children.iter().map(|c| symbol(text, c)).collect());
+        v["children"] = Value::Array(s.children.iter().map(|c| symbol(lines, c)).collect());
     }
     v
 }

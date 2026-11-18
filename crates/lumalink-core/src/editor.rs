@@ -236,17 +236,18 @@ impl Analysis {
             sources.pop();
             let library_modules: Vec<(String, Vec<ast::Module>)> = libraries.into_iter().map(|l| (l.id, l.modules.into_iter().map(|s| s.module).collect())).collect();
             let mut occurrences = Vec::new();
+            let lines: Vec<Lines> = texts.iter().map(|t| Lines::new(t)).collect();
             for (m, source) in sources.iter().enumerate() {
                 let mut found = Vec::new();
                 walk_module(&source.module, &mut found);
                 for (id, at) in found {
                     if let Some(target) = checked.resolved.get(&(m, id)) {
-                        occurrences.push(Occurrence { module: m, at, len: name_len(&texts[m], at), target: Target::R(target.clone()), expr: Some(id) });
+                        occurrences.push(Occurrence { module: m, at, len: lines[m].name_len(at), target: Target::R(target.clone()), expr: Some(id) });
                     }
                 }
             }
             for ((m, at), target) in &checked.named {
-                occurrences.push(Occurrence { module: *m, at: *at, len: name_len(&texts[*m], *at), target: Target::R(target.clone()), expr: None });
+                occurrences.push(Occurrence { module: *m, at: *at, len: lines[*m].name_len(*at), target: Target::R(target.clone()), expr: None });
             }
             for (m, source) in sources.iter().enumerate() {
                 occurrences.extend(Analysis::named_places(&source.module, m, &texts[m], &checked, &game.game));
@@ -294,8 +295,41 @@ impl Analysis {
 
 /// The length in characters of the name written at `at`: a backquoted game name with its quotes, else the word.
 pub fn name_len(text: &str, at: Pos) -> u32 {
-    let Some(line) = text.lines().nth(at.line.saturating_sub(1) as usize) else { return 1 };
-    let rest: Vec<char> = line.chars().skip(at.col.saturating_sub(1) as usize).collect();
+    Lines::new(text).name_len(at)
+}
+
+/// A text's lines, found once: a place's line is then had without reading the text from its start, so the names and
+/// places of a whole module cost time in step with its size (N-4063: each was found from the start, and a module of
+/// 20,000 lines took 5.5 seconds to read where one of 5,000 took 0.3).
+pub struct Lines<'a> {
+    text: &'a str,
+    /// The byte where each line starts.
+    starts: Vec<usize>,
+}
+
+impl<'a> Lines<'a> {
+    pub fn new(text: &'a str) -> Lines<'a> {
+        let starts = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        Lines { text, starts }
+    }
+
+    /// Line `n` (from 1) without its end (`\n`, and a `\r` before it); "" past the last.
+    pub fn line(&self, n: u32) -> &'a str {
+        let Some(&start) = self.starts.get(n.saturating_sub(1) as usize) else { return "" };
+        let end = self.starts.get(n as usize).map_or(self.text.len(), |next| next - 1);
+        let line = &self.text[start..end.max(start)];
+        line.strip_suffix('\r').unwrap_or(line)
+    }
+
+    /// The length in characters of the name written at `at` ([`name_len`]).
+    pub fn name_len(&self, at: Pos) -> u32 {
+        name_len_in(self.line(at.line), at.col)
+    }
+}
+
+/// [`name_len`] on the line the name is on, at column `col`.
+fn name_len_in(line: &str, col: u32) -> u32 {
+    let rest: Vec<char> = line.chars().skip(col.saturating_sub(1) as usize).collect();
     if rest.first() == Some(&'`') {
         return rest.iter().skip(1).position(|c| *c == '`').map_or(rest.len(), |p| p + 2) as u32;
     }
@@ -598,6 +632,34 @@ mod tests {
         let root = dir.path().to_path_buf();
         let a = Analysis::new(&root, modules(&root, &HashMap::new()), &GameView::default());
         (dir, a)
+    }
+
+    /// N-4063: a module read by the editor costs time in step with its size: each name's length is found on its own
+    /// line, not by reading the module from its start for every name. Two sizes four times apart; the larger may take
+    /// at most eight times the time (it took sixteen before).
+    #[test]
+    fn a_long_module_is_read_in_time_in_step_with_its_size() {
+        let module = |lines: usize| {
+            let mut text = String::from("fn f() -> i32 {\n    var total = 0\n");
+            for _ in 0..lines {
+                text.push_str("    total = total + total\n");
+            }
+            text.push_str("    return total\n}\n");
+            text
+        };
+        let took: Vec<f64> = [5_000, 20_000]
+            .iter()
+            .map(|&n| {
+                let text = module(n);
+                let start = std::time::Instant::now();
+                let (_d, a) = analysis(&text);
+                let seconds = start.elapsed().as_secs_f64();
+                assert!(a.diags[0].is_empty(), "{:?}", &a.diags[0][..1]);
+                assert!(a.occurrences.len() > 3 * n);
+                seconds
+            })
+            .collect();
+        assert!(took[1] < took[0] * 8.0, "{took:?}");
     }
 
     #[test]

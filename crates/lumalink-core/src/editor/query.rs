@@ -509,6 +509,7 @@ impl Analysis {
         let Some(parsed) = self.parsed.get(m) else { return Vec::new() };
         let text = &self.modules[m].text;
         let lines: Vec<&str> = text.split('\n').collect();
+        let index = Lines::new(text);
         let last = Pos { line: lines.len() as u32, col: lines.last().map_or(1, |l| l.chars().count() as u32 + 1) };
         // An item reaches to the last line before the next item that is not blank or a comment above it.
         let ends: Vec<Pos> = (0..parsed.items.len())
@@ -560,7 +561,7 @@ impl Analysis {
                                 start: h.at,
                                 end: h.body.end,
                                 name_at: h.target.at,
-                                name_len: name_len(text, h.target.at),
+                                name_len: index.name_len(h.target.at),
                                 children: Vec::new(),
                             }),
                         })
@@ -583,7 +584,7 @@ impl Analysis {
                     None => continue,
                 },
             };
-            let len = name_len(text, name_at);
+            let len = index.name_len(name_at);
             let mut end = ends[i];
             // A child that reaches past the computed end (a function's body) widens it.
             for c in &children {
@@ -646,7 +647,8 @@ impl Analysis {
     pub(super) fn named_places(module: &ast::Module, m: usize, text: &str, checked: &Checked, game: &Game) -> Vec<Occurrence> {
         let mut out = Vec::new();
         let scope = checked.scopes.get(m);
-        let mut push = |at: Pos, target: Target| out.push(Occurrence { module: m, at, len: name_len(text, at), target, expr: None });
+        let lines = Lines::new(text);
+        let mut push = |at: Pos, target: Target| out.push(Occurrence { module: m, at, len: lines.name_len(at), target, expr: None });
         let mut types: Vec<&ast::Type> = Vec::new();
         collect_types_module(module, &mut types);
         for t in types {
