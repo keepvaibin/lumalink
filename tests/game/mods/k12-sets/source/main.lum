@@ -1,7 +1,9 @@
 // K12 conformance, the handlers that prove a set (Nebula docs/plan/M2-NEEDS-PROOF.md): `on stage ready`, `on stage
 // "NAME"`, `on player ready`, `on play` and `on stage ended` run when their set holds, in that order in each stage, and
-// the calls in them that need the set are made (no Call.NotNow in the log).
+// the calls in them that need the set are made (no Call.NotNow in the log). Counted from the first EggStarGalaxy
+// (`on stage "NAME"` runs before `on stage ready`): the scenes the game goes through before the test's stage are not.
 
+var started = false
 var order = ""
 var eggs = 0
 var plays = 0
@@ -11,6 +13,9 @@ var places = 0
 var alive = 0
 
 on stage ready {
+    if not started {
+        return
+    }
     order = "{order}R"
     plays = 0
     // CameraContext: `stage`.
@@ -23,11 +28,15 @@ on stage ready {
 }
 
 on stage "EggStarGalaxy" {
+    started = true
     eggs += 1
     log fact "eggs" eggs
 }
 
 on player ready {
+    if not started {
+        return
+    }
     order = "{order}P"
     // MarioActor: `player`.
     let at = MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
@@ -43,7 +52,14 @@ on player ready {
 }
 
 on play {
+    if not started {
+        return
+    }
     plays += 1
+    // 40 frames of play in this stage: the test's next step may end it.
+    if plays == 40 {
+        log fact "settled" order
+    }
     let at = MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)
     if at.x == 0.0 and at.y == 0.0 and at.z == 0.0 {
         log fact "play_at_zero" true
@@ -51,6 +67,9 @@ on play {
 }
 
 on stage ended {
+    if not started {
+        return
+    }
     order = "{order}E"
     if least_plays < 0 or plays < least_plays {
         least_plays = plays

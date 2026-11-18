@@ -1,7 +1,7 @@
 {
   "harness": 1,
   "name": "k12-sets",
-  "about": "LumaScript on stage ready, on stage \"NAME\", on player ready, on play and on stage ended (N-2024): in EggStarGalaxy, again after the player falls and the stage starts over, and in HoneyBeeKingdomGalaxy, each runs once a stage in the order ready, player, ended (on play every frame of play between); the calls in them that need their set (MR::getCamPos: CameraContext; MR::getPlayerPos and MR::isPlayerDead: MarioActor) are made, with real values, and none is refused at run time",
+  "about": "LumaScript on stage ready, on stage \"NAME\", on player ready, on play and on stage ended (N-2024): in EggStarGalaxy, again after the player falls and the stage starts over, and in HoneyBeeKingdomGalaxy, each runs once a stage in the order ready, player, ended (on play every frame of play between; each stage plays 40 frames before the next step), counted from the first EggStarGalaxy; the calls in them that need their set (MR::getCamPos: CameraContext; MR::getPlayerPos and MR::isPlayerDead: MarioActor) are made, with real values, and none is refused at run time",
   "proves": [
     "script.build",
     "script.needs"
@@ -16,7 +16,7 @@
   "steps": [
     {
       "after": {
-        "fact": "mod.k12-sets.order",
+        "fact": "mod.k12-sets.settled",
         "is": "RP"
       },
       "timeout": 1200,
@@ -26,7 +26,7 @@
     },
     {
       "after": {
-        "fact": "mod.k12-sets.order",
+        "fact": "mod.k12-sets.settled",
         "is": "RPERP"
       },
       "timeout": 3000,
@@ -37,7 +37,7 @@
     },
     {
       "after": {
-        "fact": "mod.k12-sets.order",
+        "fact": "mod.k12-sets.settled",
         "is": "RPERPERP"
       },
       "timeout": 3000,
@@ -72,7 +72,7 @@
     },
     {
       "fact": "mod.k12-sets.least_plays",
-      "at_least": 30,
+      "at_least": 40,
       "when": "last"
     },
     {
