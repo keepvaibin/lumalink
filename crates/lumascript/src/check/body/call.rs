@@ -258,6 +258,19 @@ pub(crate) fn const_ref_param(row: &str, ci: usize) -> bool {
     )
 }
 
+/// Whether a parameter marked nullable takes a script `T?` as it is (none as null): a text, or a place the game reads
+/// (`T *` marked in). A place the game writes is a `var` argument; a `kept` or `void *` one takes `none` only.
+pub(super) fn none_crosses(g: &GameTy) -> bool {
+    match g {
+        GameTy::Opt(inner) => match &**inner {
+            GameTy::Text => true,
+            GameTy::Place { of, konst: true } => matches!(&**of, GameTy::Scalar(_) | GameTy::Value(_) | GameTy::Enum(_)),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 pub(super) fn game_param(g: &GameTy) -> (Ty, bool, bool) {
     match g {
         GameTy::Opt(inner) => {
@@ -601,8 +614,7 @@ impl<'w, 'a> Walk<'w, 'a> {
                 NameKind::Module(ModTarget::Service(service)) => {
                     // An optional service may not be given: a call needs a test before it (`if x != none`, `guard`).
                     if self.optional_service(&b.name).is_some() && !self.is_given(&b.name) {
-                        let found = format!("optional svc.{service}");
-                        self.say(Diagnostic::new(code::MAY_BE_NONE, base.at).with("found", Arg::Text(found)));
+                        self.say(Diagnostic::new(code::OPTIONAL_SVC_UNTESTED, base.at).with("found", Arg::Text(service.to_string())).with("alias", Arg::Text(b.name.clone())));
                         // Said once: the calls after it in this scope are not said again.
                         self.given.push(b.name.clone());
                     }
@@ -932,10 +944,14 @@ impl<'w, 'a> Walk<'w, 'a> {
             "placement_of" | "placed_at" | "make_gravity" => &[1],
             "model_named" | "effect_named" | "sound_named" | "layout_named" | "font_named" | "movie_named" => &[1],
             "abs" | "sqrt" | "sin" | "cos" | "length" | "normal" | "hash32" | "low_bits" => &[1],
-            "min" | "max" | "atan2" | "dot" | "cross" | "same" | "vec2" => &[2],
-            "clamp" | "lerp" | "vec3" | "mat34" => &[3],
-            "vec4" | "quat" => &[4],
-            "color" => &[3, 4],
+            "min" | "max" | "atan2" | "dot" | "cross" | "same" => &[2],
+            "clamp" | "lerp" => &[3],
+            // A value type with no arguments is its default (M-122): every component 0, but a quaternion's w and a
+            // colour's alpha 1 and a matrix's diagonal 1 (no turn, opaque black, the identity).
+            "vec2" => &[0, 2],
+            "vec3" | "mat34" => &[0, 3],
+            "vec4" | "quat" => &[0, 4],
+            "color" => &[0, 3, 4],
             _ => {
                 // `json` itself.
                 return self.not_callable(at, s, args);
@@ -1637,6 +1653,12 @@ impl<'w, 'a> Walk<'w, 'a> {
                 }
                 Ty::IntLit | Ty::FloatLit | Ty::Open => {
                     self.expr(&a.value, Want::Ty(&want));
+                }
+                // A `T?` where the function facts mark the parameter nullable (a text or a marked place): none goes
+                // as null, a value as itself (M-118). A `var` argument is the game's place to write.
+                Ty::Opt(inner) if f.nulls.contains(&f.c_index(i)) && none_crosses(p) && !a.var => {
+                    let inner = (**inner).clone();
+                    self.check_fit(a.value.at, inner, &want);
                 }
                 // the script's copy of a record may go to a `const T &` of the same record
                 // (C++ binds it for the call; through const the game cannot change the script's value). A `T &`, a

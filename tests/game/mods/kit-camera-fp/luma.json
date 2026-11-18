@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-camera-fp",
+  "version": "1.0.0",
+  "name": "kit-camera-fp",
+  "summary": "LumaKit camera: a first-person control held through the player's death and the stage's new start.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

@@ -1371,16 +1371,19 @@ impl<'a> Parser<'a> {
 
     fn postfix_here(&mut self, nostruct: bool) -> R<Expr> {
         let mut e = self.primary(nostruct)?;
+        // Each part of a chain is at its own place (M-121): a call at its callee's (a member's name), an index at its
+        // `[`, a member at its name, an unwrap at its `!`. An error about `.c` in `a(x)\n  .b\n  .c` names `.c`'s line.
         loop {
-            let at = e.at;
+            let here = self.peek(0).at;
             if self.at_any(&["(", "[", ".", "?.", "!"]) {
-                let here = self.peek(0).at;
                 self.wrap_deeper(here)?;
             }
             if self.at("(") {
+                let at = e.at;
                 let args = self.args()?;
                 e = Expr { id: self.new_id(), at, kind: ExprKind::Call { callee: Box::new(e), args } };
             } else if self.at("[") {
+                let at = here;
                 self.take();
                 let index = self.expr(false)?;
                 self.expect("]")?;
@@ -1392,10 +1395,12 @@ impl<'a> Parser<'a> {
                     return Err(self.fail(want("Script.Want.Member")));
                 }
                 let t = self.take();
+                let at = t.at;
                 let name = Ident { name: t.text, at: t.at };
                 let targs = self.maybe_type_args()?;
                 e = Expr { id: self.new_id(), at, kind: ExprKind::Member { base: Box::new(e), name, optional, targs } };
             } else if self.at("!") {
+                let at = here;
                 self.take();
                 e = Expr { id: self.new_id(), at, kind: ExprKind::Unwrap(Box::new(e)) };
             } else {

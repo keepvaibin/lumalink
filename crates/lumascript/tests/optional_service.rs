@@ -1,7 +1,7 @@
 //! `use optional svc.<name>` (language 12; consent 1.4): the service's kind 5 row carries LUMA_OPTIONAL, so the mod
 //! loads when the service is not given (the player declined its permission) and the slot stays null. The alias is
 //! `none` then: `x == none` and `x != none` test the slot, and a call needs such a test before it (`if x != none`, a
-//! `guard`, or an `if x == none` whose block leaves), else it is S0067 as for any value that may be none. One plain
+//! `guard`, or an `if x == none` whose block leaves), else it is S0157, which says how to test it. One plain
 //! `use` of the same service in any module makes it needed again.
 
 use luma_validate::names::Types;
@@ -9,6 +9,7 @@ use lumascript::check::{self, ModFacts, Source};
 use lumascript::emit;
 use lumascript::game::Game;
 use std::collections::HashMap;
+use lumascript::diag::code;
 
 const GAME: &str = r#"{"types": [{"kind": "alias", "name": "s32", "of": "int", "record": null}], "globals": [], "left_out": []}"#;
 
@@ -82,10 +83,11 @@ fn a_test_against_none_is_the_slots_null_test_and_lets_the_calls_after_it() {
     assert!(main.contains("((uint8_t)(lm_svc_0 == 0))") && main.contains("((uint8_t)(lm_svc_0 != 0))"), "{main}");
 }
 
-/// A call no test covers: S0067 at the alias. Outside the `if` that tested it, in its `else`, after an `if x == none`
+/// A call no test covers: S0157 at the alias, which says how to test it (S0067 said to give a value with `??`, which
+/// no service takes: M-119). Outside the `if` that tested it, in its `else`, after an `if x == none`
 /// that does not leave, and in a condition before the test.
 #[test]
-fn a_call_on_an_optional_service_without_a_test_before_it_is_may_be_none() {
+fn a_call_on_an_optional_service_without_a_test_before_it_says_how_to_test_it() {
     let cases = [
         (format!("use optional svc.ui\n\non start {{\n    {CALL}\n}}\n"), 4),
         (format!("use optional svc.ui\n\non start {{\n    if ui != none {{\n        log \"a\"\n    }}\n    {CALL}\n}}\n"), 7),
@@ -95,6 +97,6 @@ fn a_call_on_an_optional_service_without_a_test_before_it_is_may_be_none() {
     ];
     for (text, line) in cases {
         let (e, _, _) = build(&[text.clone()]);
-        assert_eq!(e, vec![(67, line)], "{text}");
+        assert_eq!(e, vec![(code::OPTIONAL_SVC_UNTESTED, line)], "{text}");
     }
 }

@@ -1,5 +1,5 @@
-//! One mod built by `lumalink build` for all nine platforms of luma-format 6, packed, and each library in
-//! the .luma read as its platform's loader will read it (check_luma_platforms.py: form,
+//! One mod built by `lumalink build` for the seven platforms the game runs on, then all nine of luma-format 6,
+//! packed, and each library in the .luma read as its platform's loader will read it (check_luma_platforms.py: form,
 //! luma_mod exported, no import from the system, no executable stack, constructors out of .init_array, 16 KiB pages on
 //! Android, the Mach-O platform and its signature). Built twice: the same bytes.
 //!
@@ -49,13 +49,21 @@ fn one_mod_builds_for_all_nine_and_each_library_reads_as_its_loader_will() {
     std::fs::write(folder.join("source/main.lum"), SCRIPT).unwrap();
     let game = Game::default();
 
+    // None named: the seven the game runs on (M-006).
     let built = build::build(&folder, &game, &sdk, &clang, &dir.path().join("work1"), &[]).unwrap_or_else(|e| panic!("{e:?}"));
     let platforms: Vec<&str> = built.libraries.iter().map(|(p, _, _)| *p).collect();
-    assert_eq!(platforms, luma_validate::PLATFORMS);
-    assert_eq!(built.recorded, luma_validate::PLATFORMS, "each platform recorded in luma.json once");
+    let seven: Vec<&str> = luma_validate::PLATFORMS.iter().copied().filter(|p| *p != "windows-arm64" && *p != "ios-arm64").collect();
+    assert_eq!(platforms, seven);
+    assert_eq!(built.recorded, seven, "each platform recorded in luma.json once");
+    // Windows on ARM and iOS named: built and recorded, and from then on built with the rest.
+    let named = ["windows-arm64".to_string(), "ios-arm64".to_string()];
+    let two = build::build(&folder, &game, &sdk, &clang, &dir.path().join("work5"), &named).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(two.recorded, ["windows-arm64", "ios-arm64"]);
     let first = libraries(&folder);
-    // The same sources, another work folder: the same bytes (docs/modding/language/compiled-form.md, section 1.2), and nothing more to record.
+    // The same sources, another work folder: all nine the mod lists, the same bytes (docs/modding/language/compiled-form.md,
+    // section 1.2), and nothing more to record.
     let again = build::build(&folder, &game, &sdk, &clang, &dir.path().join("work2"), &[]).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(again.libraries.iter().map(|(p, _, _)| *p).collect::<Vec<_>>(), luma_validate::PLATFORMS);
     assert!(again.recorded.is_empty());
     for ((platform, a), (_, b)) in first.iter().zip(libraries(&folder)) {
         assert!(*a == b, "{platform}: a second build gives other bytes");

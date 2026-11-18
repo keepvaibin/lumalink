@@ -195,7 +195,10 @@ impl<'a> Gen<'a> {
                 _ => self.not_yet(fx, e, "this name as a value"),
             },
             ExprKind::Result => match fx.hook.as_ref().and_then(|h| h.result_c.clone()) {
-                Some(rc) => Ok(fx.temp(&rc, &format!("LUMA_RESULT(call, {rc})"))),
+                Some(_) => {
+                    let t = self.ty(m, e);
+                    self.result_value(fx, &t, e.at.line)
+                }
                 None => self.not_yet(fx, e, "result"),
             },
             ExprKind::Member { base, optional: false, .. } => match self.resolved(m, e) {
@@ -1314,6 +1317,24 @@ impl<'a> Gen<'a> {
                         format!("(void*)&{}", self.place(fx, at)?)
                     } else if matches!(strip(at).kind, ExprKind::None) {
                         "(void*)0".to_string()
+                    } else if let (GameTy::Opt(_), Ty::Opt(inner)) = (p, &from) {
+                        // A `T?` (M-118): none as null, a value as the address of its copy.
+                        let want = game_scalar_ty(of).ok_or_else(lost)?;
+                        let v = self.expr(fx, at)?;
+                        let oct = self.c_type(&from).ok_or_else(lost)?;
+                        let o = fx.temp(&oct, &v);
+                        let ct = self.c_type(&want).ok_or_else(lost)?;
+                        let value = self.coerce(fx, &format!("{o}.value"), inner, &want, at.at)?;
+                        let copy = fx.fresh(&ct);
+                        let addr = fx.fresh("void*");
+                        fx.emit(format!("{addr} = (void*)0;"));
+                        fx.emit(format!("if ({o}.some) {{"));
+                        fx.depth += 1;
+                        fx.emit(format!("{copy} = {value};"));
+                        fx.emit(format!("{addr} = (void*)&{copy};"));
+                        fx.depth -= 1;
+                        fx.emit("}".into());
+                        addr
                     } else {
                         let want = game_scalar_ty(of).ok_or_else(lost)?;
                         let v = self.expr(fx, at)?;
@@ -1589,6 +1610,69 @@ impl<'a> Gen<'a> {
         Ok(fx.temp(&ct, &format!("{some} ? ({ct}){{1, {value}}} : ({ct}){{0}}")))
     }
 
+    /// The hooked call's result as the script's type `t` (M-127), as a game call's result crosses: a `const char *` or
+    /// `const char16_t *` a new text of its characters (none for null), a pointer to a number its value copied (none
+    /// for null), anything else as it is.
+    pub(super) fn result_value(&mut self, fx: &mut Fx, t: &Ty, line: u32) -> Ex {
+        let rc = fx.hook.as_ref().and_then(|h| h.result_c.clone()).ok_or_else(lost)?;
+        let raw = format!("LUMA_RESULT(call, {rc})");
+        match t {
+            Ty::Opt(x) if **x == Ty::Text => {
+                let ct = self.c_type(t).ok_or_else(lost)?;
+                let p = fx.temp(&rc, &raw);
+                let tx = fx.fresh("lumart_text");
+                let file = c_string(&fx.file);
+                if rc == "const uint16_t*" {
+                    fx.fail_if(&format!("lumart_text_from_game16(&{tx}, {p}, {file}, {line})"));
+                } else {
+                    fx.fail_if(&format!("lumart_text_from_game(&{tx}, (const char*){p}, {file}, {line})"));
+                }
+                Ok(fx.temp(&ct, &format!("({ct}){{{p} != 0, {tx}}}")))
+            }
+            Ty::Opt(x) if !super::is_view(x) => {
+                let ct = self.c_type(t).ok_or_else(lost)?;
+                let inner = self.c_type(x).ok_or_else(lost)?;
+                let p = fx.temp(&rc, &raw);
+                Ok(fx.temp(&ct, &format!("{p} != 0 ? ({ct}){{1, *({inner}*){p}}} : ({ct}){{0}}")))
+            }
+            _ => Ok(fx.temp(&rc, &raw)),
+        }
+    }
+
+    /// `v` (of type `from`) as the hooked call's result (M-126): a text its kept copy (the game may hold the pointer; a
+    /// NUL byte inside is S0918), null for none; anything else as it is. `kept` names a value that is no literal, for
+    /// the kept texts' report.
+    pub(super) fn result_put(&mut self, fx: &mut Fx, v: &str, from: &Ty, at: Pos, kept: bool) -> Result<(), NotWritten> {
+        let rc = fx.hook.as_ref().and_then(|h| h.result_c.clone()).ok_or_else(lost)?;
+        let text = *from == Ty::Text || matches!(from, Ty::Opt(x) if **x == Ty::Text);
+        if !text {
+            if matches!(from, Ty::Opt(x) if !super::is_view(x)) {
+                return Err(NotWritten);
+            }
+            fx.emit(format!("LUMA_RESULT(call, {rc}) = {v};"));
+            return Ok(());
+        }
+        let want = Ty::Opt(Box::new(Ty::Text));
+        let v = self.coerce(fx, v, from, &want, at)?;
+        let ct = self.c_type(&want).ok_or_else(lost)?;
+        if kept {
+            self.kept.push((fx.file.clone(), at.line, "result".to_string()));
+        }
+        let o = fx.temp(&ct, &v);
+        // A `const char16_t *` result: the text's UTF-16 kept copy, made once.
+        let (kc, keep) = if rc == "const uint16_t*" { ("const uint16_t*", "lumart_text_keep16") } else { ("const char*", "lumart_text_keep") };
+        let k = fx.fresh(kc);
+        fx.emit(format!("{k} = 0;"));
+        fx.emit(format!("if ({o}.some) {{"));
+        fx.depth += 1;
+        fx.emit(format!("{k} = {keep}({o}.value, {}, {}, \"result\", \"result\");", c_string(&fx.file), at.line));
+        fx.fail_if(&format!("{k} == 0"));
+        fx.depth -= 1;
+        fx.emit("}".into());
+        fx.emit(format!("LUMA_RESULT(call, {rc}) = ({rc}){k};"));
+        Ok(())
+    }
+
     /// The standard functions that are values and arithmetic.
     fn call_std(&mut self, fx: &mut Fx, e: &Expr, s: &str, args: &[ast::Arg], t: &Ty) -> Ex {
         let m = fx.module;
@@ -1715,6 +1799,16 @@ impl<'a> Gen<'a> {
                 Ok(fx.temp(&ct, &format!("{o} != 0 ? ({ct}){{1, {o}}} : ({ct}){{0}}")))
             }
             // C4: lm_mat34's rows.
+            // The defaults (M-122): zero, but no turn, opaque black and the identity.
+            "vec2" | "vec3" | "vec4" if vals.is_empty() => {
+                let ct = self.c_type(t).ok_or_else(lost)?;
+                Ok(fx.temp(&ct, &format!("({ct}){{0}}")))
+            }
+            "quat" | "color" if vals.is_empty() => {
+                let ct = self.c_type(t).ok_or_else(lost)?;
+                Ok(fx.temp(&ct, &format!("({ct}){{0.0f, 0.0f, 0.0f, 1.0f}}")))
+            }
+            "mat34" if vals.is_empty() => Ok(fx.temp("lm_mat34", "(lm_mat34){{{1.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 0.0f}}}")),
             "mat34" => {
                 let row = |r: String| format!("{{{r}.x, {r}.y, {r}.z, {r}.w}}");
                 Ok(fx.temp("lm_mat34", &format!("(lm_mat34){{{{{}, {}, {}}}}}", row(v(0)), row(v(1)), row(v(2)))))
@@ -1751,6 +1845,8 @@ impl<'a> Gen<'a> {
             }
             "clamp" => {
                 let ct = self.c_type(t).ok_or_else(lost)?;
+                // lo above hi has no answer: a wrong call (S0914), not lo for every value below hi (M-131).
+                fx.fail_if(&format!("{} > {} && lumart_wrong_call({file}, {line}, \"clamp\", \"lo\", \"more than hi\", \"at most hi\")", v(1), v(2)));
                 Ok(fx.temp(&ct, &format!("{} < {} ? {} : ({} > {} ? {} : {})", v(0), v(1), v(1), v(0), v(2), v(2), v(0))))
             }
             "abs" => match t {
@@ -2830,14 +2926,14 @@ impl<'a> Gen<'a> {
             Ty::Bool => fx.emit(format!("lumart_sb_bool(&{b}, {v});")),
             Ty::Int(s) if signed(*s) => fx.emit(format!("lumart_sb_i64(&{b}, (int64_t){v});")),
             Ty::Int(_) => fx.emit(format!("lumart_sb_u64(&{b}, (uint64_t){v});")),
-            // As json a game enum is its value's name, the first declared; a value of no name its number.
+            // As json a game enum is its value's name, the first declared; a value of no name its number in quotes.
             Ty::Game(GameTy::Enum(en)) if json => {
                 let cases = self.game_enum_values(en);
                 self.named_value_text(fx, b, v, cases, true);
             }
             Ty::Game(GameTy::Enum(_)) => fx.emit(format!("lumart_sb_i64(&{b}, (int64_t){v});")),
             // A service's enum and `svc.Answer` by its case's name (`NotFound`), as json a string; a value of no
-            // case its number (a newer host's answer).
+            // case its number (a newer host's answer), as json in quotes.
             Ty::Service { service, name } if service == "svc" && name == "Answer" => {
                 let cases = self.game.services.answers.clone();
                 self.named_value_text(fx, b, v, cases, json);
@@ -3009,7 +3105,13 @@ impl<'a> Gen<'a> {
             let shown = if json { format!("\"{name}\"") } else { name };
             let _ = write!(chain, "if ({tmp} == (int32_t){n}) lumart_sb_str(&{b}, {}); else ", c_string(&shown));
         }
-        fx.emit(format!("{chain}lumart_sb_i64(&{b}, (int64_t){tmp});"));
+        // A value with no name: its number; as json in quotes, so it is a string as every named value is and goes
+        // as an object key (M-130). json.decode reads it back.
+        if json {
+            fx.emit(format!("{chain}{{ lumart_sb_str(&{b}, \"\\\"\"); lumart_sb_i64(&{b}, (int64_t){tmp}); lumart_sb_str(&{b}, \"\\\"\"); }}"));
+        } else {
+            fx.emit(format!("{chain}lumart_sb_i64(&{b}, (int64_t){tmp});"));
+        }
     }
 
     pub(super) fn json_into(&mut self, fx: &mut Fx, b: &str, e: &Expr) -> Result<(), NotWritten> {

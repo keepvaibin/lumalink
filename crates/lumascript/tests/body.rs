@@ -1172,3 +1172,24 @@ fn narrowing_and_fail() {
     // `fail` is a statement only before a text; what follows is one expression, which must be text.
     assert_eq!(said("fn f() {\n    fail \"a\" == \"b\"\n}\n"), vec![code::TYPE_MISMATCH]);
 }
+
+/// Each part of a postfix chain is at its own place (M-121): an error about a call names the call's name, and one
+/// about a part written on a later line of a chain names that line, not the chain's first word.
+#[test]
+fn an_error_in_a_chain_is_at_its_own_part() {
+    let said = codes("on start {
+    if let a = MR::maybe() {
+        a.appear(1)
+    }
+}
+");
+    assert_eq!(said.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(), vec![(3, 11)], "{said:?}");
+    let said = codes("on start {
+    if let a = MR::maybe() {
+        let b = (MR::maybe() ?? a
+            .isAlive(2))
+    }
+}
+");
+    assert_eq!(said.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(), vec![(4, 14)], "{said:?}");
+}

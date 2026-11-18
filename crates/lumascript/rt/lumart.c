@@ -100,8 +100,16 @@ static char* digits_u64(char* end, uint64_t v) {
 
 lumart_as lumart_caller;
 lumart_as_link* lumart_as_top;
+lumart_base_watch* lumart_base_top;
+
+void lumart_class_gone(void* data) {
+    for (lumart_base_watch* w = lumart_base_top; w != 0; w = w->prev) {
+        if (w->data == data) w->gone = 1;
+    }
+}
 
 void lumart_cut(uintptr_t stack) {
+    while (lumart_base_top != 0 && (uintptr_t)lumart_base_top < stack) lumart_base_top = lumart_base_top->prev;
     lumart_as_link* l = lumart_as_top;
     while (l != 0 && (uintptr_t)l < stack) {
         lumart_caller = l->was;
@@ -3063,29 +3071,42 @@ const uint16_t* lumart_text_keep16(lumart_text t, const char* file, uint32_t lin
     return u;
 }
 
-/* Function values kept for services' callbacks (lumart_fn_keep). */
+/* Function values kept for services' callbacks (lumart_fn_keep): a set by address, open addressing, at most half
+   full, so a keep is a probe and not a scan of every earlier one (M-137). */
 static lumart_fn* fn_kept;
 static uint32_t fn_kept_n, fn_kept_cap;
 
+static uint32_t fn_kept_at(lumart_fn* table, uint32_t cap, lumart_fn f) {
+    uint64_t h = (uint64_t)(uintptr_t)f >> 4;
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdull;
+    h ^= h >> 33;
+    uint32_t i = (uint32_t)h & (cap - 1u);
+    while (table[i] != 0 && table[i] != f) i = (i + 1u) & (cap - 1u);
+    return i;
+}
+
 int32_t lumart_fn_keep(lumart_fn f, const char* file, uint32_t line) {
     if (f == 0 || f->rc == LUMART_FOREVER) return 0;
-    for (uint32_t i = 0; i < fn_kept_n; i++) {
-        if (fn_kept[i] == f) return 0;
-    }
-    if (fn_kept_n == fn_kept_cap) {
-        const uint32_t cap = fn_kept_cap != 0 ? fn_kept_cap * 2 : 8;
+    if (fn_kept_cap != 0 && fn_kept[fn_kept_at(fn_kept, fn_kept_cap, f)] == f) return 0;
+    if ((fn_kept_n + 1u) * 2u > fn_kept_cap) {
+        const uint32_t cap = fn_kept_cap != 0 ? fn_kept_cap * 2u : 16u;
         lumart_fn* table = (lumart_fn*)lumart_alloc((uint64_t)cap * sizeof(lumart_fn));
         if (table == 0) {
             lumart_out_of_memory(file, line, (uint64_t)cap * sizeof(lumart_fn));
             return 1;
         }
-        for (uint32_t i = 0; i < fn_kept_n; i++) table[i] = fn_kept[i];
+        for (uint32_t i = 0; i < cap; i++) table[i] = 0;
+        for (uint32_t i = 0; i < fn_kept_cap; i++) {
+            if (fn_kept[i] != 0) table[fn_kept_at(table, cap, fn_kept[i])] = fn_kept[i];
+        }
         if (fn_kept != 0) lumart_free(fn_kept, (uint64_t)fn_kept_cap * sizeof(lumart_fn));
         fn_kept = table;
         fn_kept_cap = cap;
     }
     lm_ret_lumart_fn(&f);
-    fn_kept[fn_kept_n++] = f;
+    fn_kept[fn_kept_at(fn_kept, fn_kept_cap, f)] = f;
+    fn_kept_n++;
     return 0;
 }
 
@@ -3788,8 +3809,10 @@ uint64_t lumart_wait_seconds(double n, const char* file, uint32_t line) {
 
 int32_t lumart_on_game_thread(const char* file, uint32_t line, const char* function) {
     if (luma_rt_core == 0 || luma_rt_core->game_thread()) return 1;
+    /* Off the game thread lumart_caller is the game thread's, which may be writing it (M-020): the report is this
+       mod's own, at the place that asked, without reading it. */
     const char* args[1] = {function};
-    lumart_raise(file, line, 901, 1, args);
+    luma_rt_core->report(luma_rt_self, file, line, 901, args, 1);
     return 0;
 }
 
@@ -3964,7 +3987,9 @@ int32_t lumart_make_gravity(const char* class_name, float range, int32_t priorit
 void lumart_end(void) {
     if (luma_rt_core == 0) return;
     if (task_order != 0 || task_slots != 0 || task_results != 0) lumart_tasks_stop_all();
-    for (uint32_t i = 0; i < fn_kept_n; i++) lm_rel_lumart_fn(&fn_kept[i]);
+    for (uint32_t i = 0; i < fn_kept_cap; i++) {
+        if (fn_kept[i] != 0) lm_rel_lumart_fn(&fn_kept[i]);
+    }
     if (fn_kept != 0) lumart_free(fn_kept, (uint64_t)fn_kept_cap * sizeof(lumart_fn));
     fn_kept = 0;
     fn_kept_n = fn_kept_cap = 0;

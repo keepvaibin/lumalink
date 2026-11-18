@@ -178,9 +178,9 @@ impl<'a> Gen<'a> {
             StmtKind::Return(Some(e)) => match fx.ret.clone() {
                 Some((_, t)) => {
                     self.value_into(fx, e, "(*lm_ret)", &t);
-                    // An override's value is the call's result (class.rs).
-                    if let Some(rc) = fx.override_rc.clone() {
-                        fx.emit(format!("LUMA_RESULT(call, {rc}) = *lm_ret;"));
+                    // An override's value is the call's result (class.rs), a text as its kept copy.
+                    if fx.override_rc.is_some() && self.result_put(fx, "(*lm_ret)", &t, e.at, true).is_err() {
+                        self.say(m, e.at, "an override's result that may be none for a pointer to a number");
                     }
                     fx.emit("goto lm_out;".into());
                 }
@@ -228,11 +228,14 @@ impl<'a> Gen<'a> {
             }
             StmtKind::Skip(v) => {
                 let Some(hook) = fx.hook.clone() else { return };
-                if let (Some(e), Some(rc)) = (v, &hook.result_c) {
+                if let (Some(e), Some(_)) = (v, &hook.result_c) {
                     let from = self.ty(m, e);
                     let Ok(x) = self.expr(fx, e) else { return };
-                    let _ = from;
-                    fx.emit(format!("LUMA_RESULT(call, {rc}) = {x};"));
+                    let kept = !matches!(strip(e).kind, ExprKind::None | ExprKind::Str(_));
+                    if self.result_put(fx, &x, &from, e.at, kept).is_err() {
+                        self.say(m, e.at, "skip with a value that may be none for a pointer to a number");
+                        return;
+                    }
                 }
                 fx.emit("*lm_skip = 1;".into());
                 fx.emit("goto lm_out;".into());
@@ -323,30 +326,13 @@ impl<'a> Gen<'a> {
             }
         }
         // A hook's `const char *` result given a text: the text's kept copy (docs/modding/language/compiled-form.md: the game may hold the
-        // pointer), null for none; a NUL byte inside is S0918.
+        // pointer), null for none; a NUL byte inside is S0918 ([`Emitter::result_put`], as `skip v`).
         if let (ast::AssignOp::Set, ExprKind::Result) = (op, &target.kind) {
             if lt == Ty::Text || matches!(&lt, Ty::Opt(x) if **x == Ty::Text) {
-                let Some(rc) = fx.hook.as_ref().and_then(|h| h.result_c.clone()) else { return };
-                let want = Ty::Opt(Box::new(Ty::Text));
                 let from = self.ty(m, value);
                 let Ok(v) = self.expr(fx, value) else { return };
-                let Ok(v) = self.coerce(fx, &v, &from, &want, value.at) else { return };
-                let Some(ct) = self.c_type(&want) else { return };
-                if !matches!(strip(value).kind, ExprKind::None | ExprKind::Str(_)) {
-                    self.kept.push((fx.file.clone(), at.line, "result".to_string()));
-                }
-                let o = fx.temp(&ct, &v);
-                // A `const char16_t *` result: the text's UTF-16 kept copy, made once.
-                let (kc, keep) = if rc == "const uint16_t*" { ("const uint16_t*", "lumart_text_keep16") } else { ("const char*", "lumart_text_keep") };
-                let k = fx.fresh(kc);
-                fx.emit(format!("{k} = 0;"));
-                fx.emit(format!("if ({o}.some) {{"));
-                fx.depth += 1;
-                fx.emit(format!("{k} = {keep}({o}.value, {}, {}, \"result\", \"result\");", c_string(&fx.file), at.line));
-                fx.fail_if(&format!("{k} == 0"));
-                fx.depth -= 1;
-                fx.emit("}".into());
-                fx.emit(format!("LUMA_RESULT(call, {rc}) = ({rc}){k};"));
+                let kept = !matches!(strip(value).kind, ExprKind::None | ExprKind::Str(_));
+                let _ = self.result_put(fx, &v, &from, at, kept);
                 return;
             }
         }

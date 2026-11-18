@@ -351,6 +351,9 @@ pub mod code {
     pub const CAN_WHAT: u16 = 155;
     /// Part (g): `holds` takes the name of a set the game proves (`{sets}`), as `holds("player")`.
     pub const HOLDS_WHAT: u16 = 156;
+    /// An optional service (`use optional svc.{found}`) called where no test showed it given: `if {alias} != none` or
+    /// `guard {alias} != none` first (M-119: S0067's `??` cannot give a service).
+    pub const OPTIONAL_SVC_UNTESTED: u16 = 157;
     /// The back end does not write `{what}` yet; the build stops here rather than guess.
     pub const BACKEND_NOT_YET: u16 = 800;
 
@@ -510,6 +513,7 @@ pub mod code {
         NEEDS_NOT_PROVED,
         CAN_WHAT,
         HOLDS_WHAT,
+        OPTIONAL_SVC_UNTESTED,
         BACKEND_NOT_YET,
     ];
 
@@ -596,6 +600,7 @@ pub fn args_of(code: u16) -> &'static [&'static str] {
         code::AS_CLASS => &["found", "expected"],
         code::NEEDS_NOT_PROVED => &["found", "needs", "how"],
         code::HOLDS_WHAT => &["sets"],
+        code::OPTIONAL_SVC_UNTESTED => &["found", "alias"],
         code::BASE_CALL => &["found", "name"],
         code::GO_UNKNOWN => &["found", "machine"],
         code::GO_NAME_MACHINE => &["what", "found", "machine"],

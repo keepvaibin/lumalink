@@ -5,8 +5,9 @@
 //!
 //! A field may hold text or a container: `gone` gives its count back before the kernel frees the data.
 //!
-//! Not written yet (S0800, each named): a first value that needs code to run (`made` may run off the game thread), a
-//! class's own `fn` and its hooks.
+//! A first value that needs code (a call, a text made, a container) is written by `<class>_first`, which `made` runs on
+//! the game thread only; an object a mod's C makes off it keeps those fields zero (M-018). Not written yet (S0800,
+//! each named): a class's own `fn` and its hooks.
 
 use super::{assign_line, c_string, counted, Body, Ex, Fx, Gen, HookFx};
 use crate::ast::{self, ClassMember, Expr, ExprKind, HookKind, ItemKind};
@@ -16,9 +17,9 @@ use crate::game::{GameTy, Scalar, Value};
 use std::fmt::Write as _;
 
 impl Gen<'_> {
-    /// A class field's first value as one C expression with no statements (`made` may run off the game thread, so it
-    /// runs no script code): a value the plain path writes with none, else a constant folded here (a negated number,
-    /// a vector of such numbers, `none` as the option zeroed, in parentheses). Ok(None): it needs code.
+    /// A class field's first value as one C expression with no statements, written by `made` on any thread: a value the
+    /// plain path writes with none, else a constant folded here (a negated number, a vector of such numbers, `none` as
+    /// the option zeroed, in parentheses). Ok(None): it needs code (`<class>_first`, on the game thread).
     fn first_value(&mut self, m: usize, file: &str, v: &Expr, t: &Ty) -> Result<Option<String>, super::NotWritten> {
         let plain = {
             let mut fx = Fx::new(file, m);
@@ -72,8 +73,10 @@ impl Gen<'_> {
         let cname = self.item_c(me, &c.name.name);
         let data = format!("{cname}_d");
         let number = format!("{cname}_n");
-        // Fields: their C types and first values (a C expression with no statements, so `made` runs no script code).
+        // Fields: their C types and first values (a C expression with no statements, written on any thread); the
+        // first values that need code, written by `<class>_first` on the game thread.
         let mut fields: Vec<(String, String, Option<String>)> = Vec::new();
+        let mut coded: Vec<(String, &Expr, Ty)> = Vec::new();
         let mut ok = true;
         for member in &c.members {
             match member {
@@ -98,8 +101,7 @@ impl Gen<'_> {
                         Some(v) => match self.first_value(m, file, v, &t) {
                             Ok(Some(x)) => Some(x),
                             Ok(None) => {
-                                self.say(m, v.at, "a class field whose first value needs code to run");
-                                ok = false;
+                                coded.push((name.clone(), v, t.clone()));
                                 None
                             }
                             Err(_) => {
@@ -157,13 +159,31 @@ impl Gen<'_> {
         self.globals.push(format!("extern int32_t {number}; /* class {}'s number (define_class), -1 before */", c.name.name));
         let _ = writeln!(out, "int32_t {number} = -1;\n");
         // `made`: the first values, in the data the kernel zeroed.
-        let made = if fields.iter().any(|(_, _, f)| f.is_some()) {
+        // The first values that need code: script code, so on the game thread only (lumart's pools have no locks).
+        let first = if coded.is_empty() {
+            None
+        } else {
+            let first = format!("{cname}_first");
+            let mut fx = Fx::new(file, m);
+            for (name, v, t) in &coded {
+                self.value_into(&mut fx, v, &format!("d->{name}"), t);
+            }
+            self.out_defers(&mut fx);
+            out.push_str(&fx.function(&format!("static int32_t {first}({data}* d)"), c.name.at));
+            out.push('\n');
+            Some(first)
+        };
+        let made = if fields.iter().any(|(_, _, f)| f.is_some()) || first.is_some() {
             let made = format!("{cname}_made");
             let _ = writeln!(out, "static void {made}(void* object, void* data, void* user) {{\n    (void)object;\n    (void)user;\n    {data}* d = ({data}*)data;");
             for (name, ct, first) in &fields {
                 if let Some(v) = first {
                     let _ = writeln!(out, "    {}", assign_line(&format!("d->{name}"), v, ct));
                 }
+            }
+            // Off the game thread (an object a mod's C made there): those fields stay zero (M-018).
+            if let Some(f) = &first {
+                let _ = writeln!(out, "    if (luma_rt_core->game_thread()) (void){f}(d);");
             }
             out.push_str("}\n\n");
             made
@@ -174,11 +194,13 @@ impl Gen<'_> {
         // back: a waiting state's frame, then each counted field. No script code runs (the object is gone): a
         // waiting state's task is not resumed, its defers do not run.
         let counted_fields: Vec<&(String, String, Option<String>)> = fields.iter().filter(|(_, ct, _)| counted(ct)).collect();
-        let gone = if counted_fields.is_empty() && machine_gone.is_empty() {
+        // A class with data and overrides marks the watches of their base calls (lumart_class_gone, M-133).
+        let overrides = c.members.iter().any(|x| matches!(x, ClassMember::Override(_)));
+        let gone = if !has_data || (counted_fields.is_empty() && machine_gone.is_empty() && !overrides) {
             None
         } else {
             let gone = format!("{cname}_gone");
-            let mut g = format!("static void {gone}(void* object, void* data, void* user) {{\n    (void)object;\n    (void)user;\n    {data}* d = ({data}*)data;\n");
+            let mut g = format!("static void {gone}(void* object, void* data, void* user) {{\n    (void)object;\n    (void)user;\n    {data}* d = ({data}*)data;\n    (void)d;\n    lumart_class_gone(data);\n");
             for f in &machine_gone {
                 let _ = writeln!(g, "    {f}(d);");
             }
@@ -275,6 +297,7 @@ impl Gen<'_> {
             GameTy::Scalar(s) => Some(super::scalar_c(*s).to_string()),
             GameTy::Value(v) => Some(super::value_c(*v).to_string()),
             GameTy::Enum(_) => Some("int32_t".to_string()),
+            GameTy::Opt(_) if fnty.text16_result => Some("const uint16_t*".to_string()),
             GameTy::View { .. } | GameTy::Opt(_) => Some("void*".to_string()),
             other => {
                 self.say(m, f.name.at, &format!("an override of a function returning {other:?}"));
@@ -371,16 +394,28 @@ impl Gen<'_> {
         }
         fx.place_args_back();
         fx.emit("*lm_proceeded = 1;".into());
-        fx.emit("(void)lm_next(call);".into());
+        if fx.class_data.is_some() {
+            // An object the base call destroyed: its data is freed; lm_d none after it (M-133).
+            fx.emit("{".into());
+            fx.depth += 1;
+            fx.emit("lumart_base_watch lm_w = {(void*)lm_d, 0, lumart_base_top};".into());
+            fx.emit("lumart_base_top = &lm_w;".into());
+            fx.emit("(void)lm_next(call);".into());
+            fx.emit("lumart_base_top = lm_w.prev;".into());
+            fx.emit("if (lm_w.gone) lm_d = 0;".into());
+            fx.depth -= 1;
+            fx.emit("}".into());
+        } else {
+            fx.emit("(void)lm_next(call);".into());
+        }
         fx.place_args_in();
         for ((place, _, _), s) in sets.iter().zip(saved) {
             fx.emit(format!("{place} = {s};"));
         }
         match fx.hook.as_ref().and_then(|h| h.result_c.clone()) {
-            Some(rc) => {
+            Some(_) => {
                 let t = self.ty(m, e);
-                let ct = self.c_type(&t).ok_or_else(super::lost)?;
-                Ok(fx.temp(&ct, &format!("LUMA_RESULT(call, {rc})")))
+                self.result_value(fx, &t, e.at.line)
             }
             None => Ok(String::new()),
         }
@@ -405,6 +440,9 @@ impl Gen<'_> {
             _ => false,
         };
         if own && fx.class_data == Some(owner) {
+            // lm_d is none once a base call destroyed the object (any earlier base call, a loop's too).
+            let file = c_string(&fx.file);
+            fx.fail_if(&format!("lm_d == 0 && lumart_raise({file}, {}, 906, 1, (const char* const[]){{\"self\"}})", e.at.line));
             return Some(Ok(format!("lm_d->{name}")));
         }
         let ExprKind::Member { base, .. } = &e.kind else { return Some(self.not_yet(fx, e, "a class field outside its class's overrides")) };

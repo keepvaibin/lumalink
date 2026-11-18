@@ -6,8 +6,10 @@
 // goes to main_rig (LumaCore places it on each frame's poses, so it never lags the actor); a fixed rig, a free camera,
 // a shake or a field of view over the game's camera go to main_eye. Either holds while the world is held (kit.cutscene's
 // aim each frame of a hold). The newest control holds; ending it gives the one before.
-// A rig on the player's joint (eye) hides the player's body (his shadow stays) through player.set_drawn; the rig's
-// near_z is the near plane while it holds.
+// A rig on the game's player is on the player as he is each frame: after a death, an arrival or a scene change the game
+// makes his actor again, and the rig goes on with the new one. A rig on the player's joint (eye) hides the player's body
+// (his shadow stays) through player.set_drawn for as long as it is on top, the new actor included; the rig's near_z is
+// the near plane while it holds.
 // Every control, the mirror, the field of view and a shake are recorded under caller(); `on mods.stopped` takes a
 // stopped mod's away.
 // Mirror: the stick's x flipped (MR::getPlayerStickX), and the 3-D picture flipped by LumaKit's post program kit_mirror
@@ -37,8 +39,10 @@ var control_owners: list<u64> = []
 var control_rigs: list<view.Camera?> = []
 var control_speeds: list<f32> = []
 // Each rig's actor kept as a handle (a view is never kept past its frame): the rig is made again with it each frame,
-// and an empty handle (the actor gone) keeps the last eye.
+// and an empty handle (the actor gone) keeps the last eye. A rig on the game's player is on whichever actor is the
+// player now (control_on_player), so a new scene's player takes it over.
 var control_actors: list<ref<LiveActor>?> = []
+var control_on_player: list<bool> = []
 var next_control: u64 = 1
 // The last eye the main camera was given (a rig whose actor died keeps it); whether draw.view's main_eye holds one.
 var last_eye: view.Eye? = none
@@ -50,7 +54,8 @@ var free_pitch: f32 = 0.0
 var free_started: bool = false
 // Whether the free camera holds the player's look (input.look_mode) now.
 var free_looking: bool = false
-// The player whose body a first-person control hid (his shadow stays).
+// The player actor whose body a first-person control hid (his shadow stays). The game makes a new actor for a new
+// scene, drawn whole: keep_hidden() hides that one too.
 var hidden_player: ref<MarioActor>? = none
 // The field of view (degrees; below 0: the game's or the rig's) and who set it.
 var fov_degrees: f32 = -1.0
@@ -110,16 +115,39 @@ fn rig_on(r: view.Camera, a: LiveActor) -> view.Camera {
                          joint: r.joint, near_z: r.near_z }
 }
 
+// The actor of control i's rig this frame: the game's player as he is now for a rig on the player; none when the actor
+// is gone (or there is no player, during a load).
+fn actor_of(i: int) -> LiveActor? {
+    if control_on_player[i] {
+        return the_player()
+    }
+    guard let h = control_actors[i] else { return none }
+    return h.get()
+}
+
 // A rig on the player's joint: the player's body hidden while it holds.
 fn first_person(i: int) -> bool {
     guard let r = control_rigs[i] else { return false }
-    if r.rig != view.Rig.Joint {
-        return false
+    return r.rig == view.Rig.Joint and control_on_player[i]
+}
+
+// While a first-person control is on top: the player actor of now hidden, once per actor. The game draws a new actor
+// whole (a death, an arrival, a scene change); an actor already hidden is left as it is, so a later set_drawn of any
+// mod holds.
+fn keep_hidden() {
+    if controls.len() == 0 or not first_person(controls.len() - 1) {
+        return
     }
-    guard let h = control_actors[i] else { return false }
-    guard let a = h.get() else { return false }
-    guard let p = the_player() else { return false }
-    return same(a, p)
+    guard let m = MarioAccess::getPlayerActor() else { return }
+    if let h = hidden_player {
+        if let was = h.get() {
+            if same(was, m) {
+                return
+            }
+        }
+    }
+    player.set_drawn(m, player.DRAWN_SHADOW)
+    hidden_player = ref(m)
 }
 
 // The control on top changed: the player's body hidden or shown to match it, and the main camera on it at once (or the
@@ -130,12 +158,7 @@ fn settle() {
         wants_first = first_person(controls.len() - 1)
     }
     if wants_first {
-        if hidden_player == none {
-            if let m = MarioAccess::getPlayerActor() {
-                player.set_drawn(m, player.DRAWN_SHADOW)
-                hidden_player = ref(m)
-            }
-        }
+        keep_hidden()
     } else {
         show_player()
     }
@@ -167,16 +190,14 @@ fn place(shaking: vec3) {
     let top = controls.len() - 1
     if let r = control_rigs[top] {
         if r.rig != view.Rig.Fixed and length(shaking) == 0.0 {
-            if let h = control_actors[top] {
-                if let a = h.get() {
-                    let rig = with_fov(rig_on(r, a))
-                    if let e = view.eye_of(rig) {
-                        last_eye = e
-                    }
-                    view.main_rig(rig, none)
-                    main_held = true
-                    return
+            if let a = actor_of(top) {
+                let rig = with_fov(rig_on(r, a))
+                if let e = view.eye_of(rig) {
+                    last_eye = e
                 }
+                view.main_rig(rig, none)
+                main_held = true
+                return
             }
         }
     }
@@ -209,9 +230,13 @@ fn add_control(rig: view.Camera?, speed: f32) -> Control {
     let n = next_control
     next_control += 1
     var held: ref<LiveActor>? = none
+    var on_player = false
     if let r = rig {
         if r.rig != view.Rig.Fixed {
             held = ref(r.actor)
+            if let p = the_player() {
+                on_player = same(r.actor, p)
+            }
         }
     }
     controls.push(n)
@@ -219,6 +244,7 @@ fn add_control(rig: view.Camera?, speed: f32) -> Control {
     control_rigs.push(rig)
     control_speeds.push(speed)
     control_actors.push(held)
+    control_on_player.push(on_player)
     if rig == none {
         free_started = false
     }
@@ -232,6 +258,7 @@ fn remove_at(i: int) {
     control_rigs.remove(i)
     control_speeds.remove(i)
     control_actors.remove(i)
+    control_on_player.remove(i)
 }
 
 // The main camera follows the rig until end(); the newest control holds.
@@ -257,6 +284,7 @@ pub fn aim(c: Control, e: view.Eye) {
     control_rigs[i] = view.Camera { rig: view.Rig.Fixed, eye: e.eye, at: e.at, up: e.up, fov_y: e.fov_y, actor: a,
                                     offset: vec3(0.0, 0.0, 0.0), joint: "", near_z: 0.0 }
     control_actors[i] = none
+    control_on_player[i] = false
     settle()
 }
 
@@ -276,8 +304,9 @@ pub fn follow(target: LiveActor, distance: f32, height: f32 = 300.0) -> view.Cam
     return rig_of(view.Rig.Follow, 45.0, target, vec3(0.0, height, -distance), "", 0.0)
 }
 
-// First person: the eye at the actor's joint, looking along its front, the near plane `near` (the player's own model
-// hidden while the main camera holds it).
+// First person: the eye at the actor's joint, looking along its front, the near plane `near`. On the game's player, his
+// body is hidden (his shadow stays) while this rig is the main camera's, and the rig stays on the player through a death,
+// an arrival or a scene change, with the new actor's body hidden too.
 pub fn eye(of: LiveActor, joint: text = "Head", near: f32 = 5.0) -> view.Camera {
     return rig_of(view.Rig.Joint, 60.0, of, vec3(0.0, 0.0, 0.0), joint, near)
 }
@@ -430,8 +459,7 @@ fn given_eye() -> view.Eye? {
     if r.rig == view.Rig.Fixed {
         return view.eye_of(r) ?? last_eye
     }
-    guard let h = control_actors[top] else { return last_eye }
-    guard let a = h.get() else { return last_eye }
+    guard let a = actor_of(top) else { return last_eye }
     return view.eye_of(rig_on(r, a)) ?? last_eye
 }
 
@@ -449,6 +477,7 @@ hook after CameraDirector::calcPose() {
         return
     }
     if controls.len() > 0 {
+        keep_hidden()
         place(shaking)
         return
     }

@@ -201,7 +201,7 @@ enum Command {
         /// Keep the generated C in this folder. Default: a temporary folder, removed after.
         #[arg(long, value_name = "FOLDER")]
         work: Option<PathBuf>,
-        /// A platform to build for (repeat for several). Default: all nine.
+        /// A platform to build for (repeat for several). Default: every platform the game runs on, and every one the mod lists already.
         #[arg(long = "platform", value_name = "PLATFORM")]
         platforms: Vec<String>,
         /// The modder's mod folder: the mods a mod needs are taken from it and from the mods the game comes with.
@@ -890,7 +890,7 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
 }
 
 /// `lumalink build`: the mod's LumaScript checked, written as C and built into `code/<platform>/mod.<ending>` for each
-/// platform given, all nine by default (plans 4.3, 8.4).
+/// platform given; by default every one the game runs on and every one the mod lists already (build::default_platforms).
 fn build(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String], needs: &jobs::NeedsFrom) -> Result<ExitCode> {
     Ok(match build_mod(folder, names, sdk, clang, work, platforms, needs)? {
         None => ExitCode::SUCCESS,

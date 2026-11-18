@@ -1,0 +1,63 @@
+// The compiler's run-time forms from sweep M7: a value type called with no arguments is its default (vec3() zero,
+// quat() and color() with their last part 1); a hook's text result crosses as characters both ways (`skip "..."`
+// hands the game a kept copy, an after's `-> r` reads the game's characters); a map keyed by a game enum writes a
+// value with no name as its number in quotes and reads it back; clamp with lo above hi is a wrong call at its line.
+
+var frames = 0
+var staged = -1
+var mine = 0
+var n = 0
+
+hook before MR::getCurrentStageName() {
+    if mine == 1 {
+        n += 1
+        skip "m7-{n}"
+    }
+}
+
+hook after MR::getCurrentStageName() -> r {
+    if mine == 2 {
+        log fact "after" r ?? "none"
+    }
+}
+
+on stage "EggStarGalaxy" {
+    staged = frames
+}
+
+// From the stage's start: the checks 30 frames on, the wrong call the frame after, then a fact that the next frame ran.
+on frame {
+    frames += 1
+    if staged < 0 {
+        return
+    }
+    let k = frames - staged
+    if k == 30 {
+        let v = vec3()
+        let q = quat()
+        let c = color()
+        log fact "defaults" (v.x, v.y, v.z, q.x, q.w, c.r, c.a)
+        mine = 1
+        let a = MR::getCurrentStageName()
+        let b = MR::getCurrentStageName()
+        mine = 2
+        let real = MR::getCurrentStageName()
+        mine = 0
+        log fact "skipped" (a ?? "none", b ?? "none", real ?? "none")
+        var m: map<LiveActor::ClipScope, i32> = {}
+        m[1 as LiveActor::ClipScope] = 10
+        m[7 as LiveActor::ClipScope] = 70
+        let t = json.encode(m)
+        let back = json.decode<map<LiveActor::ClipScope, i32>>(t) ?? {}
+        log fact "enum_json" (t, back == m)
+    }
+    if k == 31 {
+        let lo = 5
+        let hi = 1
+        let x = clamp(3, lo, hi)
+        log fact "clamped" x
+    }
+    if k == 32 {
+        log fact "next" true
+    }
+}

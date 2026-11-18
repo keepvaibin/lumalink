@@ -111,7 +111,7 @@ fn parameters_and_results_cross_as_design_section_3_says() {
     let game = game();
     let ok = |text: &str| game.signature(text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
     let refused = |text: &str| game.signature(text).unwrap_err();
-    let fn_ty = |params: Vec<GameTy>, result: GameTy| FnTy { params, result, konst: false, counts: Vec::new(), transient: Vec::new(), opaque: Vec::new(), text16_result: false };
+    let fn_ty = |params: Vec<GameTy>, result: GameTy| FnTy { params, result, konst: false, counts: Vec::new(), transient: Vec::new(), nulls: Vec::new(), opaque: Vec::new(), text16_result: false };
     // Numbers by width, through the file's typedefs and the fixed-width names.
     assert_eq!(ok("void(s32, u8, uint32_t, bool, double, long long)"), fn_ty(
         vec![GameTy::Scalar(Scalar::I32), GameTy::Scalar(Scalar::U8), GameTy::Scalar(Scalar::U32), GameTy::Scalar(Scalar::Bool), GameTy::Scalar(Scalar::F64), GameTy::Scalar(Scalar::I64)],

@@ -78,6 +78,9 @@ pub struct Target {
     pub library: &'static str,
     pub code: &'static [&'static str],
     pub link: &'static [&'static str],
+    /// The game runs there now: a build that names no platform makes it. Windows on ARM and iOS wait for the game
+    /// (owner, M-006); asked for by name, or listed by the mod already, they are built as any other.
+    pub game: bool,
 }
 
 /// PE (Windows): no entry, no default library, no import library, no time stamp.
@@ -112,15 +115,15 @@ const IOS: &[&str] = &[
 
 /// The nine, in luma-format 6's order (`luma_validate::PLATFORMS`).
 pub static TARGETS: [Target; 9] = [
-    Target { platform: "windows-x64", triple: "x86_64-pc-windows-msvc", library: "mod.dll", code: &[], link: PE },
-    Target { platform: "windows-arm64", triple: "aarch64-pc-windows-msvc", library: "mod.dll", code: &[], link: PE },
-    Target { platform: "linux-x64", triple: "x86_64-unknown-linux-gnu", library: "mod.so", code: ELF_CODE, link: ELF },
-    Target { platform: "linux-arm64", triple: "aarch64-unknown-linux-gnu", library: "mod.so", code: ELF_ARM_CODE, link: ELF },
-    Target { platform: "macos-arm64", triple: "arm64-apple-macos12.0", library: "mod.dylib", code: MACHO_CODE, link: MACOS },
-    Target { platform: "macos-x64", triple: "x86_64-apple-macos12.0", library: "mod.dylib", code: MACHO_CODE, link: MACOS },
-    Target { platform: "android-arm64", triple: "aarch64-linux-android24", library: "mod.so", code: ELF_ARM_CODE, link: ANDROID },
-    Target { platform: "android-x64", triple: "x86_64-linux-android24", library: "mod.so", code: ELF_CODE, link: ANDROID },
-    Target { platform: "ios-arm64", triple: "arm64-apple-ios15.0", library: "mod.dylib", code: MACHO_CODE, link: IOS },
+    Target { platform: "windows-x64", triple: "x86_64-pc-windows-msvc", library: "mod.dll", code: &[], link: PE, game: true },
+    Target { platform: "windows-arm64", triple: "aarch64-pc-windows-msvc", library: "mod.dll", code: &[], link: PE, game: false },
+    Target { platform: "linux-x64", triple: "x86_64-unknown-linux-gnu", library: "mod.so", code: ELF_CODE, link: ELF, game: true },
+    Target { platform: "linux-arm64", triple: "aarch64-unknown-linux-gnu", library: "mod.so", code: ELF_ARM_CODE, link: ELF, game: true },
+    Target { platform: "macos-arm64", triple: "arm64-apple-macos12.0", library: "mod.dylib", code: MACHO_CODE, link: MACOS, game: true },
+    Target { platform: "macos-x64", triple: "x86_64-apple-macos12.0", library: "mod.dylib", code: MACHO_CODE, link: MACOS, game: true },
+    Target { platform: "android-arm64", triple: "aarch64-linux-android24", library: "mod.so", code: ELF_ARM_CODE, link: ANDROID, game: true },
+    Target { platform: "android-x64", triple: "x86_64-linux-android24", library: "mod.so", code: ELF_CODE, link: ANDROID, game: true },
+    Target { platform: "ios-arm64", triple: "arm64-apple-ios15.0", library: "mod.dylib", code: MACHO_CODE, link: IOS, game: false },
 ];
 
 /// The platform's build, or None when luma-format 6 has no such platform.
@@ -726,10 +729,10 @@ pub fn clang_version(clang: &Path) -> Result<String, BuildError> {
     Ok(found)
 }
 
-/// The targets `platforms` names, in luma-format 6's order and once each; all nine when it names none.
+/// The targets `platforms` names, in luma-format 6's order and once each; the ones the game runs on ([`Target::game`]) when it names none.
 pub fn targets(platforms: &[String]) -> Result<Vec<&'static Target>, BuildError> {
     if platforms.is_empty() {
-        return Ok(TARGETS.iter().collect());
+        return Ok(TARGETS.iter().filter(|t| t.game).collect());
     }
     for p in platforms {
         if target(p).is_none() {
@@ -739,12 +742,28 @@ pub fn targets(platforms: &[String]) -> Result<Vec<&'static Target>, BuildError>
     Ok(TARGETS.iter().filter(|t| platforms.iter().any(|p| p == t.platform)).collect())
 }
 
-/// Builds the mod in `folder` for `platforms` (all nine when empty): its C written once to `work` (none for a mod of C
+/// The platforms a build of a mod that lists `listed` (its luma.json's `code.platforms`) makes when none is named: every
+/// one the game runs on, and every one the mod lists already, so no code it carries is left from older source.
+pub fn default_platforms(listed: &[String]) -> Vec<String> {
+    TARGETS.iter().filter(|t| t.game || listed.iter().any(|p| p == t.platform)).map(|t| t.platform.to_string()).collect()
+}
+
+/// The platforms the mod in `folder` lists in its luma.json's `code.platforms` (none when it cannot be read).
+pub fn listed_platforms(folder: &Path) -> Vec<String> {
+    std::fs::read(folder.join("luma.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("code")?.get("platforms")?.as_array().cloned())
+        .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// Builds the mod in `folder` for `platforms` ([`default_platforms`] when empty): its C written once to `work` (none for a mod of C
 /// alone, whose own C declares its entry), each library to
 /// `folder/code/<platform>/mod.<ending>`, each platform built recorded in luma.json. A platform clang cannot build is
 /// [`BuildError::Platforms`] naming it, after every other is built.
 pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, platforms: &[String]) -> Result<Built, BuildError> {
-    let wanted = targets(platforms)?;
+    let wanted = if platforms.is_empty() { targets(&default_platforms(&listed_platforms(folder)))? } else { targets(platforms)? };
     if !sdk.join("luma.h").is_file() {
         return Err(BuildError::NoSdk(sdk.to_path_buf()));
     }
@@ -800,7 +819,7 @@ pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, 
 /// and C++ compiled and linked for each platform as `build` compiles a mod's own code, with no LumaScript and nothing
 /// generated. Each platform's library, its path and size.
 pub fn build_c(folder: &Path, sdk: &Path, clang: &Path, work: &Path, platforms: &[String]) -> Result<Vec<(&'static str, PathBuf, u64)>, BuildError> {
-    let wanted = targets(platforms)?;
+    let wanted = if platforms.is_empty() { targets(&default_platforms(&listed_platforms(folder)))? } else { targets(platforms)? };
     if !sdk.join("luma.h").is_file() {
         return Err(BuildError::NoSdk(sdk.to_path_buf()));
     }
@@ -1100,7 +1119,7 @@ fn skip_value(b: &[u8], i: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_names, generate, installed_mod, interface_of, manifest, mod_info_has_layout, needed_folder, option_spec, record_platform, targets, with_platform, BuildError, Places, TARGETS};
+    use super::{content_names, default_platforms, generate, installed_mod, interface_of, manifest, mod_info_has_layout, needed_folder, option_spec, record_platform, targets, with_platform, BuildError, Places, TARGETS};
     use lumascript::check::{OptionKind, OptionSpec};
 
     /// luma.json's options as `option` declarations are checked: a number is whole when every number given is;
@@ -1326,7 +1345,13 @@ mod tests {
         let picked = targets(&["ios-arm64".into(), "linux-x64".into(), "ios-arm64".into()]).unwrap();
         assert_eq!(picked.iter().map(|t| t.platform).collect::<Vec<_>>(), ["linux-x64", "ios-arm64"]);
         assert!(matches!(targets(&["ps2".into()]), Err(BuildError::UnknownPlatform(p)) if p == "ps2"));
-        assert_eq!(targets(&[]).unwrap().len(), 9);
+        // Named none: the seven the game runs on; Windows on ARM and iOS only when named or listed already (M-006).
+        let none: Vec<&str> = targets(&[]).unwrap().iter().map(|t| t.platform).collect();
+        assert_eq!(none, ["windows-x64", "linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "android-arm64", "android-x64"]);
+        assert_eq!(targets(&["windows-arm64".into()]).unwrap()[0].platform, "windows-arm64");
+        let listed = default_platforms(&["ios-arm64".into(), "ps2".into()]);
+        assert_eq!(listed.len(), 8);
+        assert_eq!(listed.last().map(String::as_str), Some("ios-arm64"));
     }
 
     /// A luma.json check refuses (L201: here a byte order mark) is refused by build with check's reason, not taken for

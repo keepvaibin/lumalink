@@ -1072,6 +1072,9 @@ pub struct SFn {
     pub comment: String,
     /// The table member as the header declares it: the back end calls it with these parameters.
     pub c: FnPtr,
+    /// The minor version that added it: its comment's leading `1.<minor>.`, else 0 (the table's first members). A
+    /// table only grows at its end, so a mod that calls it asks the service at this minor at least ([`since_of`]).
+    pub since: u32,
 }
 
 /// One catalogued service's LumaScript face.
@@ -1394,6 +1397,32 @@ const OPTIONAL_FN: [&str; 5] = ["`fn` null", "fn (null", "With `fn`", "a null fn
 const NOT_ANSWERS: [&str; 5] =["LUMA_E_ARGUMENT", "LUMA_E_THREAD", "LUMA_E_HANDLE", "LUMA_E_LIMIT", "LUMA_E_CANCELLED"];
 
 /// The statuses (`LUMA_OK`, `LUMA_PENDING`, `LUMA_E_*`) a comment names, in order, each once.
+/// The minor version a table member's comment starts with (`1.4. Game thread. ...` is 4); 0 with none.
+pub fn since_of(comment: &str) -> u32 {
+    let rest = comment.trim_start();
+    let Some((major, rest)) = rest.split_once('.') else { return 0 };
+    if major.is_empty() || !major.bytes().all(|b| b.is_ascii_digit()) {
+        return 0;
+    }
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() || !rest[digits.len()..].starts_with('.') {
+        return 0;
+    }
+    digits.parse().unwrap_or(0)
+}
+
+impl Face {
+    /// The minor version that added the function `name` (0 for a name the face does not have).
+    pub fn since(&self, name: &str) -> u32 {
+        self.functions.iter().find(|f| f.name == name).map_or(0, |f| f.since)
+    }
+
+    /// The version's major, as its import names it.
+    pub fn major(&self) -> &str {
+        self.version.split_once('.').map_or(self.version.as_str(), |(major, _)| major)
+    }
+}
+
 fn statuses_in(comment: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for w in comment.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
@@ -2021,6 +2050,7 @@ impl Face {
             ranges: ranges_in(&f.comment, &f.params),
             comment: f.comment.clone(),
             c: f.clone(),
+            since: since_of(&f.comment),
         };
         let not = |why: String| Shape::NotCallable(Unfit::Form(why));
         let unfit = |param: &str, why: ParamWhy, c_type: String| Shape::NotCallable(Unfit::Param { param: param.to_string(), why, c_type });

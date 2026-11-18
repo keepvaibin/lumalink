@@ -936,10 +936,6 @@ impl<'a> Gen<'a> {
                 ItemKind::Use(ast::Use::C(header)) => self.use_c(header),
                 ItemKind::Use(_) => {}
                 ItemKind::Hook(h) => {
-                    if h.every_override {
-                        self.say(m, h.at, "hook ... every override of");
-                        continue;
-                    }
                     if let Some(text) = self.hook(m, me, h, &file) {
                         out.push_str(&text);
                     }
@@ -1063,7 +1059,7 @@ impl<'a> Gen<'a> {
                     ast::OnEvent::Step(ref param) => {
                         let name = format!("lm_on_step_{m}");
                         // The time service's header (LumaTimeNow) for lm.h, and its import row.
-                        if self.service_slot("time").is_none() {
+                        if self.service_for("time", "on_step").is_none() {
                             self.say(m, on.at, "on step without the time service's header");
                             continue;
                         }
@@ -1083,7 +1079,7 @@ impl<'a> Gen<'a> {
                     // `on option <key>` (section 10): the option changed on the Mods page. Written as `on stage` is (a
                     // task when it waits), run by the mod's options handler after the option's value is read again.
                     ast::OnEvent::Option(ref key) => {
-                        if self.service_slot("mods").is_none() {
+                        if self.service_for("mods", "option").is_none() {
                             self.say(m, on.at, "on option without the mods service's header");
                             continue;
                         }
@@ -1120,7 +1116,7 @@ impl<'a> Gen<'a> {
                             self.say(m, on.at, "on draw at this point");
                             continue;
                         };
-                        if self.service_slot("draw").is_none() {
+                        if self.service_for("draw", "at").is_none() {
                             self.say(m, on.at, "on draw without the draw service's header");
                             continue;
                         }
@@ -1242,7 +1238,7 @@ impl<'a> Gen<'a> {
                             continue;
                         }
                     };
-                    if self.service_slot("mods").is_none() || (key_option && self.service_slot("input").is_none()) {
+                    if self.service_for("mods", "option").is_none() || (key_option && self.service_for("input", "action").is_none()) {
                         self.say(m, item.at, "an option without the mods (or input) service's header");
                         continue;
                     }
@@ -1453,6 +1449,11 @@ impl<'a> Gen<'a> {
                 // written to it goes back to the call as its kept copy (docs/modding/language/compiled-form.md) before the game's function.
                 if let (GameTy::Opt(x), CType::Ptr { .. }) = (g, c) {
                     if **x == GameTy::Text {
+                        // A body that never names it reads nothing and writes nothing back: no copy on each call (M-128).
+                        let local = Resolved::Local(*id);
+                        if !self.checked.resolved.iter().any(|((mm, _), r)| *mm == m && *r == local) {
+                            continue;
+                        }
                         let n = fnty.c_index(i) + 1;
                         let ct = self.c_type(&Ty::Opt(Box::new(Ty::Text)))?;
                         let (v, was, read) = (format!("l{id}"), format!("lm_ta{n}"), format!("lm_tw{n}"));
@@ -1489,14 +1490,15 @@ impl<'a> Gen<'a> {
                 }
             }
         }
-        // An after's result name: the result as the game made it, read at the hook's start.
-        if let (Some(ast::HookRet::Name(n)), Some(rc)) = (&h.ret, &result_c) {
+        // An after's result name: the result as the game made it, read at the hook's start as `result` reads (M-127).
+        if let (Some(ast::HookRet::Name(n)), Some(_)) = (&h.ret, &result_c) {
             if let Some(Resolved::Local(id)) = self.checked.named.get(&(m, n.at)) {
-                let v = format!("l{id}");
-                fx.decl(format!("{rc} {v};"));
-                fx.declared.insert(*id);
-                fx.emit(format!("{v} = LUMA_RESULT(call, {rc});"));
-                fx.places.insert(*id, v);
+                let id = *id;
+                let t = self.checked.locals[id as usize].ty.clone();
+                let ct = self.c_type(&t)?;
+                let place = self.declare_local(&mut fx, id, n.at)?;
+                let v = self.result_value(&mut fx, &t, n.at.line).ok()?;
+                fx.set(&place, &v, &ct);
             }
         }
         self.block(&mut fx, &h.body);
@@ -1530,7 +1532,22 @@ impl<'a> Gen<'a> {
         let text = fx.function(&head, h.at);
         self.protos.push(format!("{head};"));
         let group = self.groups.entry(key).or_insert_with(|| Group { result_c: result_c.clone(), bodies: Vec::new() });
-        group.bodies.push(Body { c_name, file: file.to_string(), line: h.at.line });
+        group.bodies.push(Body { c_name: c_name.clone(), file: file.to_string(), line: h.at.line });
+        // `every override of` (docs/modding/language/compiled-form.md, section 4): the same body on each override's row
+        // too (M-125). Its arguments are the row's; `self` is the object as the base's record, so an override whose
+        // object is not at its base part's address, or whose row reads its arguments otherwise, is said.
+        let base = target.name.rsplit_once("::").map(|(r, _)| r.to_string()).unwrap_or_default();
+        for (on, os) in &target.overrides {
+            let owner = on.rsplit_once("::").map(|(r, _)| r.to_string()).unwrap_or_default();
+            let same = self.game.hook_signature(os).is_ok_and(|f| f == fnty);
+            if !same || !self.game.same_address(&owner, &base) {
+                self.say(m, h.at, &format!("hook ... every override of, on {on}, whose object or arguments are not those of {}", target.name));
+                continue;
+            }
+            self.inside_flag(on, os);
+            let group = self.groups.entry((on.clone(), os.clone(), kind)).or_insert_with(|| Group { result_c: result_c.clone(), bodies: Vec::new() });
+            group.bodies.push(Body { c_name: c_name.clone(), file: file.to_string(), line: h.at.line });
+        }
         Some(text)
     }
 
@@ -1617,6 +1634,10 @@ impl<'a> Gen<'a> {
         }
         for p in &self.c_protos {
             let _ = writeln!(h, "{p}");
+        }
+        if !self.c_protos.is_empty() {
+            // Back to lm.h's own lines after the prototypes' `#line`s.
+            let _ = writeln!(h, "#line {} \"lm.h\"", h.lines().count() + 2);
         }
         if !self.exports.is_empty() {
             h.push_str("#include \"lm_exports.h\"\n");
@@ -1934,7 +1955,16 @@ impl<'a> Gen<'a> {
         if timed {
             // No time service (or not granted): the mod cannot run its frames or steps, so it does not start (said by
             // the core).
-            c.push_str("    lm_time = (const LumaTimeService*)core->service(mod, LUMA_TIME_NAME, LUMA_TIME_MAJOR, LUMA_TIME_MINOR);\n    if (lm_time == 0) return 1;\n");
+            // Asked at the lowest minor that has what it calls (M-116).
+            let time = self.game.services.faces.get("time");
+            let since = |f: &str| time.map_or(0, |t| t.since(f));
+            let minor = [(framed, "on_frame"), (self.step.is_some(), "on_step"), (self.tasks_used, "now")]
+                .iter()
+                .filter(|(used, _)| *used)
+                .map(|(_, f)| since(f))
+                .max()
+                .unwrap_or(0);
+            let _ = write!(c, "    lm_time = (const LumaTimeService*)core->service(mod, LUMA_TIME_NAME, LUMA_TIME_MAJOR, {minor}u);\n    if (lm_time == 0) return 1;\n");
         }
         if framed {
             c.push_str("    if (lm_time->on_frame(mod, lm_frame, 0) != 0) return 1;\n");
@@ -1986,6 +2016,11 @@ impl<'a> Gen<'a> {
         // `on stop` per module, the last module's first.
         for s in self.stops.iter().rev() {
             let _ = writeln!(c, "    (void){s}();");
+        }
+        if self.tasks_used && !self.stops.is_empty() {
+            // The tasks an `on stop` started, stopped here too: their way-outs are script code, which runs inside the
+            // mod's stop, never after luma_finish (M-134).
+            c.push_str("    lumart_tasks_stop_all();\n");
         }
         for (g, ct) in &self.counted_globals {
             let _ = writeln!(c, "    lm_rel_{ct}(&{g});");

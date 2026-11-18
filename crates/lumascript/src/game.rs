@@ -237,6 +237,9 @@ pub struct FnTy {
     /// The `const char *` parameters (C indices) marked `in`: the game reads the text during the call only, so a
     /// text made for it lives in the scratch until the call returns (docs/modding/language/language.md, section 6.4, docs/modding/language/compiled-form.md), not kept.
     pub transient: Vec<usize>,
+    /// The parameters (C indices) the function facts mark `nullable`: the game takes null there, so a script `T?`
+    /// goes as it is, none as null (M-118). An unmarked pointer takes a literal `none` only.
+    pub nulls: Vec<usize>,
     /// A hook's parameters that do not cross (C index, why): `Unit` in `params`; the hook binds each as `_`, never
     /// by a name (S0060). Empty outside hooks.
     pub opaque: Vec<(usize, NotCrossing)>,
@@ -891,6 +894,7 @@ impl Game {
         let counts: Vec<(usize, usize)> = marks.iter().enumerate().filter_map(|(i, m)| m.and_then(|m| m.count).map(|c| (c, i))).collect();
         let mut params = Vec::with_capacity(sig.params.len());
         let mut transient = Vec::new();
+        let nulls: Vec<usize> = marks.iter().enumerate().filter(|(_, m)| m.is_some_and(|m| m.nullable)).map(|(i, _)| i).collect();
         for (i, p) in sig.params.iter().enumerate() {
             let at = |why| SigNotCrossing { param: Some(i), why };
             if counts.iter().any(|(c, _)| *c == i) {
@@ -921,7 +925,7 @@ impl Game {
             Some(r) => self.map(r, Place::Result, 0).map_err(|why| SigNotCrossing { param: None, why })?,
             None => GameTy::Unit,
         };
-        Ok(FnTy { params, result, konst: sig.konst, counts, transient, opaque: Vec::new(), text16_result: false })
+        Ok(FnTy { params, result, konst: sig.konst, counts, transient, nulls, opaque: Vec::new(), text16_result: false })
     }
 
     /// A `const char *` parameter: `text?` to the script.
@@ -992,7 +996,7 @@ impl Game {
             Some(r) => self.map(r, Place::Result, 0).map_err(|why| SigNotCrossing { param: None, why })?,
             None => GameTy::Unit,
         };
-        Ok(FnTy { params, result, konst: sig.konst, counts: Vec::new(), transient: Vec::new(), opaque, text16_result: text16 })
+        Ok(FnTy { params, result, konst: sig.konst, counts: Vec::new(), transient: Vec::new(), nulls: Vec::new(), opaque, text16_result: text16 })
     }
 
     /// A record's own field: a bit-field, an array (its `extents`), or a place of its type.

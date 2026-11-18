@@ -51,6 +51,8 @@ const FUNCTIONS: &[(&str, &str, &str)] = &[
     // Virtuals a mod's class overrides (docs/modding/language/language.md, section 5.5).
     ("Actor::control", "void()", "method"),
     ("Actor::receive", "bool(s32)", "method"),
+    // An override of Actor::control (`every override of`).
+    ("Kuribo::control", "void()", "method"),
     ("MR::stageName", "const char *()", "free"),
     ("MR::isEqualString", "bool(const char *, const char *)", "free"),
     ("MR::useBox", "void(Box)", "free"),
@@ -92,11 +94,12 @@ fn game() -> Game {
     let rows: Vec<String> = FUNCTIONS
         .iter()
         .map(|(name, sig, kind)| {
-            let owner = if *kind == "method" { "\"Actor\"" } else { "null" };
+            let owner = if *kind == "method" { format!("\"{}\"", name.split("::").next().unwrap()) } else { "null".to_string() };
+            let overrides = if *name == "Kuribo::control" { r#"[{"name": "Actor::control", "signature": "void()", "row": true}]"# } else { "[]" };
             let konst = sig.ends_with(" const");
             let marks = MARKS.iter().find(|(n, _)| n == name).map_or_else(|| vec!["null"; signature_params(sig).unwrap()].join(", "), |(_, m)| m.to_string());
-            let is_virtual = matches!(*name, "Actor::control" | "Actor::receive");
-            format!(r#"{{"name": "{name}", "signature": "{sig}", "kind": "{kind}", "owner": {owner}, "virtual": {is_virtual}, "pure": false, "const": {konst}, "overrides": [], "marks": [{marks}]}}"#)
+            let is_virtual = matches!(*name, "Actor::control" | "Actor::receive" | "Kuribo::control");
+            format!(r#"{{"name": "{name}", "signature": "{sig}", "kind": "{kind}", "owner": {owner}, "virtual": {is_virtual}, "pure": false, "const": {konst}, "overrides": {overrides}, "marks": [{marks}]}}"#)
         })
         .collect();
     game.facts = Some(FunctionFacts::from_json(format!(r#"{{"functions": [{}]}}"#, rows.join(", ")).as_bytes()).unwrap_or_else(|e| panic!("{e}")));
@@ -423,6 +426,8 @@ fn c_functions_cross_both_ways() {
     assert!(c.contains("c_len(lumart_text_p(t") && c.contains("lumart_bytes_p(t"), "{c}");
     assert!(c.contains("(uint8_t)(c_odd(t"), "{c}");
     assert!(c.contains("int32_t twice(const char* p0, uint64_t p0_len, int32_t p1) {"), "{c}");
+    // Script code on the game thread only: a call from another thread is S0901 and zero (M-140).
+    assert!(c.contains("if (!lumart_on_game_thread(") && c.contains("\"twice\")) { return 0; }"), "{c}");
     assert!(c.contains("lumart_text_make(&a0, p0, p0_len,") && c.contains("(void)lm_main__twice(a0, p1, &r);") && c.contains("lm_rel_lumart_text(&a0);"), "{c}");
     assert!(c.contains("if (lm_main__twice("), "the script calls its own function:\n{c}");
 }
@@ -541,6 +546,18 @@ fn nullable_kept_and_void_pointers_go_as_null() {
     assert_eq!(c.matches("->invoke(").count(), 3, "MR::actor, keepBox, calcHost:\n{c}");
 }
 
+/// A `T?` where the self-description says the game takes null (M-118): a `text?` to a nullable `const char *` and an
+/// `f32?` to a nullable marked `const f32 *` go as they are, null for none, the value (its copy) otherwise; no `if let`
+/// and no second call for the none case.
+#[test]
+fn a_value_that_may_be_none_goes_to_a_parameter_that_takes_null() {
+    let c = build("on start {\n    let o: text? = MR::stageName()\n    MR::sayTwo(1, o, \"k\")\n    var s: f32? = none\n    if MR::stageName() != none {\n        s = 2.0\n    }\n    MR::scaleBy(s)\n}\n").unwrap();
+    assert_eq!(c.matches("->invoke(").count(), 4, "stageName twice, sayTwo, scaleBy:\n{c}");
+    // scaleBy's place: null unless s holds a value, then its copy's address.
+    assert!(c.contains(".some) {"), "{c}");
+    assert!(c.matches(" = (void*)&").count() >= 1, "{c}");
+}
+
 /// Text made for one use (docs/modding/language/language.md, section 6.4, docs/modding/language/compiled-form.md, section 7.2): a log line, an interpolated text before its copy, and a parameter
 /// marks `in` are written in the scratch and given back right after; the function gives back to its own mark on its
 /// way out (a script error between). A literal goes as its static bytes; an unmarked parameter still gets a kept copy.
@@ -575,7 +592,7 @@ fn a_class_is_defined_at_start_with_its_overrides() {
         "lm_d = (lm_main__Walker_d*)luma_rt_core->class_data(luma_rt_self, call->args[0], lm_main__Walker_n);",
         "lm_d->steps",
         "*lm_proceeded = 1;",
-        "= *lm_ret;",
+        "= (*lm_ret);",
         "luma_rt_core->define_class(luma_rt_self, &def);",
         "{\"Actor::control\", \"void()\", lm_main__Walker__control_ov, 0},",
         "\"Walker\", \"Actor\", \"Actor\", \"Kuribo\"",
@@ -739,6 +756,45 @@ fn a_library_exports_and_a_caller_calls_through_kind_6() {
     assert!(main.contains("int32_t (*)(void*, const void*, const char*, uint32_t, const void*)") && main.contains(", lm_in_"), "{main}");
     assert!(main.contains("(const void*)lumart_ref_get"), "{main}");
 
+}
+
+/// A service is imported at the lowest minor that has the functions the mod calls, not the SDK's newest (M-116): with
+/// `close` added in ui 1.2 (its comment's `1.2.`), a mod that never calls it asks 1.0 and loads on a game with ui 1.0;
+/// one that calls it asks 1.2.
+#[test]
+fn a_service_is_imported_at_the_minor_of_the_newest_function_called() {
+    let dir = format!("{}/tests/data/svc", env!("CARGO_MANIFEST_DIR"));
+    let ui = std::fs::read_to_string(format!("{dir}/luma_ui.h")).unwrap();
+    let close = "/* 1.0. Game thread. The screen is no longer drawn;";
+    assert!(ui.contains(close) && ui.contains("#define LUMA_UI_MINOR 0u"));
+    let ui = ui.replace(close, "/* 1.2. Game thread. The screen is no longer drawn;").replace("#define LUMA_UI_MINOR 0u", "#define LUMA_UI_MINOR 2u");
+    let mut headers = std::collections::BTreeMap::new();
+    headers.insert("luma_services.h".to_string(), std::fs::read_to_string(format!("{dir}/luma_services.h")).unwrap());
+    headers.insert("luma_ui.h".to_string(), ui);
+    let (services, errors) = lumascript::svc::Services::of_sdk(&headers);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(services.faces["ui"].version, "1.2");
+    assert_eq!((services.faces["ui"].since("open"), services.faces["ui"].since("close")), (0, 2));
+    let mut game = game();
+    game.services = services;
+    let imports_of = |body: &str| {
+        let text = format!("use svc.ui\n\non frame {{\n    if let s = ui.open(\"Hud\", ui.Layer.Pause) {{\n{body}    }}\n}}\n");
+        let (module, d) = lumascript::parse_module(&text);
+        assert!(d.is_empty(), "{d:?}");
+        let sources = [Source { path: "main".into(), module }];
+        lumascript::on_compiler_stack(|| {
+            let checked = check::check(&sources, &[], ModFacts::of_game(&game));
+            let errors: Vec<_> = checked.diags.iter().filter(|(_, d)| !lumascript::diag::is_note(d.code)).collect();
+            assert!(errors.is_empty(), "the checker refuses: {errors:?}");
+            let out = emit::emit("small", &sources, &checked, &game).unwrap_or_else(|d| panic!("{d:?}"));
+            out.files.iter().find(|(p, _)| p == "lum/imports.c").map(|(_, c)| c.clone()).unwrap()
+        })
+        .unwrap()
+    };
+    let without = imports_of("        ui.show(s, true)\n");
+    assert!(without.contains("LUMA_SERVICE(lm_svc_0, \"ui\", \"1.0\")"), "{without}");
+    let with = imports_of("        ui.close(s)\n");
+    assert!(with.contains("LUMA_SERVICE(lm_svc_0, \"ui\", \"1.2\")"), "{with}");
 }
 
 /// Service calls (docs/modding/language/language.md): `ui` read from its header (tests/data/svc/luma_ui.h). The table is a kind 5 import with its header included; a `text` goes as `const char*`
@@ -1153,7 +1209,10 @@ fn requests_with_a_closure_or_waited() {
             "lumart_task_new(sizeof(lm_rqf_",
             "&lumart_pending_own}",
             "== LUMA_PENDING || ",
-            "lumart_fn_keep(",
+            // A request's closure: a count for its one event, given back after it or when refused (M-137).
+            "lm_ret_lumart_fn(&",
+            "lm_rel_lumart_fn(&lm_k); }",
+            "    lm_rel_lumart_fn(&f);",
         ] {
             assert!(main.contains(want), "{want} in\n{main}");
         }
@@ -2429,7 +2488,140 @@ on stop {
     assert!(c.contains("lumart_jr_init(&"), "the kept bytes are read as json:
 {c}");
     assert!(c.contains("lumart_log(\"kept: the kept value is not a Saved; none\")"), "{c}");
-    assert!(c.contains("<= 1048576u && luma_rt_core->keep(luma_rt_self, lumart_text_p(t"), "keep hands over the json:
+    assert!(c.contains("> 1048576u) {") && c.contains(" = luma_rt_core->keep(luma_rt_self, lumart_text_p(t"), "keep hands over the json:
 {c}");
     assert!(c.contains("lumart_log(\"keep: the value was not kept"), "{c}");
+}
+
+/// The built-in value types' defaults (M-122): `vec3()` zero, `quat()` no turn, `color()` opaque black, `mat34()` the
+/// identity, as a mod struct's `T()` gives its defaults.
+#[test]
+fn a_value_type_with_no_arguments_is_its_default() {
+    let c = build("on start {\n    let v = vec3()\n    let w = vec2()\n    let q = quat()\n    let k = color()\n    let m = mat34()\n    log \"{v} {w} {q} {k} {m}\"\n}\n").unwrap();
+    assert!(c.contains("(lm_vec3){0}") && c.contains("(lm_vec2){0}"), "{c}");
+    assert!(c.contains("(lm_quat){0.0f, 0.0f, 0.0f, 1.0f}") && c.contains("(lm_color){0.0f, 0.0f, 0.0f, 1.0f}"), "{c}");
+    assert!(c.contains("(lm_mat34){{{1.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 0.0f}}}"), "{c}");
+}
+
+/// `clamp(v, lo, hi)` with lo above hi is a wrong call (S0914), not lo for every value below hi (M-131).
+#[test]
+fn clamp_with_its_bounds_the_wrong_way_round_is_a_wrong_call() {
+    let c = build("on start {\n    let lo = 5\n    let hi = 1\n    let x = clamp(3, lo, hi)\n    log \"{x}\"\n}\n").unwrap();
+    assert!(c.contains("lumart_wrong_call(") && c.contains("\"clamp\", \"lo\", \"more than hi\", \"at most hi\""), "{c}");
+}
+
+/// As json a game enum's value is always a string, its number in quotes when the enum does not name it, so a map
+/// keyed by a game enum is JSON (M-130); json.decode reads the number back.
+#[test]
+fn a_game_enum_value_with_no_name_is_a_quoted_number_in_json() {
+    let c = build("on start {\n    let m: map<Mode, i32> = {}\n    let t = json.encode(m)\n    let back = json.decode<map<Mode, i32>>(t)\n    log \"{t} {back == none}\"\n}\n").unwrap();
+    assert!(c.contains("{ lumart_sb_str(&") && c.contains("\"\\\"\"); lumart_sb_i64(&"), "the number quoted:\n{c}");
+    assert!(c.contains("lumart_text_parse_i64("), "read back from its number:\n{c}");
+}
+
+/// `keep(v)` names why a value was not kept (M-139): over 1 MiB, off the game thread, or no memory in the game.
+#[test]
+fn keep_names_why_a_value_was_not_kept() {
+    let c = build("on stop {\n    let ok = keep(3)\n    log \"{ok}\"\n}\n").unwrap();
+    for why in ["(more than 1 MiB as json)", "(not on the game thread)", "(no memory in the game)"] {
+        assert!(c.contains(why), "no {why}:\n{c}");
+    }
+}
+
+/// A hook's text result crosses as a game call's does: `skip "x"` and `skip t` hand the game a kept copy of the
+/// characters, never the runtime's block (M-126); `result` and an after's `-> r` of a `const char *` or
+/// `const char16_t *` function are `text?`, a new text of the characters (M-127). The C compiles.
+#[test]
+fn a_hooks_text_result_is_characters_both_ways() {
+    let src = "var n = 0\nhook before MR::stageName() {\n    n += 1\n    if n > 2 { skip \"x{n}\" }\n    skip \"lit\"\n}\nhook after MR::stageName() -> r {\n    let back = result ?? \"none\"\n    let shown = r ?? \"\"\n    log \"{shown} {back}\"\n}\nhook before MR::getGameMessageDirect(key) {\n    skip \"m\"\n}\nhook after MR::getGameMessageDirect(key) -> r {\n    let shown = r ?? \"\"\n    log \"{shown}\"\n}\n";
+    let c = build(src).unwrap();
+    // Each skip a kept copy of the characters: two of the char function's, one UTF-16 of the char16 function's.
+    assert_eq!(c.matches("\"result\", \"result\");").count(), 3, "{c}");
+    assert_eq!(c.matches("lumart_text_keep16(").count(), 1, "{c}");
+    assert!(!c.contains("LUMA_RESULT(call, void*) = t"), "no block handed over as it is:\n{c}");
+    // `key` named and never read: no copy of its characters on each call, nothing written back (M-128).
+    assert!(!c.contains("lm_tw1") && !c.contains("\"MR::getGameMessageDirect\", \"key\")"), "{c}");
+    assert!(c.matches("lumart_text_from_game(&").count() >= 2, "result and r read as text:\n{c}");
+    assert!(c.contains("lumart_text_from_game16(&"), "{c}");
+}
+
+/// A task an `on stop` starts is stopped inside the mod's stop, after the handlers: its way-out (script code) never
+/// runs in lumart_end, after luma_finish (M-134).
+#[test]
+fn a_task_started_by_on_stop_ends_inside_stop() {
+    let m = build_file("task bye() {\n    defer log \"bye\"\n    wait 1 frames\n}\n\non stop {\n    bye()\n}\n", "lum/mod.c").unwrap();
+    let stop = &m[m.find("static void lm_stop(").expect("lm_stop")..];
+    let stop = &stop[..stop.find("\n}\n").unwrap()];
+    let handler = stop.find("();\n").expect("the on stop call");
+    assert!(stop[handler..].contains("lumart_tasks_stop_all();"), "{stop}");
+}
+
+/// A class's first values that need code (a container, a text made, `vec3()`) are written by `<class>_first`, which
+/// `made` runs on the game thread only (M-018); a constant is written on any thread. After a `base.f()` that destroyed
+/// the object, self's fields are none (S0906), never the freed data: the class's `gone` marks the base call's watch
+/// (M-133). The C compiles.
+#[test]
+fn a_class_writes_coded_first_values_and_watches_its_base_calls() {
+    let src = "class Walker : Actor made by Actor replaces Kuribo {\n    var steps = 0\n    var names: list<text> = [\"a\", \"b{2 + 1}\"]\n    var at = vec3()\n    override fn control() {\n        base.control()\n        steps += 1\n    }\n}\n";
+    let c = build(src).unwrap();
+    assert!(c.contains("static int32_t lm_main__Walker_first(lm_main__Walker_d* d)"), "{c}");
+    assert!(c.contains("if (luma_rt_core->game_thread()) (void)lm_main__Walker_first(d);"), "{c}");
+    assert!(c.contains("lumart_base_watch lm_w = {(void*)lm_d, 0, lumart_base_top};") && c.contains("if (lm_w.gone) lm_d = 0;"), "{c}");
+    assert!(c.contains("lumart_class_gone(data);"), "{c}");
+    let after = &c[c.find("if (lm_w.gone) lm_d = 0;").unwrap()..];
+    assert!(after.contains("lm_d == 0 && lumart_raise("), "the field after the base call checked:\n{c}");
+}
+
+/// `hook ... every override of` (M-125): the body is written once and added on the virtual's row and on each
+/// override's row the self-description lists, so a call of Kuribo's own control runs it too.
+#[test]
+fn a_hook_on_every_override_is_on_each_row() {
+    let src = "var n = 0\nhook before every override of Actor::control() {\n    n += 1\n}\n";
+    let c = build_file(src, "lum/mod.c").unwrap_or_else(|e| panic!("{e:?}"));
+    let main = build(src).unwrap();
+    assert_eq!(main.matches("int32_t lm_hook_0(LumaCall* call, uint8_t* lm_skip) {").count(), 1, "{main}");
+    let all = format!("{c}\n{main}");
+    assert!(all.contains("\"Actor::control\"") && all.contains("\"Kuribo::control\""), "a row each:\n{all}");
+}
+
+/// An `extern c fn` whose header declares the function otherwise is the C compiler's "conflicting types" at the
+/// script's line, not at a line of the generated lm.h (M-124): the prototype is written at the `extern c fn` line.
+#[test]
+fn an_extern_that_disagrees_with_its_header_is_said_at_the_script_line() {
+    let src = "use c \"odd.h\"\n\nextern c fn c_odd(x: i32) -> bool\n\non start {\n    let o = c_odd(3)\n    log \"{o}\"\n}\n";
+    let (module, _) = lumascript::parse_module(src);
+    let sources = [Source { path: "main".into(), module }, lumascript::check::std_source()];
+    let game = game();
+    let headers = vec!["odd.h".to_string()];
+    let files = lumascript::on_compiler_stack(|| {
+        let mut facts = ModFacts::of_game(&game);
+        facts.c_headers = &headers;
+        let checked = check::check(&sources, &[], facts);
+        emit::emit("small", &sources, &checked, &game).map(|o| o.files).unwrap_or_default()
+    })
+    .unwrap();
+    let h = files.iter().find(|(p, _)| p == "lum/lm.h").map(|(_, c)| c.clone()).unwrap_or_default();
+    assert!(h.contains("#line 3 \"main.lum\"\n_Bool c_odd(int32_t p0);\n#line "), "{h}");
+    let Some(sdk) = std::env::var_os("LUMA_SDK") else { return };
+    let clang = std::env::var_os("LUMA_CLANG").unwrap_or_else(|| "C:/Program Files/LLVM/bin/clang.exe".into());
+    let dir = std::env::temp_dir().join(format!("lumascript-m124-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("source")).unwrap();
+    for (rel, text) in &files {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+    }
+    std::fs::write(dir.join("source/odd.h"), "int c_odd(int x, int y);\n").unwrap();
+    let out = std::process::Command::new(&clang)
+        .current_dir(&dir)
+        .arg("--target=x86_64-pc-windows-msvc")
+        .args(emit::C_FLAGS)
+        .arg("-I").arg(dir.join("lum")).arg("-I").arg(&sdk).arg("-I").arg(dir.join("source"))
+        .arg("-fsyntax-only").arg("lum/main.c")
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr).to_string();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!out.status.success(), "{said}");
+    assert!(said.contains("main.lum:3:") && said.contains("conflicting types for 'c_odd'"), "{said}");
 }

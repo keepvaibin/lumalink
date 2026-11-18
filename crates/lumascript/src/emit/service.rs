@@ -214,7 +214,8 @@ impl Gen<'_> {
 
     /// A request's trampoline, `void lm_evt_<m>_<n>(void* user, const LumaEvent* ev)`: the record filled, then the
     /// closure `user` called with it as `callback_trampoline` calls (a script error in it ends that call only); the
-    /// record given back after. The closure is kept until the mod ends (lumart_fn_keep), past the request's end.
+    /// record given back after, then the closure's count the call took for this request: a request has one event
+    /// (luma_services.h: closed after its event), so a closure made for each request is not kept past it (M-137).
     fn event_trampoline(&mut self, m: usize, service: &str, kind: &str, slot: &str, file: &str, line: u32) -> Option<String> {
         let record = Ty::Service { service: service.to_string(), name: format!("{}Event", case_name(&kind.to_ascii_uppercase())) };
         let rc = self.c_type(&record)?;
@@ -229,7 +230,7 @@ impl Gen<'_> {
         let call: String = call.iter().map(|l| format!("\n    {l}")).collect();
         self.protos.push(format!("{head};"));
         self.closures.push_str(&format!(
-            "{head} {{\n    lumart_fn f = (lumart_fn)user;\n    {rc} r = ({rc}){{0}};\n    {fill}(&r, ev, {}, {line}u);{call}{rel}\n}}\n",
+            "{head} {{\n    lumart_fn f = (lumart_fn)user;\n    {rc} r = ({rc}){{0}};\n    {fill}(&r, ev, {}, {line}u);{call}{rel}\n    lm_rel_lumart_fn(&f);\n}}\n",
             c_string(file)
         ));
         Some(name)
@@ -820,8 +821,19 @@ impl Gen<'_> {
         let slot = format!("lm_svc_{}", self.svc_slots.len());
         self.svc_slots.insert(
             service.to_string(),
-            SvcSlot { slot: slot.clone(), table: format!("Luma{}Service", camel(service)), header: face.header.clone(), version: face.version.clone() },
+            SvcSlot { slot: slot.clone(), table: format!("Luma{}Service", camel(service)), header: face.header.clone(), major: face.major().to_string(), minor: 0 },
         );
+        Some(slot)
+    }
+
+    /// The table slot of a service whose function `function` the mod calls: the import asks the service at the minor
+    /// that added it at least, so the mod loads on every game that has what it calls (M-116).
+    pub(super) fn service_for(&mut self, service: &str, function: &str) -> Option<String> {
+        let slot = self.service_slot(service)?;
+        let since = self.game.services.faces.get(service).map_or(0, |f| f.since(function));
+        if let Some(s) = self.svc_slots.get_mut(service) {
+            s.minor = s.minor.max(since);
+        }
         Some(slot)
     }
 
@@ -996,12 +1008,11 @@ impl Gen<'_> {
                 }
             }
         }
-        let Some(slot) = self.service_slot(service) else { return self.not_yet(fx, e, "a service its header gives no version") };
+        let Some(slot) = self.service_for(service, name) else { return self.not_yet(fx, e, "a service its header gives no version") };
         // A service that needs a permission, used by a library while it runs for another mod: the player's answer for
-        // that mod counts (lumart_for_caller).
+        // that mod counts (lumart_for_caller), at the version that has this function.
         if let Some(face) = self.game.services.faces.get(service).filter(|f| f.permission.is_some()) {
-            let (major, minor) = face.version.split_once('.').ok_or_else(lost)?;
-            fx.fail_if(&format!("lumart_for_caller({}, {major}u, {minor}u) != 0", c_string(service)));
+            fx.fail_if(&format!("lumart_for_caller({}, {}u, {}u) != 0", c_string(service), face.major(), face.since(name)));
         }
         // The arguments, positional then by name; a service's parameters have no defaults. A waited request is given no
         // closure (the checker took it out of the parameters).
@@ -1037,6 +1048,8 @@ impl Gen<'_> {
         // A waited request's box, frame type, step and task, set up just before the call (after every argument that
         // may end the statement).
         let mut wait_box: Option<(String, String, String, String, String)> = None;
+        // A request's closure, with the count its one event gives back.
+        let mut request_fn: Option<String> = None;
         let mut k = 0;
         for (pi, p) in passes.iter().enumerate() {
             match p {
@@ -1097,8 +1110,9 @@ impl Gen<'_> {
                     let Some(tramp) = self.event_trampoline(m, service, &kind, &slot, &fx.file.clone(), x.at.line) else {
                         return self.not_yet(fx, e, "a request whose event's take its value does not size");
                     };
-                    let cond = format!("lumart_fn_keep({f}, {}, {}u) != 0", c_string(&fx.file), x.at.line);
-                    fx.fail_if(&cond);
+                    // A count for the request's event, given back by its trampoline (or below, when refused).
+                    fx.emit(format!("lm_ret_lumart_fn(&{f});"));
+                    request_fn = Some(f.clone());
                     list.push(format!("((LumaEventFn){tramp})"));
                     list.push(format!("(void*){f}"));
                 }
@@ -1361,6 +1375,13 @@ impl Gen<'_> {
             let (file, line) = (c_string(&fx.file), e.at.line);
             for (lp, ln, lb) in &lent {
                 fx.fail_if(&format!("{st} == LUMA_OK && lumart_bytes_from(&{lb}, {lp}, {ln}, {file}, {line}u) != 0"));
+            }
+        }
+        // A request refused (no event will come): its closure's count given back (M-137).
+        if let Some(f) = &request_fn {
+            match &st {
+                Some(st) => fx.emit(format!("if ({st} != LUMA_PENDING && {st} != LUMA_OK) {{ lumart_fn lm_k = {f}; lm_rel_lumart_fn(&lm_k); }}")),
+                None => return Err(lost()),
             }
         }
         // A request refused (no event will come): the box is done with nothing in it, the trampoline's count given back.
@@ -1703,12 +1724,13 @@ impl Gen<'_> {
         for (name, s) in &self.svc_slots {
             h.push_str(&format!("#include \"{}\"\n", s.header));
             c.push_str(&format!("const {}* {};\n", s.table, s.slot));
+            let version = s.version();
             let row = if optional.contains(name) {
-                format!("{{LUMA_IMPORT_SERVICE, LUMA_OPTIONAL, {}, {}, &{}, 0, 0, 0}}", c_string(name), c_string(&s.version), s.slot)
+                format!("{{LUMA_IMPORT_SERVICE, LUMA_OPTIONAL, {}, {}, &{}, 0, 0, 0}}", c_string(name), c_string(&version), s.slot)
             } else {
-                format!("LUMA_SERVICE({}, {}, {})", s.slot, c_string(name), c_string(&s.version))
+                format!("LUMA_SERVICE({}, {}, {})", s.slot, c_string(name), c_string(&version))
             };
-            rows.push((name.clone(), s.version.clone(), 105, row));
+            rows.push((name.clone(), version, 105, row));
         }
         for s in self.svc_slots.values() {
             h.push_str(&format!("extern const {}* {}; /* the service's table */\n", s.table, s.slot));
@@ -1717,12 +1739,20 @@ impl Gen<'_> {
     }
 }
 
-/// A service called: its slot, table type, header and version.
+/// A service called: its slot, table type, header, and the version its import asks: the header's major, and the
+/// highest minor of the functions the mod calls (`service_for`).
 pub(super) struct SvcSlot {
     pub slot: String,
     pub table: String,
     pub header: String,
-    pub version: String,
+    pub major: String,
+    pub minor: u32,
+}
+
+impl SvcSlot {
+    pub fn version(&self) -> String {
+        format!("{}.{}", self.major, self.minor)
+    }
 }
 
 fn c_text(t: &CT) -> String {

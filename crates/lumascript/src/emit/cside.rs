@@ -92,7 +92,10 @@ impl<'a> Gen<'a> {
             }
         };
         let ps = if ps.is_empty() { "void".to_string() } else { ps.join(", ") };
-        self.c_protos.insert(format!("{r} {}({ps});", name.name));
+        // At the script's line (M-124): the mod's header is included before it, so a declaration there that does not
+        // agree is the C compiler's "conflicting types" at the `extern c fn` line, not at a line of lm.h.
+        let file = format!("{}.lum", self.sources[m].path);
+        self.c_protos.insert(format!("#line {} {}\n{r} {}({ps});", name.at.line, c_string(&file), name.name));
     }
 
     /// A call of an `extern c fn`: the arguments in order (text and bytes as pointer and length, valid for the call),
@@ -136,7 +139,8 @@ impl<'a> Gen<'a> {
 
     /// `export c fn name(params) [-> type] { body }`: the body as the script's function `lm_<m>__name`, and the C
     /// function `name` the mod's C calls: it copies text arguments into texts of the script's own, calls the body,
-    /// and gives its result (zero when the body ended in a script error, which lumart has reported).
+    /// and gives its result (zero when the body ended in a script error, which lumart has reported, or when called off
+    /// the game thread, S0901).
     pub(super) fn export_fn(&mut self, m: usize, me: ItemRef, f: &ast::FnDecl, file: &str) -> Option<String> {
         let internal = self.item_c(me, &f.name.name);
         let mut out = self.function(m, me, "", &internal, f, file)?;
@@ -193,6 +197,9 @@ impl<'a> Gen<'a> {
         let ps = if c_ps.is_empty() { "void".to_string() } else { c_ps.join(", ") };
         let head = format!("{ret_c} {}({ps})", f.name.name);
         let _ = writeln!(out, "{head} {{");
+        // Script code runs on the game thread only (lumart's pools and tables have no locks): a call from a thread the
+        // mod's C made is S0901 and gives zero (M-140).
+        let _ = writeln!(out, "    if (!lumart_on_game_thread({src}, {line}, {})) {{ {back} }}", c_string(&f.name.name));
         if let Some((_, t)) = &r {
             let ct = self.c_type(t)?;
             let _ = writeln!(out, "    {ct} r = 0;");

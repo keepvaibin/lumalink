@@ -54,6 +54,18 @@ typedef struct lumart_as {
 } lumart_as;
 extern lumart_as lumart_caller;
 
+/* An override's `base.f()` (docs/modding/language/classes.md): the class data of the object it runs for, linked on the
+   C stack. The class's `gone` marks the watch of an object the call destroyed, so the override reads none of the freed
+   data after it (M-133). lumart_cut drops the watches of frames it leaves. Game thread only. */
+typedef struct lumart_base_watch {
+    void* data;
+    uint8_t gone;
+    struct lumart_base_watch* prev;
+} lumart_base_watch;
+extern lumart_base_watch* lumart_base_top;
+/* From a class's `gone`: every watch of `data` marked. */
+void lumart_class_gone(void* data);
+
 /* Before a call to a service that needs a permission. A library mod uses such a service for the mod that called it: the
    player's answer for that mod counts, not one for the library. 0 when this mod runs its own code, or when the calling
    mod may use the service; else 1, and the game has said in the calling mod's log that the player has not given it the
@@ -247,9 +259,11 @@ uint8_t lumart_can_call(const LumaFunction* f);
    handlers of a stage, the player and play run when it is not 0; `on stage ended` when it is 0. */
 int32_t lumart_holds(const char* name);
 
-/* A function value given to a service that calls it back (draw.at's fn): its count taken once, kept until the mod
-   ends (the service may call it until replaced, and a call site cannot know when another replaced it). The same block
-   twice is kept once. 0, or 1 when no memory is left (S0911 at file:line). */
+/* A function value given to a service that calls it back more than once (draw.at's fn, a stream's): its count taken
+   once, kept until the mod ends (the service may call it until replaced, and a call site cannot know when another
+   replaced it). The same block twice is kept once. A request's closure is not kept here: it has a count of its own,
+   given back after its one event or when the request is refused (M-137). 0, or 1 when no memory is left (S0911 at
+   file:line). */
 int32_t lumart_fn_keep(lumart_fn f, const char* file, uint32_t line);
 
 /* A colour as the services take it (LumaColor, 0xRRGGBBAA): each part times 255, rounded, held to 0-255 (NaN: 0). */

@@ -1,12 +1,17 @@
 // K6 (language 5.5, classes contract): a mod's class from a game class. The stage's Kuribos are made as Walker
 // (replaces); each has its own `ticks` in the data the kernel keeps beside it; its `control` override counts and then
 // runs Kuribo's own (base.control), so the Goombas still walk; `self`'s game fields are read through the object.
+// First values that need code (a list, a text made from parts, a value type's default) are made with the object;
+// a field read after base.control() is the same object's.
 
 var logged = false
+var after = false
 
 class Walker : Kuribo replaces Kuribo {
     var ticks = 0
     var step: i32 = 2
+    var names: list<text> = ["a", "b{2 + 1}"]
+    var at = vec3()
     override fn control() {
         ticks += 1
         if ticks == 30 and not logged {
@@ -16,6 +21,10 @@ class Walker : Kuribo replaces Kuribo {
             log fact "dead" self.mFlag.mIsDead
         }
         base.control()
+        if ticks == 31 and not after {
+            after = true
+            log fact "after_base" (ticks, names.len(), names[1], at.y)
+        }
     }
 }
 

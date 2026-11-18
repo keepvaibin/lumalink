@@ -1,0 +1,72 @@
+// kit.camera first person through a new player actor (M-175). The control is taken on the stage's first start; the
+// harness kills the player; the stage starts again with a new player actor while the control still holds. Facts:
+// hidden_first   the first actor's body hidden
+// alive_after    the control still holds after the new start
+// hidden_after   the new actor's body hidden
+// eye_to_player  the main camera's eye is on the new player (his head), not where the first one died
+// near_after     the rig's near plane still in force
+// shown_frames   frames the game player's body was drawn while the control held (calcViewAndEntry): none
+// shown_end      the body drawn again when the control ends
+use kit.camera
+
+var fp: list<camera.Control> = []
+var entries: int = 0
+var shown_frames: int = 0
+var counted_frames: int = 0
+
+fn control_holds() -> bool {
+    return fp.len() > 0 and camera.alive(fp[0])
+}
+
+fn body_hidden() -> bool {
+    guard let p = MarioAccess::getPlayerActor() else { return false }
+    return (p.mModHidden & 1) != 0
+}
+
+// Every frame the game player's drawing is prepared while the control holds: his body bit.
+hook after MarioActor::calcViewAndEntry() {
+    if not control_holds() {
+        return
+    }
+    guard let p = MarioAccess::getPlayerActor() else { return }
+    if not same(self, p) {
+        return
+    }
+    counted_frames += 1
+    if (self.mModHidden & 1) == 0 {
+        shown_frames += 1
+    }
+}
+
+task first() {
+    wait 60 frames
+    fp.push(camera.take(camera.eye(MarioAccess::getPlayerActor()!, "Head", 5.0)))
+    wait 10 frames
+    log fact "hidden_first" body_hidden()
+    log fact "ready_kill" true
+}
+
+task second() {
+    wait 60 frames
+    log fact "alive_after" control_holds()
+    log fact "hidden_after" body_hidden()
+    log fact "eye_to_player" length(camera.now().eye - (MR::getPlayerPos() ?? vec3(0.0, 0.0, 0.0)))
+    if holds("stage") {
+        log fact "near_after" MR::getNearZ()
+    }
+    log fact "shown_frames" shown_frames
+    log fact "counted_frames" counted_frames
+    camera.end(fp[0])
+    wait 5 frames
+    log fact "shown_end" not body_hidden()
+    log fact "done" true
+}
+
+on stage "EggStarGalaxy" {
+    entries += 1
+    if entries == 1 {
+        start first()
+    } else if entries == 2 {
+        start second()
+    }
+}

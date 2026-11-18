@@ -49,14 +49,14 @@ fn a_librarys_service_calls_name_the_library() {
 }
 
 /// A request made inside an export, closure and waited: the event's take names the library, and its function is
-/// given to the service as it is.
+/// given to the service as it is, with a count of its own for its one event (M-137).
 #[test]
 fn a_librarys_requests_and_their_takes_name_the_library() {
     let text = "use svc.fs\nuse svc.system.clipboard\n\nvar pasted: text = \"\"\nvar size: int = 0\n\n\
         task load() {\n    if let b = wait fs.read(\"a.txt\") {\n        size = b.len()\n    }\n}\n\n\
         pub fn paste() -> bool {\n    start load()\n    let k = clipboard.get_text(fn(e: clipboard.TextEvent) {\n        if e.status == none {\n            pasted = e.data\n        }\n    })\n    return k != none\n}\n";
     let all = library_c("/c2", &["luma_services.h", "luma_fs.h", "luma_system.h"], text);
-    for want in ["->get_text(luma_rt_self, ", "->take_text(luma_rt_self, ev->handle, ", "->take_read(luma_rt_self, ev->handle, ", "lumart_fn_keep(", "lumart_fn f = (lumart_fn)user;"] {
+    for want in ["->get_text(luma_rt_self, ", "->take_text(luma_rt_self, ev->handle, ", "->take_read(luma_rt_self, ev->handle, ", "lm_ret_lumart_fn(&", "lumart_fn f = (lumart_fn)user;"] {
         assert!(all.contains(want), "{want} in\n{all}");
     }
 }

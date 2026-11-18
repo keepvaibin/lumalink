@@ -1639,7 +1639,7 @@ fn code_out_of_date_in(data: Option<&Path>, folder: &Path, from: &BuiltFrom<'_>)
     let Ok(text) = std::fs::read_to_string(record) else { return true };
     let Some((built, platforms)) = text.split_once("\nplatforms ") else { return true };
     let built_for: Vec<&str> = platforms.split_whitespace().collect();
-    let listed = listed_platforms(folder);
+    let listed = crate::build::listed_platforms(folder);
     built != build_inputs(folder, from) || !listed.iter().all(|p| built_for.contains(&p.as_str())) || listed.is_empty()
 }
 
@@ -1659,16 +1659,6 @@ fn build_record_path(data: &Path, folder: &Path) -> PathBuf {
     let name = full.to_string_lossy();
     let name = if cfg!(windows) { name.to_lowercase() } else { name.into_owned() };
     data.join(BUILDS_FOLDER).join(format!("{:016x}.txt", fnv1a(name.as_bytes())))
-}
-
-/// The platforms the mod's luma.json lists in `code.platforms`.
-fn listed_platforms(folder: &Path) -> Vec<String> {
-    std::fs::read(folder.join("luma.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.get("code")?.get("platforms")?.as_array().cloned())
-        .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect())
-        .unwrap_or_default()
 }
 
 /// What a build of `folder` is made from, a line each: this LumaLink's program (size and time); the self-description

@@ -1,7 +1,7 @@
 {
   "harness": 1,
   "name": "k6-class",
-  "about": "A LumaScript mod's class (language 5.5): Walker derives from Kuribo and replaces it, so the stage's Goombas are made as Walkers; each one's ticks field lives in the kernel's class data with its first values from made; the control override counts 30 frames, reads its fields and self's game field, and runs Kuribo's own control through base.control()",
+  "about": "A LumaScript mod's class (language 5.5): Walker derives from Kuribo and replaces it, so the stage's Goombas are made as Walkers; each one's ticks field lives in the kernel's class data with its first values from made; the control override counts 30 frames, reads its fields and self's game field, and runs Kuribo's own control through base.control(); first values that need code (a list, a text made from parts, vec3()) are made with each object, and its fields read after base.control() are its own",
   "proves": [
     "script.build",
     "kernel.classes.define",
@@ -38,6 +38,15 @@
     {
       "fact": "mod.k6-class.dead",
       "is": false
+    },
+    {
+      "fact": "mod.k6-class.after_base",
+      "is": [
+        31,
+        2,
+        "b3",
+        0.0
+      ]
     }
   ]
 }

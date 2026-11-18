@@ -1,0 +1,73 @@
+{
+  "harness": 1,
+  "name": "m7-sweep",
+  "about": "The compiler's run-time forms from sweep M7: vec3(), quat() and color() with no arguments are their defaults; a before hook on MR::getCurrentStageName that skips with a text hands the game a kept copy, read back by the mod's call as characters, and an after's -> r reads the game's own; a map keyed by a game enum writes a value with no name as its number in quotes and decodes back the same; clamp with lo above hi is a wrong call at its line, ending that frame's run only",
+  "proves": [
+    "script.build",
+    "kernel.hook.before",
+    "kernel.hook.after"
+  ],
+  "mods": [
+    "../../mods/m7-sweep"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "at": 200,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.m7-sweep.defaults",
+      "is": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "fact": "mod.m7-sweep.skipped",
+      "is": [
+        "m7-1",
+        "m7-2",
+        "EggStarGalaxy"
+      ]
+    },
+    {
+      "fact": "mod.m7-sweep.after",
+      "is": "EggStarGalaxy"
+    },
+    {
+      "fact": "mod.m7-sweep.enum_json",
+      "is": [
+        "{\"ClipScope_Run\": 10, \"7\": 70}",
+        true
+      ]
+    },
+    {
+      "fact": "modlog",
+      "has": {
+        "mod": "m7-sweep",
+        "file": "main.lum",
+        "line": 57
+      },
+      "when": "any"
+    },
+    {
+      "fact": "mod.m7-sweep.clamped",
+      "absent": true
+    },
+    {
+      "fact": "mod.m7-sweep.next",
+      "is": true
+    }
+  ]
+}

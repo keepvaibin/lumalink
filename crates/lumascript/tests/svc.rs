@@ -420,6 +420,17 @@ fn every_sdk_header_reads() {
     // 34 with player (luma_player.h) and events (luma_events.h).
     assert_eq!(s.faces.len(), 34, "{:?}", s.faces.keys().collect::<Vec<_>>());
     assert!(s.faces.contains_key("player") && s.faces.contains_key("events"), "{:?}", s.faces.keys().collect::<Vec<_>>());
+    // Each table grows only at its end, and each member names the minor that added it (`1.<minor>.`, none for 1.0):
+    // a mod is imported at the minor of the newest function it calls (M-116), never above the header's own.
+    for (name, face) in &s.faces {
+        let minor: u32 = face.version.split_once('.').map_or(0, |(_, m)| m.parse().unwrap());
+        let mut last = 0;
+        for f in &face.functions {
+            assert!(f.since >= last, "{name}.{}: {} after a function of {}", f.name, f.since, last);
+            assert!(f.since <= minor, "{name}.{}: added in {} past the header's minor {minor}", f.name, f.since);
+            last = f.since;
+        }
+    }
 }
 
 /// A `#define`'s block comment may go on over lines (luma_assets.h's event kind); its value is still the number, and

@@ -1,0 +1,13 @@
+{
+  "format": "1.0",
+  "id": "m7-sweep",
+  "version": "1.0.0",
+  "name": "m7-sweep",
+  "summary": "m7-sweep (a conformance mod).",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  }
+}

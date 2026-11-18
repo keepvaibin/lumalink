@@ -1,0 +1,74 @@
+{
+  "harness": 1,
+  "name": "kit-camera-fp",
+  "about": "LumaKit camera, first person through a new player actor (M-175): a first-person control taken on Good Egg 1; the harness kills the player; when the stage starts again the control still holds, the new actor's body is hidden, the eye is on him, the near plane is the rig's, and in no frame of the run was the game player's body drawn while the control held; ended, the body is drawn again.",
+  "proves": [
+    "kit.camera"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-camera-fp"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-camera-fp.ready_kill",
+        "is": true
+      },
+      "call": "MR::forceKillPlayerByAbyss",
+      "signature": "void()",
+      "args": [],
+      "timeout": 900
+    },
+    {
+      "after": {
+        "fact": "mod.kit-camera-fp.done",
+        "is": true
+      },
+      "end": true,
+      "timeout": 3000
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-camera-fp.hidden_first",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera-fp.alive_after",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera-fp.hidden_after",
+      "is": true
+    },
+    {
+      "fact": "mod.kit-camera-fp.eye_to_player",
+      "less": 250
+    },
+    {
+      "fact": "mod.kit-camera-fp.near_after",
+      "near": 5,
+      "within": 0.01
+    },
+    {
+      "fact": "mod.kit-camera-fp.shown_frames",
+      "is": 0
+    },
+    {
+      "fact": "mod.kit-camera-fp.counted_frames",
+      "more": 100
+    },
+    {
+      "fact": "mod.kit-camera-fp.shown_end",
+      "is": true
+    },
+    {
+      "no_log": "script error"
+    }
+  ]
+}

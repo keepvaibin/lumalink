@@ -235,15 +235,21 @@ impl<'a> Gen<'a> {
         self.json_read_whole(fx, e, &p, &n, t).map(|(r, _)| r)
     }
 
-    /// `keep(value)`: the value as json handed to LumaCore's `keep` (reload.md 4); true when kept. Over 1 MiB encoded
-    /// (or no memory in the game) is false and one line in the mod log.
+    /// `keep(value)`: the value as json handed to LumaCore's `keep` (reload.md 4); true when kept. Not kept is false
+    /// and one line in the mod log naming the cause: over 1 MiB encoded, or the core's refusal (M-139).
     pub(super) fn keep_value(&mut self, fx: &mut Fx, e: &Expr, x: &str, xt: &Ty, arg: &Expr) -> Ex {
         let text = self.json_encode(fx, e, x, xt, arg)?;
         let r = fx.fresh("uint8_t");
-        fx.emit(format!(
-            "{r} = lumart_text_n({text}) <= 1048576u && luma_rt_core->keep(luma_rt_self, lumart_text_p({text}), (uint32_t)lumart_text_n({text})) == 0;"
-        ));
-        fx.emit(format!("if (!{r}) lumart_log(\"keep: the value was not kept (more than 1 MiB as json)\");"));
+        let k = fx.fresh("int32_t");
+        fx.emit(format!("{r} = 0;"));
+        fx.emit(format!("if (lumart_text_n({text}) > 1048576u) {{"));
+        fx.emit("    lumart_log(\"keep: the value was not kept (more than 1 MiB as json)\");".into());
+        fx.emit("} else {".into());
+        fx.emit(format!("    {k} = luma_rt_core->keep(luma_rt_self, lumart_text_p({text}), (uint32_t)lumart_text_n({text}));"));
+        fx.emit(format!("    if ({k} == 0) {r} = 1;"));
+        fx.emit(format!("    else if ({k} == -3) lumart_log(\"keep: the value was not kept (not on the game thread)\");"));
+        fx.emit("    else lumart_log(\"keep: the value was not kept (no memory in the game)\");".into());
+        fx.emit("}".into());
         Ok(r)
     }
 
@@ -478,7 +484,9 @@ impl<'a> Gen<'a> {
                 for (v, n) in self.game_enum_values(en) {
                     chain.push_str(&format!("if ({}) {place} = (int32_t){n}; else ", text_is(&name, &v)));
                 }
-                dx.emit(format!("{chain}{{ lm_st = 2; goto lm_out; }}"));
+                // A value the enum does not name: its number, as json.encode writes it (M-130).
+                let num = dx.fresh_kept("int64_t");
+                dx.emit(format!("{chain}if (lumart_text_parse_i64({name}, &{num}) && {num} >= INT32_MIN && {num} <= INT32_MAX) {place} = (int32_t){num}; else {{ lm_st = 2; goto lm_out; }}"));
             }
             other => {
                 let what = format!("json.decode of {}", self.ty_text(other));
@@ -588,6 +596,9 @@ impl<'a> Gen<'a> {
                         for (v, n) in self.game_enum_values(en) {
                             chain.push_str(&format!("if ({}) {key} = (int32_t){n}; else ", text_is(&name, &v)));
                         }
+                        // A value the enum does not name: its number, as json.encode writes it (M-130).
+                        let num = dx.fresh_kept("int64_t");
+                        chain.push_str(&format!("if (lumart_text_parse_i64({name}, &{num}) && {num} >= INT32_MIN && {num} <= INT32_MAX) {key} = (int32_t){num}; else "));
                     }
                     _ => return self.not_yet(dx, e, "a map key of an enum with values in JSON"),
                 }
