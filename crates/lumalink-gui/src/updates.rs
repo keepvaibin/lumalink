@@ -136,7 +136,9 @@ impl Update {
                         next = Some(Update::download(release.clone()));
                     }
                 } else if ui.button(say!("LumaLink.Window.Update.Download")).clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(&release.page));
+                    // Its page, or with none (N-4066) its signed Setup itself.
+                    let to = if release.page.is_empty() { &release.package_url } else { &release.page };
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(to));
                 }
                 if !release.page.is_empty() && ui.button(say!("LumaLink.Window.Update.WhatsNew")).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(&release.page));

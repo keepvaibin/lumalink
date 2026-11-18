@@ -159,7 +159,9 @@ pub fn select_newer(json: &str, installed: &str) -> Result<Option<Release>> {
             }
         }
         let (Some(package_url), Some(signature_url)) = (package_url.filter(|u| secure(u)), signature_url.filter(|u| secure(u))) else { continue };
-        best = Some(Release { version, tag, notes: text("body"), page: text("html_url"), package_url, signature_url: Some(signature_url), package_size });
+        // The page is opened in the browser: held to HTTPS as the downloads are, else there is none (N-4066).
+        let page = Some(text("html_url")).filter(|u| secure(u)).unwrap_or_default();
+        best = Some(Release { version, tag, notes: text("body"), page, package_url, signature_url: Some(signature_url), package_size });
     }
     Ok(best)
 }
@@ -1208,6 +1210,22 @@ mod tests {
     fn an_unsigned_setup_is_never_offered() {
         let json = list(&[("v9.0.0", false, &[&package_name("9.0.0")])]);
         assert!(select_newer(&json, "1.0.0").unwrap().is_none());
+    }
+
+    /// N-4066: a release's page is opened in the browser, so it is held to HTTPS as its downloads are: a page that is
+    /// another kind of address (a file, a script, plain HTTP, a share) is no page. Before, it was opened as given.
+    #[test]
+    fn a_release_page_that_is_not_https_is_no_page() {
+        let assets = packages("9.0.0");
+        let names: Vec<&str> = assets.iter().map(String::as_str).collect();
+        let json = list(&[("v9.0.0", false, names.as_slice())]);
+        assert_eq!(select_newer(&json, "1.0.0").unwrap().unwrap().page, format!("https://github.com/{REPOSITORY}/releases/tag/v9.0.0"));
+        for page in ["file:///C:/Windows/System32/calc.exe", "javascript:alert(1)", "http://example.com/x", "\\\\host\\share\\x.exe", "calc.exe"] {
+            let mut items: serde_json::Value = serde_json::from_str(&json).unwrap();
+            items[0]["html_url"] = page.into();
+            let found = select_newer(&items.to_string(), "1.0.0").unwrap().expect("still offered, with its signed Setup");
+            assert_eq!(found.page, "", "{page}");
+        }
     }
 
     #[test]

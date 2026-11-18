@@ -86,7 +86,46 @@ pub struct WriteSummary {
 /// size changes while it is read is an error naming it.
 pub fn write(files: &[FolderFile], out: &Path) -> Result<WriteSummary> {
     let file = fs::File::create(out).with_context(|| say!("LumaLink.CannotWrite", path = out.display()))?;
-    let mut sink = Counting { inner: std::io::BufWriter::with_capacity(1 << 20, file), at: 0 };
+    let (summary, sink) = write_to(files, std::io::BufWriter::with_capacity(1 << 20, file))?;
+    sink.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+    Ok(summary)
+}
+
+/// Whether `files`, packed, are byte for byte the `.luma` at `luma`. They are packed into a comparison with it as they
+/// go, never written, so the check needs no room beside the file and no memory of its size (N-4065).
+pub fn packs_to(files: &[FolderFile], luma: &Path) -> Result<bool> {
+    let file = fs::File::open(luma).with_context(|| say!("LumaLink.CannotRead", path = luma.display()))?;
+    let (_, mut same) = write_to(files, SameAs { theirs: std::io::BufReader::with_capacity(1 << 20, file), same: true, buf: Vec::new() })?;
+    Ok(same.same && same.theirs.read(&mut [0u8; 1])? == 0)
+}
+
+/// A sink that holds what is written to the bytes of a file, in order: `same` stays true while they match.
+struct SameAs<R: Read> {
+    theirs: R,
+    same: bool,
+    buf: Vec<u8>,
+}
+
+impl<R: Read> Write for SameAs<R> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.same {
+            self.buf.resize(buf.len(), 0);
+            match self.theirs.read_exact(&mut self.buf) {
+                Ok(()) => self.same = self.buf == buf,
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => self.same = false,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Writes `files` as a `.luma` to `sink`, giving back what was made and the sink, flushed.
+fn write_to<W: Write>(files: &[FolderFile], sink: W) -> Result<(WriteSummary, W)> {
+    let mut sink = Counting { inner: sink, at: 0 };
     let mut written = Vec::with_capacity(files.len());
     let mut unpacked_total = 0u64;
     for f in files {
@@ -125,9 +164,7 @@ pub fn write(files: &[FolderFile], out: &Path) -> Result<WriteSummary> {
     let directory_size = sink.at - directory_at;
     end_records(&mut sink, written.len() as u64, directory_at, directory_size)?;
     sink.inner.flush()?;
-    let bytes = sink.at;
-    sink.inner.into_inner().map_err(|e| e.into_error())?.sync_all()?;
-    Ok(WriteSummary { files: written.len(), unpacked: unpacked_total, bytes })
+    Ok((WriteSummary { files: written.len(), unpacked: unpacked_total, bytes: sink.at }, sink.inner))
 }
 
 struct Counting<W: Write> {

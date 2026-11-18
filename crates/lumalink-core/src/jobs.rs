@@ -788,31 +788,33 @@ pub enum Difference {
     Differs(String),
 }
 
-/// Whether a .luma is exactly what its folder packs to: Ok(bytes) when it is, else each difference.
+/// Whether a .luma is exactly what its folder packs to: Ok(bytes) when it is, else each difference. The folder is
+/// packed into a comparison with the .luma, never written (N-4065: it was packed to a file beside the .luma and both
+/// were read whole, so a .luma in a folder that takes no new file could not be checked, and a check held twice the
+/// file's size in memory).
 pub fn verify(luma: &Path, source: &Path) -> Result<std::result::Result<usize, Vec<Difference>>> {
     let files = luma_file::folder_files(source)?;
-    let scratch = tempfile::tempdir_in(parent_of(luma))?;
-    let again = scratch.path().join("again.luma");
-    luma_file::write(&files, &again)?;
-    let a = std::fs::read(luma).with_context(|| say!("LumaLink.CannotRead", path = luma.display()))?;
-    let b = std::fs::read(&again)?;
-    if a == b {
-        return Ok(Ok(a.len()));
+    if luma_file::packs_to(&files, luma)? {
+        let size = std::fs::metadata(luma).with_context(|| say!("LumaLink.CannotRead", path = luma.display()))?.len();
+        return Ok(Ok(size as usize));
     }
-    // Each file opened once and its entries found by name: linear in the entries, however many.
+    // The .luma opened once and its entries found by name: linear in the entries, however many.
     let mut theirs = luma_file::Reader::open(luma)?;
-    let mut ours = luma_file::Reader::open(&again)?;
+    let ours: std::collections::HashMap<&str, &Path> = files.iter().map(|f| (f.name.as_str(), f.path.as_path())).collect();
     let mut out = Vec::new();
     for e in theirs.list() {
-        if !ours.has(&e.name) {
+        let Some(&path) = ours.get(e.name.as_str()) else {
             out.push(Difference::OnlyInLuma(e.name));
-        } else if theirs.read(&e.name)? != ours.read(&e.name)? {
+            continue;
+        };
+        let size = std::fs::metadata(path).with_context(|| say!("LumaLink.CannotRead", path = path.display()))?.len();
+        if size != e.unpacked || theirs.read(&e.name)? != std::fs::read(path).with_context(|| say!("LumaLink.CannotRead", path = path.display()))? {
             out.push(Difference::Differs(e.name));
         }
     }
-    for o in ours.list() {
-        if !theirs.has(&o.name) {
-            out.push(Difference::OnlyInFolder(o.name));
+    for f in &files {
+        if !theirs.has(&f.name) {
+            out.push(Difference::OnlyInFolder(f.name.clone()));
         }
     }
     Ok(Err(out))
@@ -1645,6 +1647,61 @@ out.mkdir(parents=True)
         std::fs::write(folder.join("luma.json"), b"{}").unwrap();
         let differences = verify(&file, &folder).unwrap().err().expect("differences");
         assert!(differences.iter().any(|d| matches!(d, Difference::Differs(name) if name == "luma.json")));
+    }
+
+    /// Makes `dir` take no new file or folder; false when this system will not (an account that may write anywhere).
+    fn take_nothing_new(dir: &Path, on: bool) -> bool {
+        #[cfg(windows)]
+        {
+            let everyone = "*S-1-1-0";
+            let args: Vec<String> = if on { vec!["/deny".into(), format!("{everyone}:(WD,AD)")] } else { vec!["/remove:d".into(), everyone.into()] };
+            let made = std::process::Command::new("icacls").arg(dir).args(&args).output().is_ok_and(|o| o.status.success());
+            if !made || !on {
+                return made;
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(if on { 0o555 } else { 0o755 })).unwrap();
+            if !on {
+                return true;
+            }
+        }
+        let probe = dir.join("probe");
+        let refused = std::fs::write(&probe, b"").is_err();
+        let _ = std::fs::remove_file(&probe);
+        refused
+    }
+
+    /// N-4065: a .luma is verified where it lies, in a folder that takes no new file (a shared or read-only folder),
+    /// and nothing is written. Before, the folder was packed again to a file beside the .luma, so the check stopped
+    /// there with "cannot write".
+    #[test]
+    fn a_luma_is_verified_in_a_folder_that_takes_no_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("m");
+        assert!(matches!(new_mod(&folder, "test.round", "Round", "One line.", &["Me".into()]).unwrap(), NewMod::Made(_)));
+        let (report, outcome) = pack(&folder, None, &Inputs::none()).unwrap();
+        let PackOutcome::Packed { file, .. } = outcome else { panic!("not packed: {:?} {:?}", report.findings, report.not_checked) };
+        let shelf = dir.path().join("shelf");
+        std::fs::create_dir(&shelf).unwrap();
+        let luma = shelf.join("round.luma");
+        std::fs::rename(&file, &luma).unwrap();
+        if !take_nothing_new(&shelf, true) {
+            take_nothing_new(&shelf, false);
+            eprintln!("skipped: this account may add to any folder");
+            return;
+        }
+        let same = verify(&luma, &folder);
+        std::fs::write(folder.join("extra.txt"), b"x").unwrap();
+        let other = verify(&luma, &folder);
+        let left: Vec<_> = std::fs::read_dir(&shelf).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert!(take_nothing_new(&shelf, false));
+        assert!(matches!(same.unwrap(), Ok(bytes) if bytes as u64 == std::fs::metadata(&luma).unwrap().len()));
+        let differences = other.unwrap().err().expect("differences");
+        assert!(matches!(differences.as_slice(), [Difference::OnlyInFolder(name)] if name == "extra.txt"));
+        assert_eq!(left, vec![std::ffi::OsString::from("round.luma")]);
     }
 
     #[test]
