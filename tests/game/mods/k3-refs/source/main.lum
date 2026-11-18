@@ -1,7 +1,11 @@
 // K3 conformance, handles (language 6.2; abi 7.3): ref(view) of the player; two handles to one object are equal;
-// get() gives the object while it lives. A stage change destroys it: get() then gives none (the before hook on
-// NameObj::~NameObj emptied its slot, and with no slot left took itself out), the handle itself stays a value, and a
-// handle to the new player is another.
+// get() gives the object while it lives, and holding it hooks nothing (the kernel keeps handles: M-132). A stage
+// change destroys it: get() then gives none, the handle itself stays a value, and a handle to the new player is
+// another.
+
+use c "watch.h"
+
+extern c fn watch_hooked() -> i32
 
 var held: ref<LiveActor>? = none
 var calls = 0
@@ -15,6 +19,7 @@ hook after MR::zeroVelocity(target) {
         let back = h.get()
         let made = (h == ref(actor), back != none, same(back ?? actor, actor))
         log fact "made" made
+        log fact "hooked" watch_hooked()
         return
     }
     let after = (held!.get() == none, held != none, ref(actor) != held!)

@@ -1,7 +1,7 @@
 {
   "harness": 1,
   "name": "k3-refs",
-  "about": "LumaScript handles in a mod built by lumalink build: ref(view) of the player, two handles to one object equal, get() giving the object while it lives; after a stage change destroys the player, the held handle's get() is none, the handle stays a value, and a handle to the new player differs",
+  "about": "LumaScript handles in a mod built by lumalink build: ref(view) of the player, two handles to one object equal, get() giving the object while it lives and no hook on NebulaArena::free or lumacore::released (M-132); after a stage change destroys the player, the held handle's get() is none, the handle stays a value, and a handle to the new player differs",
   "proves": [
     "script.build",
     "kernel.hook.after"
@@ -50,6 +50,10 @@
         true,
         true
       ]
+    },
+    {
+      "fact": "mod.k3-refs.hooked",
+      "is": 0
     },
     {
       "fact": "mod.k3-refs.after",

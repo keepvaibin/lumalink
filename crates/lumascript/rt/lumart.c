@@ -2279,274 +2279,28 @@ int32_t lumart_bytes_write(lumart_bytes* b, int64_t at, uint32_t n, uint8_t big,
 
 /* ---------------------------------------------------------------- handles */
 
-typedef struct ref_slot {
-    const void* object; /* its NameObj subobject; null: empty */
-    uint32_t generation;
-    uint32_t next_free;
-} ref_slot;
-
-static ref_slot* refs;          /* refs[0] is never handed out: the empty handle's */
-static uint32_t refs_cap;       /* slots allocated */
-static uint32_t refs_used;      /* slots handed out so far, 0 counted */
-static uint32_t refs_live;      /* slots holding an object */
-static uint32_t refs_free;      /* an emptied slot to hand out again, 0 for none */
-static uint32_t* refs_hash;     /* object -> slot, linear probing; 0 empty */
-static uint32_t refs_hash_cap;  /* a power of two, at least twice refs_live */
-static uint8_t refs_hooked;
-
-static uint32_t ptr_hash(const void* p) {
-    uint64_t x = (uint64_t)(uintptr_t)p;
-    x ^= x >> 33;
-    x *= 0xff51afd7ed558ccdull;
-    x ^= x >> 33;
-    return (uint32_t)x;
-}
-
-/* The cell holding `o`'s slot, or the empty cell where it would go. */
-static uint32_t* refs_cell(const void* o) {
-    const uint32_t mask = refs_hash_cap - 1;
-    uint32_t i = ptr_hash(o) & mask;
-    while (refs_hash[i] != 0 && refs[refs_hash[i]].object != o) i = (i + 1) & mask;
-    return &refs_hash[i];
-}
-
-static int32_t refs_hash_grow(const char* file, uint32_t line) {
-    const uint32_t cap = refs_hash_cap != 0 ? refs_hash_cap * 2 : 16;
-    uint32_t* h = (uint32_t*)lumart_alloc((uint64_t)cap * 4);
-    if (h == 0) return lumart_out_of_memory(file, line, (uint64_t)cap * 4);
-    __builtin_memset(h, 0, (uint64_t)cap * 4);
-    if (refs_hash != 0) lumart_free(refs_hash, (uint64_t)refs_hash_cap * 4);
-    refs_hash = h;
-    refs_hash_cap = cap;
-    for (uint32_t s = 1; s < refs_used; s++) {
-        if (refs[s].object != 0) *refs_cell(refs[s].object) = s;
-    }
-    return 0;
-}
-
-/* Takes cell `c` out, moving back the cells after it that probed past it. */
-static void refs_unlink(uint32_t* c) {
-    const uint32_t mask = refs_hash_cap - 1;
-    uint32_t i = (uint32_t)(c - refs_hash);
-    for (uint32_t j = (i + 1) & mask; refs_hash[j] != 0; j = (j + 1) & mask) {
-        const uint32_t k = ptr_hash(refs[refs_hash[j]].object) & mask;
-        /* j's home k is cyclically outside (i, j]: it may move to i */
-        if ((i <= j) ? (k <= i || k > j) : (k <= i && k > j)) {
-            refs_hash[i] = refs_hash[j];
-            i = j;
-        }
-    }
-    refs_hash[i] = 0;
-}
-
-static int32_t refs_gone(LumaCall* call, void* user);
-static int32_t refs_freed(LumaCall* call, void* user);
-static int32_t refs_released(LumaCall* call, void* user);
-
-/* What tells a handle its object went (lumart.h, lumart_ref_make). */
-typedef struct refs_watch {
-    const char* name;
-    const char* signature;
-    LumaHook hook;
-} refs_watch;
-static const refs_watch refs_watches[3] = {
-    {"lumacore::released", "void(const void *, const void *)", refs_released},
-    {"NebulaArena::free", "void(void *)", refs_freed},
-    {"NameObj::~NameObj", 0, refs_gone},
-};
-static const LumaFunction* refs_fn[3];
-
-static void refs_unhook(uint32_t n) {
-    for (uint32_t i = 0; i < n; i++) (void)luma_rt_core->unhook(luma_rt_self, refs_fn[i], LUMA_BEFORE, refs_watches[i].hook, 0);
-}
-
-/* Every watch hooked: 0; else 1 + the index i of the row that could not be hooked, rows 0..i-1 still hooked (the
-   caller takes them out with refs_unhook(i) once it has given the lock back). The rows are
-   looked up each time (only when the first slot is made). */
-static uint32_t refs_hook(void) {
-    for (uint32_t i = 0; i < 3; i++) {
-        refs_fn[i] = luma_rt_core->function(refs_watches[i].name, refs_watches[i].signature);
-        if (refs_fn[i] == 0 || luma_rt_core->hook(luma_rt_self, refs_fn[i], LUMA_BEFORE, refs_watches[i].hook, 0) != 0) {
-            return i + 1;
-        }
-    }
-    return 0;
-}
-
-/* A spinning thread's pause: the core is told so (x86 PAUSE, arm64 YIELD). */
-static inline void refs_pause(void) {
-#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
-    __builtin_ia32_pause();
-#elif defined(__aarch64__) || defined(__arm__)
-    __asm__ __volatile__("yield");
-#endif
-}
-
-/* The table's lock: 0 free, 1 held by the game thread, 2 by another thread. A free or a
-   release on another thread empties its slot under it, so a slot never outlives its object (k3-dtor-diag saw none
-   there, but nothing promises it). The game thread's nested calls (a free hook run by an allocation inside
-   lumart_ref_make) find it held by the game thread, the one game thread being this one, and go on without it.
-   Returns whether this call took it. */
-static uint32_t refs_lock;
-static int refs_take(int game) {
-    if (game && __atomic_load_n(&refs_lock, __ATOMIC_RELAXED) == 1u) return 0;
-    uint32_t expected = 0;
-    while (!__atomic_compare_exchange_n(&refs_lock, &expected, game ? 1u : 2u, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
-        refs_pause();
-        expected = 0;
-    }
-    return 1;
-}
-static void refs_give(int taken) {
-    if (taken) __atomic_store_n(&refs_lock, 0u, __ATOMIC_RELEASE);
-}
-
-/* The hooks out once no slot is held: from the game thread's outermost calls only (the kernel's hook calls are the
-   game thread's; a nested call may run inside lumart_ref_make before its slot exists). Another thread leaves them
-   on: they find no slot and cost a lookup until the game thread next empties or makes one. */
-static void refs_unhook_if_empty(void) {
-    if (refs_live == 0 && refs_hooked) {
-        refs_unhook(3);
-        refs_hooked = 0;
-    }
-}
-
-static void refs_empty(uint32_t* c) {
-    const uint32_t s = *c;
-    refs_unlink(c);
-    refs[s].object = 0;
-    if (++refs[s].generation == 0) refs[s].generation = 1;
-    refs[s].next_free = refs_free;
-    refs_free = s;
-    refs_live--;
-}
-
-/* Every slot of an object in [lo, hi) emptied, the lock held. */
-static void refs_empty_range(const void* lo, const void* hi) {
-    for (uint32_t s = 1; s < refs_used; s++) {
-        const char* o = (const char*)refs[s].object;
-        if (o != 0 && o >= (const char*)lo && o < (const char*)hi) refs_empty(refs_cell(o));
-    }
-}
-
-/* The objects in [lo, hi) (one object: [o, o + 1)) go: their slots emptied, on whichever thread. */
-static void refs_forget(const void* lo, const void* hi) {
-    if (__atomic_load_n(&refs_live, __ATOMIC_RELAXED) == 0) return;
-    const int game = luma_rt_core->game_thread() != 0;
-    const int taken = refs_take(game);
-    if (refs_live != 0) {
-        if ((const char*)hi == (const char*)lo + 1) {
-            uint32_t* c = refs_cell(lo);
-            if (*c != 0) refs_empty(c);
-        } else {
-            refs_empty_range(lo, hi);
-        }
-    }
-    refs_give(taken);
-    if (game && taken) refs_unhook_if_empty();
-}
-
-/* NameObj::~NameObj: args[0] is the object going, as a NameObj. */
-static int32_t refs_gone(LumaCall* call, void* user) {
-    (void)user;
-    const char* o = (const char*)call->args[0];
-    refs_forget(o, o + 1);
-    return 0;
-}
-
-/* NebulaArena::free(void *pData), a method: args[0] the arena, args[1] where pData is. */
-static int32_t refs_freed(LumaCall* call, void* user) {
-    (void)user;
-    const char* o = *(const char* const*)call->args[1];
-    if (o != 0) refs_forget(o, o + 1);
-    return 0;
-}
-
-/* lumacore::released(const void *pStart, const void *pEnd): an arena's addresses, its objects about to go. A
-   parameter n is args[n] from 1 (args[0] is `this`, none for a free function), pointing at the value. */
-static int32_t refs_released(LumaCall* call, void* user) {
-    (void)user;
-    refs_forget(*(const void* const*)call->args[1], *(const void* const*)call->args[2]);
-    return 0;
-}
+/* A handle is the kernel's weak reference (LumaCore.weak and weak_get, N-4003): one table for every mod, emptied by
+   the game itself as objects go, so a mod holding handles adds no hook and keeps no table of its own (M-132). */
 
 int32_t lumart_ref_make(lumart_ref* out, const void* view, int32_t nameobj, const char* file, uint32_t line) {
     out->slot = 0;
     out->generation = 0;
-    const void* o = view != 0 ? luma_rt_core->as_class(luma_rt_self, view, nameobj) : 0;
-    if (o == 0) return 0;
-    const int game = luma_rt_core->game_thread() != 0;
-    const int taken = refs_take(game);
-    int32_t st = 0;
-    if (refs_hash_cap != 0) {
-        const uint32_t s = *refs_cell(o);
-        if (s != 0) {
-            out->slot = s;
-            out->generation = refs[s].generation;
-            refs_give(taken);
-            return 0;
-        }
+    if (view == 0) return 0;
+    const uint64_t h = luma_rt_core->weak(luma_rt_self, view);
+    if (h == 0) {
+        /* No handle for an object that is no NameObj: the empty one. For a NameObj, the kernel had no memory (it said
+           so in the log). */
+        return luma_rt_core->as_class(luma_rt_self, view, nameobj) != 0 ? lumart_out_of_memory(file, line, sizeof(lumart_ref)) : 0;
     }
-    if (!refs_hooked) {
-        const uint32_t bad = refs_hook();
-        if (bad != 0) {
-            /* No watch, no handle: one that could not be emptied would hand out freed memory. The rows hooked so
-               far come out after the lock is given back, as on every other path. */
-            refs_give(taken);
-            refs_unhook(bad - 1);
-            const char* args[1] = {refs_watches[bad - 1].name};
-            return lumart_raise(file, line, 920, 1, args);
-        }
-        refs_hooked = 1;
-    }
-    if ((refs_live + 1) * 2 > refs_hash_cap && refs_hash_grow(file, line)) {
-        st = 1;
-        goto done;
-    }
-    uint32_t s = refs_free;
-    if (s != 0) {
-        refs_free = refs[s].next_free;
-    } else {
-        if (refs_used == refs_cap) {
-            const uint32_t cap = refs_cap != 0 ? refs_cap * 2 : 16;
-            ref_slot* n = (ref_slot*)lumart_alloc((uint64_t)cap * sizeof(ref_slot));
-            if (n == 0) {
-                st = lumart_out_of_memory(file, line, (uint64_t)cap * sizeof(ref_slot));
-                goto done;
-            }
-            __builtin_memset(n, 0, (uint64_t)cap * sizeof(ref_slot));
-            if (refs != 0) {
-                __builtin_memcpy(n, refs, (uint64_t)refs_used * sizeof(ref_slot));
-                lumart_free(refs, (uint64_t)refs_cap * sizeof(ref_slot));
-            }
-            refs = n;
-            refs_cap = cap;
-            if (refs_used == 0) refs_used = 1;
-        }
-        s = refs_used++;
-    }
-    refs[s].object = o;
-    if (++refs[s].generation == 0) refs[s].generation = 1;
-    *refs_cell(o) = s;
-    refs_live++;
-    out->slot = s;
-    out->generation = refs[s].generation;
-done:
-    refs_give(taken);
-    if (game && taken) refs_unhook_if_empty();
-    return st;
+    out->slot = (uint32_t)h;
+    out->generation = (uint32_t)(h >> 32);
+    return 0;
 }
 
 void* lumart_ref_get(lumart_ref r, int32_t cls) {
     if (r.slot == 0) return 0;
-    const int taken = refs_take(luma_rt_core->game_thread() != 0);
-    const void* o = r.slot < refs_used && refs[r.slot].generation == r.generation ? refs[r.slot].object : 0;
-    refs_give(taken);
+    const void* o = luma_rt_core->weak_get(((uint64_t)r.generation << 32) | r.slot);
     return o != 0 ? (void*)luma_rt_core->as_class(luma_rt_self, o, cls) : 0;
-}
-
-void lumart_refs_release(const void* lo, const void* hi) {
-    refs_forget(lo, hi);
 }
 
 int32_t lumart_index_error(int64_t i, uint64_t len, const char* file, uint32_t line) {
@@ -3986,13 +3740,6 @@ void lumart_end(void) {
     if (keep_table != 0) lumart_free(keep_table, keep_cap * sizeof(lumart_text));
     keep_table = 0;
     keep_used = keep_cap = 0;
-    /* The handle table: the kernel took its watch hooks out before the stop. */
-    if (refs != 0) lumart_free(refs, (uint64_t)refs_cap * sizeof(ref_slot));
-    if (refs_hash != 0) lumart_free(refs_hash, (uint64_t)refs_hash_cap * 4);
-    refs = 0;
-    refs_hash = 0;
-    refs_cap = refs_used = refs_live = refs_free = refs_hash_cap = 0;
-    refs_hooked = 0;
     lumart_scratch_free_all();
     while (pool_pages != 0) {
         char* before = *(char**)pool_pages;

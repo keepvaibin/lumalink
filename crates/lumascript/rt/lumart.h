@@ -455,19 +455,16 @@ static inline float lumart_atan2f(float y, float x) {
 }
 
 /* ---------------------------------------------------------------- handles (docs/modding/language/language.md, section 6.2; docs/modding/language/compiled-form.md, section 7.3) */
-/* A handle: a slot of the mod's table and the slot's generation then. {0, 0} is the empty handle. */
+/* A handle: the kernel's weak reference (LumaCore.weak), its slot and the slot's generation then. {0, 0} is the empty
+   handle. */
 typedef struct lumart_ref {
     uint32_t slot;
     uint32_t generation;
 } lumart_ref;
-/* ref(view): the object's slot, found or added, keyed by its NameObj subobject (as_class with `nameobj`, NameObj's
-   class number). While the table holds a slot, `before` hooks empty the slot of each object that goes (bumping its
-   generation): on lumacore::released, the objects of an arena going (a stage's objects die with their arena, no
-   destructor run: k3-dtor-diag), on NebulaArena::free (one deleted, its NameObj at the block's start), and on
-   NameObj::~NameObj (one destroyed through it), on whichever thread the game runs them (the table has a lock; only
-   the game thread takes the hooks out). The last slot emptied on the game thread takes the hooks out, so a mod
-   holding no handle costs nothing. A watch that cannot be hooked (a row missing, a hook refused) is S0920 naming
-   it, and no handle. S0911 when out of memory. */
+/* ref(view): the kernel's handle for the object's NameObj, the same for every mod while it lives; it reads null from
+   the moment the object goes (its destructor, NebulaArena::free of its block, or its arena's end, on whichever thread),
+   with no hook of the mod's. The empty handle for null or an object that is no NameObj (`nameobj`, NameObj's class
+   number, tells which). S0911 when the kernel has no memory for it. */
 int32_t lumart_ref_make(lumart_ref* out, const void* view, int32_t nameobj, const char* file, uint32_t line);
 /* Plain game records by value: the script's copy is a counted block of the record's size-row bytes, shared
    until written, as bytes are. `size` is the size row (LUMA_SIZE). */
@@ -478,11 +475,10 @@ int32_t lumart_record_copy(lumart_bytes* out, const void* at, int32_t size, cons
 /* The bytes of copy *b, at least `size` (a copy with none yet is made zeroed); `own`: made this variable's own first
    (a write). Null: out of memory (S0911 reported). */
 uint8_t* lumart_record_at(lumart_bytes* b, int32_t size, uint8_t own, const char* file, uint32_t line);
-/* The object as class `cls` (a view), or null when the handle is empty. Safe on the game thread only: the slot is
-   read under the lock, but another thread's free may follow it, as with any view a script holds. */
+/* The object as class `cls` (a view), or null when the handle is empty or the object went. Safe on the game thread
+   only: the kernel reads the slot under its lock, but another thread's free may follow, as with any view a script
+   holds. */
 void* lumart_ref_get(lumart_ref r, int32_t cls);
-/* The kernel's arena release (docs/modding/language/compiled-form.md): every handle to an object in [lo, hi) emptied. */
-void lumart_refs_release(const void* lo, const void* hi);
 static inline uint8_t lumart_ref_eq(lumart_ref a, lumart_ref b) {
     return (uint8_t)(a.slot == b.slot && a.generation == b.generation);
 }
