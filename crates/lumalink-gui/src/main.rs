@@ -910,4 +910,33 @@ mod tests {
         }
         assert!(s.shows(&say!("LumaLink.Window.Drop")), "{:?}", s.words());
     }
+
+    /// N-4061: the window's new mod is made in one folder of the place chosen, whatever its name: a name with characters
+    /// no system's file names take (a colon, a slash), dots or spaces at its end, or a Windows device's name. Before, the
+    /// folder was the name as typed: "Galaxy: Remix" failed with the system's words, "A/B" made two folders.
+    #[test]
+    fn a_new_mods_folder_is_one_folder_whatever_its_name() {
+        let cases = [
+            ("Moon jump", "Moon jump"),
+            ("Galaxy: Remix", "Galaxy Remix"),
+            (r"A/B\C", "A B C"),
+            ("../up", ".. up"),
+            ("What?  *Really*", "What Really"),
+            ("Ends in dots...", "Ends in dots"),
+            ("con", "con mod"),
+            ("Com1.galaxy", "Com1.galaxy mod"),
+            ("COM10", "COM10"),
+            ("..", "mod"),
+            ("\t", "mod"),
+            ("スーパーマリオ", "スーパーマリオ"),
+        ];
+        for (name, folder) in cases {
+            assert_eq!(screen::folder_name(name), folder, "{name:?}");
+            let place = tempfile::tempdir().unwrap();
+            let made = place.path().join(screen::folder_name(name));
+            std::fs::create_dir(&made).unwrap_or_else(|e| panic!("{name:?}: {e}"));
+            assert_eq!(made.parent(), Some(place.path()), "{name:?}");
+            assert_eq!(std::fs::read_dir(place.path()).unwrap().count(), 1, "{name:?}");
+        }
+    }
 }

@@ -1109,7 +1109,26 @@ fn stem_of(path: &Path) -> String {
 
 /// `place`/`name`, or `name 2`, `name 3`... when that is taken.
 fn free_folder(place: &Path, name: &str) -> PathBuf {
-    (1..1000).map(|n| place.join(if n == 1 { name.to_string() } else { format!("{name} {n}") })).find(|f| !f.exists()).unwrap_or_else(|| place.join(name))
+    let name = folder_name(name);
+    (1..1000).map(|n| place.join(if n == 1 { name.clone() } else { format!("{name} {n}") })).find(|f| !f.exists()).unwrap_or_else(|| place.join(&name))
+}
+
+/// The name of a folder made for a mod named `name`, one folder in `place` on every system (N-4061): each character no
+/// system's file names take (`<>:"/\|?*` and control characters) made a space, runs of spaces made one, the spaces and
+/// dots at its end left off (Windows drops them), and a name Windows keeps for a device (CON, NUL, COM1...) given
+/// ` mod`; `mod` when nothing is left.
+pub(crate) fn folder_name(name: &str) -> String {
+    let spaced: String = name.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { ' ' } else { c }).collect();
+    let name = spaced.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name = name.trim_end_matches(['.', ' ']).to_string();
+    let device = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    let reserved = matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (device.len() == 4 && (device.starts_with("COM") || device.starts_with("LPT")) && device.as_bytes()[3].is_ascii_digit());
+    match name.as_str() {
+        "" => "mod".to_string(),
+        _ if reserved => format!("{name} mod"),
+        _ => name,
+    }
 }
 
 /// Where to save a .luma made from `from`: asked in the system's dialog, beside it and named after it to start with;
