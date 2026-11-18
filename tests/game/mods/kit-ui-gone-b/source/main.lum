@@ -1,0 +1,27 @@
+// kit-ui-gone's watcher (M-051): "tick" = 1, 2, ... every 20 frames from EggStarGalaxy's start, for the test's steps;
+// at tick 40, after the keyboard closed, LumaKit opened and closed a panel for it: "kit_ok" (LumaKit still on).
+use kit.ui.kit as uk
+
+var frames: u32 = 0
+var on_stage = false
+
+on stage "EggStarGalaxy" {
+    on_stage = true
+}
+
+on frame {
+    if not on_stage {
+        return
+    }
+    frames += 1
+    if frames % 20 == 0 and frames / 20 <= 40 {
+        let n = frames / 20
+        log fact "tick" n
+        if n == 40 {
+            let o = uk.open(uk.Panel { title: "Watch", pauses: false, widgets: [uk.Widget.Label("on")] })
+            let was = uk.alive(o)
+            uk.close(o)
+            log fact "kit_ok" was and not uk.alive(o)
+        }
+    }
+}

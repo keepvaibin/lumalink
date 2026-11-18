@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-ui-gone-b",
+  "version": "1.0.0",
+  "name": "kit-ui-gone-b",
+  "summary": "LumaKit ui.kit conformance: kit-ui-gone's watcher: frames counted, LumaKit used after the keyboard closes.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

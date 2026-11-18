@@ -71,6 +71,10 @@ var drawing: bool = false
 var held: u32 = 0
 var editing_id: u32 = 0
 var editing_widget: i32 = -1
+// That text field's on_done, held here and not by the edit task: the field's mod may stop while the keyboard is open,
+// and what it made (a closure is a block of its memory, let go by its code) must be let go while it stops, not when
+// the keyboard closes after its code and memory are gone (M-051). Empty or one.
+var editing_done: list<fn(text)> = []
 // A callback taken this frame, run at the next frame's start.
 var queued: list<fn()> = []
 
@@ -138,6 +142,7 @@ fn remove_at(i: i32) {
     if editing_id == ids[i] {
         editing_id = 0
         editing_widget = -1
+        editing_done = []
     }
     ids.remove(i)
     owners.remove(i)
@@ -297,15 +302,17 @@ fn next_colour(c: color, step: int) -> color {
 }
 
 // A text field's platform keyboard, its text given to on_done when the player confirms.
-task edit(id: u32, widget: i32, max_chars: u32, done: fn(text)) {
-    editing_id = id
-    editing_widget = widget
+task edit(id: u32, widget: i32, max_chars: u32) {
     let got = wait input.text_request(input.TextRequest { kind: 0, max_length: max_chars })
     if editing_id == id {
+        let done = editing_done
         editing_id = 0
         editing_widget = -1
+        editing_done = []
         if let s = got {
-            done(s)
+            for f in done {
+                f(s)
+            }
         }
     }
 }
@@ -411,7 +418,10 @@ on frame {
         }
         Widget.TextField(label, max_chars, on_done) => {
             if a {
-                start edit(ids[i], b.widget, max_chars, on_done)
+                editing_id = ids[i]
+                editing_widget = b.widget
+                editing_done = [on_done]
+                start edit(ids[i], b.widget, max_chars)
             }
         }
         Widget.Wheel(entries, on_choose) => {

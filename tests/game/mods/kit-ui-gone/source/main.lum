@@ -1,0 +1,47 @@
+// M-051 (kit.ui.kit; lumakit-modules.md, ui.kit). Once EggStarGalaxy is ready, the mod opens a panel of one text field
+// whose on_done is a closure with a capture (a block of this mod's, freed with its memory), writes "open", then the
+// fact "cue" = 1, 2, ... every 20 frames. The test opens the field's keyboard (A), takes the mod out with it open, waits
+// past the take-out's grace (the mod's library and memory gone) and confirms a text: LumaKit must have let the closure
+// go while the mod stopped, not when the keyboard closes.
+use kit.ui.kit as uk
+use svc.time
+
+var since: u32 = 0
+var staged = false
+var panel = uk.Open { id: 0 }
+
+task settle() {
+    wait 300 frames
+    staged = true
+}
+
+on stage "EggStarGalaxy" {
+    start settle()
+}
+
+fn open_field() {
+    let mark = since + 7
+    panel = uk.open(uk.Panel { title: "Gone", pauses: false, widgets: [
+        uk.Widget.TextField("Name", 16, fn(s: text) {
+            log fact "name" s
+            log fact "mark" mark
+        })] })
+    log fact "open" uk.alive(panel)
+}
+
+on frame {
+    if not staged {
+        return
+    }
+    let s = time.now().state
+    if s != time.State.Play and s != time.State.Menu {
+        return
+    }
+    if since == 0 {
+        open_field()
+    }
+    since += 1
+    if since % 20 == 0 and since / 20 <= 5 {
+        log fact "cue" since / 20
+    }
+}

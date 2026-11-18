@@ -1,0 +1,19 @@
+{
+  "format": "1.0",
+  "id": "kit-ui-gone",
+  "version": "1.0.0",
+  "name": "kit-ui-gone",
+  "summary": "LumaKit ui.kit conformance: taken out while its text field's keyboard is open.",
+  "authors": [
+    "keepvaibin"
+  ],
+  "game": {
+    "id": "RMG"
+  },
+  "needs": [
+    {
+      "id": "lumakit",
+      "version": ">=1.0.0"
+    }
+  ]
+}

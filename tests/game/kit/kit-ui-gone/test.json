@@ -1,0 +1,88 @@
+{
+  "harness": 1,
+  "name": "kit-ui-gone",
+  "about": "M-051: kit-ui-gone opens a panel of one text field whose on_done is a closure with a capture; A opens the field's keyboard, the mod is taken out with it open, and 'Luma' is typed and confirmed hundreds of frames later, after the take-out's grace freed the mod's code and memory. LumaKit let the closure go while the mod stopped: it is not called, nothing is dropped into the freed mod, LumaKit stays on (kit-ui-gone-b opens a panel through it at tick 40)",
+  "proves": [
+    "script.build",
+    "kit.ui.kit"
+  ],
+  "mods": [
+    "../../mods/lumakit",
+    "../../mods/kit-ui-gone",
+    "../../mods/kit-ui-gone-b"
+  ],
+  "stage": {
+    "name": "EggStarGalaxy",
+    "scenario": 1
+  },
+  "steps": [
+    {
+      "after": {
+        "fact": "mod.kit-ui-gone.cue",
+        "is": 1
+      },
+      "timeout": 2400,
+      "hold": [
+        "A"
+      ],
+      "frames": 4
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui-gone.cue",
+        "is": 3
+      },
+      "timeout": 2400,
+      "take_out": "kit-ui-gone"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui-gone-b.tick",
+        "is": 30
+      },
+      "timeout": 2400,
+      "text": "Luma"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui-gone-b.tick",
+        "is": 31
+      },
+      "timeout": 2400,
+      "key": "enter"
+    },
+    {
+      "after": {
+        "fact": "mod.kit-ui-gone-b.kit_ok",
+        "exists": true
+      },
+      "timeout": 2400,
+      "end": true
+    }
+  ],
+  "expect": [
+    {
+      "fact": "mod.kit-ui-gone.open",
+      "is": true
+    },
+    {
+      "fact": "takeout.kit-ui-gone",
+      "exists": true
+    },
+    {
+      "fact": "mod.kit-ui-gone.name",
+      "absent": true
+    },
+    {
+      "fact": "takeout.lumakit",
+      "absent": true
+    },
+    {
+      "fact": "mod.kit-ui-gone-b.kit_ok",
+      "is": true
+    },
+    {
+      "no_log": "GUARD"
+    }
+  ]
+}
