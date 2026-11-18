@@ -624,6 +624,25 @@ pub struct Character {
     pub report: Report,
 }
 
+/// Where `add character`'s report goes: beside the mod folder, `<folder's name>-<character>-character.txt`, never in
+/// it (a .luma holds no loose files at its top). The folder is made absolute first, so `.` or `..` name the real folder
+/// and its real parent.
+fn character_report_file(folder: &Path, name: &str) -> PathBuf {
+    let whole = std::path::absolute(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let whole: PathBuf = whole.components().fold(PathBuf::new(), |mut at, part| {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                at.pop();
+            }
+            other => at.push(other),
+        }
+        at
+    });
+    let folder_name = whole.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod".into());
+    parent_of(&whole).join(format!("{folder_name}-{}-character.txt", name.to_ascii_lowercase()))
+}
+
 /// The rigged model rebound to the skeleton of the game's model `replaces` (mario, luigi, or a model's
 /// name). Without `as_asset` it is that model's stand-in, written at its place in the mod's base layer, and the game's
 /// own hands and face of that character are hidden. With `as_asset` it is a new model of the mod,
@@ -674,8 +693,7 @@ pub fn add_character(model: &Path, folder: &Path, replaces: &str, as_asset: Opti
         std::fs::write(&entry, character::HIDE_ENTRY).with_context(|| say!("LumaLink.CannotWrite", path = entry.display()))?;
         lines.push(say!("LumaLink.Character.Hidden", path = part_path));
     }
-    let folder_name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod".into());
-    let report_file = parent_of(folder).join(format!("{folder_name}-{}-character.txt", name.to_ascii_lowercase()));
+    let report_file = character_report_file(folder, &name);
     std::fs::write(&report_file, lines.join("\n") + "\n").with_context(|| say!("LumaLink.CannotWrite", path = report_file.display()))?;
     let checked = validate(folder, check)?;
     Ok(Character { file: out, report_file, lines, report: checked })
@@ -1181,6 +1199,18 @@ fn test_name(test: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The character report goes beside the mod folder however the folder is named, `.` and `..` too: never into it.
+    #[test]
+    fn character_report_is_beside_the_folder() {
+        let here = std::env::current_dir().unwrap();
+        let parent = here.parent().unwrap().to_path_buf();
+        let name = here.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(character_report_file(Path::new("."), "Mario"), parent.join(format!("{name}-mario-character.txt")));
+        assert_eq!(character_report_file(&here, "Luigi"), parent.join(format!("{name}-luigi-character.txt")));
+        let child = here.join("robo");
+        assert_eq!(character_report_file(&child.join("..").join("robo"), "Mario"), here.join("robo-mario-character.txt"));
+    }
 
     /// With no mod folder given, a mod's needs are found beside it, so a library's schemas reach the check.
     #[test]

@@ -14,10 +14,13 @@
 // stopped mod's away.
 // Mirror: the stick's x flipped (MR::getPlayerStickX), and the 3-D picture flipped by LumaKit's post program kit_mirror
 // at draw.post's WORLD stage (the HUD stays readable).
-// `mirror`'s parameter is `enabled` (`on` is a keyword). The handle's functions are also module functions (`end`,
+// `mirror`'s and `look`'s parameter is `enabled` (`on` is a keyword). The handle's functions are also module functions (`end`,
 // `alive`).
 // The free camera turns with the stick and with the player's look (input.look_mode while it is on top: the mouse held by
 // the window, the pointer stick, a gyro, a finger), so it can be flown with a mouse.
+// look(c) turns a rig's view the same way: the eye stays where the rig puts it and the player turns the view about the
+// actor's up (gravity's, on a planet's underside too), starting along the rig's own look. The game moves the player by
+// the stick along the main camera's view, so an eye rig with look() is a first person that can be played.
 
 use svc.draw.view
 use svc.draw.post
@@ -43,6 +46,8 @@ var control_speeds: list<f32> = []
 // player now (control_on_player), so a new scene's player takes it over.
 var control_actors: list<ref<LiveActor>?> = []
 var control_on_player: list<bool> = []
+// Whether the player turns the control's view (look).
+var control_looks: list<bool> = []
 var next_control: u64 = 1
 // The last eye the main camera was given (a rig whose actor died keeps it); whether draw.view's main_eye holds one.
 var last_eye: view.Eye? = none
@@ -52,8 +57,11 @@ var free_eye: vec3 = vec3(0.0, 0.0, 0.0)
 var free_yaw: f32 = 0.0
 var free_pitch: f32 = 0.0
 var free_started: bool = false
-// Whether the free camera holds the player's look (input.look_mode) now.
+// Whether the kit holds the player's look (input.look_mode) now: a free camera or a looking control on top.
 var free_looking: bool = false
+// The looking control's view (world axes, unit) and the control it is for; none until its first frame.
+var look_dir: vec3? = none
+var look_control: u64 = 0
 // The player actor whose body a first-person control hid (his shadow stays). The game makes a new actor for a new
 // scene, drawn whole: keep_hidden() hides that one too.
 var hidden_player: ref<MarioActor>? = none
@@ -164,7 +172,16 @@ fn settle() {
     }
     var free_on_top = false
     if controls.len() > 0 {
-        free_on_top = control_rigs[controls.len() - 1] == none
+        let top = controls.len() - 1
+        if let r = control_rigs[top] {
+            free_on_top = control_looks[top] and r.rig != view.Rig.Fixed
+        } else {
+            free_on_top = true
+        }
+    }
+    if free_on_top and not free_looking {
+        input.look_mode(input.Pad.Main, 1, 1.0)
+        free_looking = true
     }
     if free_looking and not free_on_top {
         input.look_mode(input.Pad.Main, 0, 1.0)
@@ -194,6 +211,13 @@ fn place(shaking: vec3) {
                 let rig = with_fov(rig_on(r, a))
                 if let e = view.eye_of(rig) {
                     last_eye = e
+                    if control_looks[top] {
+                        let turned = turn_look(controls[top], a, e)
+                        last_eye = view.Eye { eye: e.eye, at: e.eye + turned * 100.0, up: up_of(a, e), fov_y: e.fov_y }
+                        view.main_rig(rig, view.Look { look: turned, up: up_of(a, e), ahead: 0.0 })
+                        main_held = true
+                        return
+                    }
                 }
                 view.main_rig(rig, none)
                 main_held = true
@@ -226,6 +250,49 @@ fn show(e: view.Eye) {
     main_held = true
 }
 
+// The actor's up: against its gravity, else the rig's own up.
+fn up_of(a: LiveActor, e: view.Eye) -> vec3 {
+    let g = a.mGravity
+    if length(g) > 0.5 {
+        return normal(g * -1.0)
+    }
+    return normal(e.up)
+}
+
+// The looking control's view this frame: kept level with the actor's up as gravity turns, turned by the player's look
+// (right turns right, up looks up), its height held within 85 degrees of level. It starts along the rig's look.
+fn turn_look(n: u64, a: LiveActor, e: view.Eye) -> vec3 {
+    let up = up_of(a, e)
+    var dir = normal(e.at - e.eye)
+    if look_control == n {
+        if let d = look_dir {
+            dir = d
+        }
+    }
+    // Level and height against the up of now.
+    var level = dir - up * dot(dir, up)
+    if length(level) < 0.001 {
+        level = normal(e.at - e.eye) - up * dot(normal(e.at - e.eye), up)
+    }
+    if length(level) < 0.001 {
+        level = cross(up, vec3(1.0, 0.0, 0.0))
+    }
+    level = normal(level)
+    var height = atan2(dot(dir, up), length(dir - up * dot(dir, up)))
+    let turn = input.look(input.Pad.Main)
+    if turn.on != 0 {
+        // About the up: a positive angle turns toward the up's left (up x level), so right is the negative.
+        let side = cross(up, level)
+        let a_turn = -turn.yaw
+        level = normal(level * cos(a_turn) + side * sin(a_turn))
+        height = clamp(height + turn.pitch, -85.0 * to_radians, 85.0 * to_radians)
+    }
+    dir = normal(level * cos(height) + up * sin(height))
+    look_dir = dir
+    look_control = n
+    return dir
+}
+
 fn add_control(rig: view.Camera?, speed: f32) -> Control {
     let n = next_control
     next_control += 1
@@ -245,6 +312,7 @@ fn add_control(rig: view.Camera?, speed: f32) -> Control {
     control_speeds.push(speed)
     control_actors.push(held)
     control_on_player.push(on_player)
+    control_looks.push(false)
     if rig == none {
         free_started = false
     }
@@ -259,6 +327,7 @@ fn remove_at(i: int) {
     control_speeds.remove(i)
     control_actors.remove(i)
     control_on_player.remove(i)
+    control_looks.remove(i)
 }
 
 // The main camera follows the rig until end(); the newest control holds.
@@ -293,6 +362,18 @@ pub fn end(c: Control) {
         remove_at(i)
         settle()
     }
+}
+
+// The player turns the control's view (`enabled`), or the rig's own look again (false): with the mouse held by the window, the
+// pointer stick, a gyro or a finger (input.look_mode while the control is on top). A free camera turns with the look
+// already; a fixed rig (aim) is not turned.
+pub fn look(c: Control, enabled: bool = true) {
+    guard let i = index_of(c.n) else { return }
+    control_looks[i] = enabled
+    if look_control == c.n {
+        look_dir = none
+    }
+    settle()
 }
 
 pub fn alive(c: Control) -> bool {
@@ -460,7 +541,13 @@ fn given_eye() -> view.Eye? {
         return view.eye_of(r) ?? last_eye
     }
     guard let a = actor_of(top) else { return last_eye }
-    return view.eye_of(rig_on(r, a)) ?? last_eye
+    guard let e = view.eye_of(rig_on(r, a)) else { return last_eye }
+    if control_looks[top] and look_control == controls[top] {
+        if let d = look_dir {
+            return view.Eye { eye: e.eye, at: e.eye + d * 100.0, up: up_of(a, e), fov_y: e.fov_y }
+        }
+    }
+    return e
 }
 
 // After the game worked out its own pose (once a frame): the top control's camera as the main camera, the shake on

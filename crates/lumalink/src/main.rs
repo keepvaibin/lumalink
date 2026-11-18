@@ -1091,7 +1091,7 @@ fn list(what: &str, game: Option<&Path>, self_description: Option<&Path>, filter
         }
         "models" => {
             for m in inspect::list_models(game, filter)? {
-                println!("{}", say!("LumaLink.List.Model", path = m.path, count = m.animations.len()));
+                inspect::model_lines(&m, filter.is_some()).iter().for_each(|line| println!("{line}"));
             }
         }
         "sounds" => {

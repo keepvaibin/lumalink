@@ -283,6 +283,20 @@ pub fn list_models(store: &Path, filter: Option<&str>) -> Result<Vec<ModelListin
     Ok(found)
 }
 
+/// The lines `lumalink list models` prints for a model: its path and how many animations are beside it; with `detail`
+/// (a narrowed listing) what a mod reaches by name too: the joints (a camera's eye, an attached model, a character's
+/// look), the materials, the textures and the animations.
+pub fn model_lines(m: &ModelListing, detail: bool) -> Vec<String> {
+    let mut lines = vec![say!("LumaLink.List.Model", path = m.path, count = m.animations.len())];
+    if detail {
+        lines.push(format!("  {}", say!("LumaLink.List.ModelJoints", names = m.names.joints.join(", "))));
+        lines.push(format!("  {}", say!("LumaLink.List.ModelMaterials", names = m.names.materials.join(", "))));
+        lines.push(format!("  {}", say!("LumaLink.List.ModelTextures", names = m.names.textures.join(", "))));
+        lines.push(format!("  {}", say!("LumaLink.List.ModelAnimations", names = m.animations.join(", "))));
+    }
+    lines
+}
+
 /// A language's messages of an imported game (`UsEnglish`, `EuFrench`...): (id, text with the game's tags in brackets,
 /// whether that text reads back as the game's own units).
 pub fn list_messages(store: &Path, language: &str) -> Result<Vec<(String, String, bool)>> {
@@ -445,6 +459,28 @@ pub const STAGE_RULES: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_narrowed_model_listing_names_its_joints_materials_textures_and_animations() {
+        let m = ModelListing {
+            path: "ObjectData/Spikeroll.arc/Spikeroll.bdl".to_string(),
+            names: nebula_import::cook::model_write::ModelNames {
+                joints: vec!["Root".to_string(), "EyePosition".to_string()],
+                materials: vec!["Body_v".to_string()],
+                textures: vec!["SpikerollBody".to_string()],
+            },
+            animations: vec!["Roll.bck".to_string(), "Wait.bck".to_string()],
+        };
+        let short = model_lines(&m, false);
+        assert_eq!(short.len(), 1);
+        assert!(short[0].contains("Spikeroll.bdl") && short[0].contains('2'));
+        let long = model_lines(&m, true);
+        assert_eq!(long.len(), 5);
+        assert!(long[1].contains("Root, EyePosition"));
+        assert!(long[2].contains("Body_v"));
+        assert!(long[3].contains("SpikerollBody"));
+        assert!(long[4].contains("Roll.bck, Wait.bck"));
+    }
 
     #[test]
     fn column_names_come_from_the_self_description() {
