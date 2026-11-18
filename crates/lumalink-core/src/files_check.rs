@@ -146,15 +146,17 @@ fn cooked(result: Result<usize>) -> Result<Vec<Finding>> {
     }
 }
 
-/// A folder's files, relative and with `/` between parts, in name order.
+/// A folder's files, relative and with `/` between parts, in name order. The walk goes into folders, never through a
+/// link to one (N-4070: a link to a folder above, a modder's shortcut, was walked until the path was too long).
 fn walkdir(root: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(folder) = stack.pop() {
-        for entry in std::fs::read_dir(&folder)? {
-            let path = entry?.path();
-            if path.is_dir() {
+        for (path, is_folder) in crate::jobs::entries_of(&folder)? {
+            if is_folder {
                 stack.push(path);
+            } else if path.is_dir() {
+                // A link to a folder: not a file of the mod's either.
             } else if let Ok(relative) = path.strip_prefix(root) {
                 out.push(relative.to_string_lossy().replace('\\', "/"));
             }
@@ -206,6 +208,23 @@ mod tests {
         );
         assert!(luma_validate::reason(&found[3], "UsEnglish").contains("archive"), "{}", luma_validate::reason(&found[3], "UsEnglish"));
         assert!(luma_validate::reason(&found[2], "UsEnglish").contains("empty"), "{}", luma_validate::reason(&found[2], "UsEnglish"));
+    }
+
+    /// N-4070: the check walks a mod folder's folders, never through a link to one: a link to the mod's own folder
+    /// inside it is passed over. Before, the walk went round it until the path was too long.
+    #[test]
+    fn the_check_passes_over_links_to_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = dir.path().join("m");
+        std::fs::create_dir_all(m.join("layers/base/files/ObjectData")).unwrap();
+        std::fs::write(m.join("luma.json"), br#"{"layers":[{"name":"base"}]}"#).unwrap();
+        std::fs::write(m.join("layers/base/files/ObjectData/Walk.anim.gltf"), br#"{"asset":{"version":"2.0"}}"#).unwrap();
+        crate::files::link_folder(&m, &m.join("layers/base/files/up"));
+        let store = dir.path().join("game.pak");
+        std::fs::write(&store, b"not read").unwrap();
+        let found = findings(&m, Some(&store), Some("walk")).unwrap();
+        let files: Vec<&str> = found.iter().map(|f| f.file.as_str()).collect();
+        assert_eq!(files, ["layers/base/files/ObjectData/Walk.anim.gltf"], "{found:?}");
     }
 
     /// A 16-bit mono 48 kHz WAV of `frames` silent frames.

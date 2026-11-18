@@ -61,6 +61,22 @@ pub fn write_whole(file: &Path, bytes: &[u8]) -> io::Result<()> {
     part.finish(file)
 }
 
+/// Tests: a link at `at` to the folder `to`: a symbolic link, or on Windows without the right to make one, a junction,
+/// which needs none. Every system the tests run on makes one, so a test never passes by checking nothing (N-4070: the
+/// junction was asked for with `/` in its path, refused, and the tests of links said "skipped" on Windows).
+#[cfg(test)]
+pub(crate) fn link_folder(to: &Path, at: &Path) {
+    // Each part joined with the system's own separator: `mklink` takes no `/`.
+    let (to, at): (PathBuf, PathBuf) = (to.components().collect(), at.components().collect());
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(&to, &at).is_ok()
+        || std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(&at).arg(&to).output().is_ok_and(|o| o.status.success());
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(&to, &at).is_ok();
+    assert!(made, "no link to {} could be made at {}", to.display(), at.display());
+    assert!(at.is_dir() && std::fs::symlink_metadata(&at).is_ok_and(|m| !m.file_type().is_dir()), "{} is no link to a folder", at.display());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

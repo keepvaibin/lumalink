@@ -1089,7 +1089,7 @@ fn result_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// A folder's entries in path order, each with whether a walk goes into it: a folder, never a link to one (N-4057: a
 /// link to a folder above would never end, as [`has_code`] and the build already walk).
-fn entries_of(dir: &Path) -> std::io::Result<Vec<(PathBuf, bool)>> {
+pub(crate) fn entries_of(dir: &Path) -> std::io::Result<Vec<(PathBuf, bool)>> {
     let mut here = Vec::new();
     for e in std::fs::read_dir(dir)? {
         let e = e?;
@@ -1407,15 +1407,24 @@ mod tests {
         assert!(e.to_string().contains("tests"), "{e}");
     }
 
+    /// The Python 3 on the path that runs the stand-in runners: `python3`, else `python` (macOS and Linux name it
+    /// `python3` alone). None is a failure, never a test passed by checking nothing (N-4071: with no `python` the
+    /// runner's tests said "skipped" and passed).
+    fn python3() -> PathBuf {
+        for name in ["python3", "python"] {
+            let said = std::process::Command::new(name).arg("--version").output();
+            if said.is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&[o.stdout, o.stderr].concat()).starts_with("Python 3")) {
+                return name.into();
+            }
+        }
+        panic!("no Python 3 on the path (python3 or python) to run the stand-in runner");
+    }
+
     /// A mod's tests run as one suite: one runner call with every test folder in path order in one work folder, so the
     /// second test, which continues from the first, finds it passed. The runner here stands in for the harness's: it
     /// passes a test unless its continue_from names one that did not pass before it in the same call.
     #[test]
     fn a_mods_tests_run_as_one_suite_so_one_can_continue_from_another() {
-        if std::process::Command::new("python").arg("--version").output().is_err() {
-            eprintln!("skipped: no python on the path to run the stand-in runner");
-            return;
-        }
         let dir = tempfile::tempdir().unwrap();
         let m = dir.path().join("m");
         for (t, text) in [("tests/a-first", r#"{"name": "first"}"#), ("tests/b-second", r#"{"name": "second", "continue_from": "first"}"#)] {
@@ -1453,7 +1462,7 @@ lock.unlink()
         .unwrap();
         let work = dir.path().join("work");
         std::fs::create_dir_all(&work).unwrap();
-        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: "python".into(), work: work.clone(), lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
+        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: python3(), work: work.clone(), lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
         let mut heard = Vec::new();
         let runs = test(&m, &setup, &|_| Ok(()), &mut |r| heard.push(r.test.clone())).unwrap();
         assert_eq!(heard.len(), 2);
@@ -1476,10 +1485,6 @@ lock.unlink()
     /// Direct3D 12 and an unreadable Vulkan result; for test "fine", a pass.
     #[test]
     fn a_test_passes_only_when_every_renderer_asked_left_a_pass() {
-        if std::process::Command::new("python").arg("--version").output().is_err() {
-            eprintln!("skipped: no python on the path to run the stand-in runner");
-            return;
-        }
         let dir = tempfile::tempdir().unwrap();
         let m = dir.path().join("m");
         for (t, text) in [
@@ -1512,7 +1517,7 @@ put("fine", "d3d12", ok("fine", "d3d12"))
         .unwrap();
         let work = dir.path().join("work");
         std::fs::create_dir_all(&work).unwrap();
-        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: "python".into(), work, lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
+        let setup = TestSetup { bin: dir.path().into(), pak: None, runner, python: python3(), work, lock: dir.path().join("run.lock"), renderer: None, extension: None, half: None };
         let runs = test(&m, &setup, &|_| Ok(()), &mut |_| {}).expect("one unreadable result does not lose every result");
         let verdict: Vec<(String, bool, usize)> =
             runs.iter().map(|r| (r.test.file_name().unwrap().to_string_lossy().into_owned(), r.passed(), r.results.len())).collect();
@@ -1531,7 +1536,7 @@ put("fine", "d3d12", ok("fine", "d3d12"))
     fn a_tests_results_are_its_own() {
         let dir = tempfile::tempdir().unwrap();
         let setup_in = |dir: &Path, runner: PathBuf| TestSetup {
-            bin: dir.into(), pak: None, runner, python: "python".into(), work: dir.join("work"), lock: dir.join("run.lock"),
+            bin: dir.into(), pak: None, runner, python: python3(), work: dir.join("work"), lock: dir.join("run.lock"),
             renderer: None, extension: None, half: None,
         };
         for (a, b) in [("same", "same"), ("Same", "same."), ("x-folder", "")] {
@@ -1546,10 +1551,6 @@ put("fine", "d3d12", ok("fine", "d3d12"))
             let e = test(&m, &setup_in(dir.path(), dir.path().join("none.py")), &|_| Ok(()), &mut |_| {}).err().unwrap();
             let expected = say!("LumaLink.Test.SameName", name = run_name(&m.join("tests").join("x-folder")), first = m.join("tests").join("a").display(), second = m.join("tests").join("x-folder").display());
             assert_eq!(e.to_string(), expected, "{a} {b}");
-        }
-        if std::process::Command::new("python").arg("--version").output().is_err() {
-            eprintln!("skipped: no python on the path to run the stand-in runner");
-            return;
         }
         let m = dir.path().join("m");
         for (t, text) in [("tests/a-up", r#"{"name": ".."}"#), ("tests/b-fine", r#"{"name": "fine"}"#)] {
@@ -1578,20 +1579,6 @@ out.mkdir(parents=True)
         assert_eq!(verdict, [("a-up".to_string(), false, 0), ("b-fine".to_string(), true, 1)], "{}", runs[0].said);
     }
 
-    /// A link to a folder at `at`, pointing to `to`: a symbolic link, or on Windows without the right to make one, a
-    /// junction. False when neither can be made here.
-    fn link_folder(to: &Path, at: &Path) -> bool {
-        #[cfg(windows)]
-        {
-            std::os::windows::fs::symlink_dir(to, at).is_ok()
-                || std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(at).arg(to).output().is_ok_and(|o| o.status.success())
-        }
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(to, at).is_ok()
-        }
-    }
-
     /// N-4057: the walks of format, test and its results go into folders, never through a link to one: a link to the
     /// mod's own folder inside it (a modder's shortcut) is passed over. Before, each walk went round it until the path
     /// was too long or the stack ran out.
@@ -1604,10 +1591,8 @@ out.mkdir(parents=True)
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, text).unwrap();
         }
-        if !(link_folder(&m, &m.join("tests/t/up")) && link_folder(&m, &m.join("x/up"))) {
-            eprintln!("skipped: no link to a folder can be made here");
-            return;
-        }
+        crate::files::link_folder(&m, &m.join("tests/t/up"));
+        crate::files::link_folder(&m, &m.join("x/up"));
         let rel = |found: Vec<PathBuf>| -> Vec<String> { found.iter().map(|p| p.strip_prefix(&m).unwrap().to_string_lossy().replace('\\', "/")).collect() };
         assert_eq!(rel(test_folders(&m).unwrap()), ["tests/t"]);
         assert_eq!(rel(test_mods(&m).unwrap()), ["tests/t/helper"]);
