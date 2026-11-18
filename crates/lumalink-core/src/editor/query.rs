@@ -845,11 +845,15 @@ fn inner_at(item: &Item, inner: Inner) -> Option<Pos> {
 /// The comment lines right above line `line` (from 1) of `text`, without their `//`; else the comment that ends that
 /// line.
 pub fn doc_at(text: &str, line: u32) -> String {
-    let lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
+    doc_in(&Lines::new(text), line)
+}
+
+/// [`doc_at`] from a text's lines found once: in step with the comment, not the text (N-4067).
+pub fn doc_in(lines: &Lines, line: u32) -> String {
     let mut above = Vec::new();
-    let mut i = line as usize;
+    let mut i = line;
     while i >= 2 {
-        let l = lines.get(i - 2).map(|l| l.trim_start()).unwrap_or("");
+        let l = lines.line(i - 1).trim_start();
         let Some(rest) = l.strip_prefix("//") else { break };
         above.push(rest.trim_start_matches('/').strip_prefix(' ').unwrap_or(rest.trim_start_matches('/')).to_string());
         i -= 1;
@@ -858,7 +862,10 @@ pub fn doc_at(text: &str, line: u32) -> String {
         above.reverse();
         return above.join("\n");
     }
-    lines.get(line as usize - 1).and_then(|l| trailing_comment(l)).unwrap_or_default()
+    if line == 0 {
+        return String::new();
+    }
+    trailing_comment(lines.line(line)).unwrap_or_default()
 }
 
 /// The `//` comment that ends a line of code, outside strings and backquotes.

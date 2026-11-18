@@ -281,13 +281,13 @@ impl Analysis {
         let item = |label: &str, kind: Kind, detail: String, doc: String, group: u8| Completion { label: label.to_string(), kind, detail, doc, replace: None, group };
         // The locals in reach: declared before the place, in a scope that holds it.
         let scopes = self.parsed.get(m).map(scope_ranges).unwrap_or_default();
-        let innermost = |p: Pos| scopes.iter().filter(|(s, e)| *s <= p && p <= *e).min_by_key(|(s, e)| (e.line - s.line, e.col.wrapping_sub(s.col)));
         let mut seen = std::collections::BTreeSet::new();
         let mut locals: Vec<&check::Local> = self.checked.locals.iter().filter(|l| l.module == m && l.at < at).collect();
         locals.sort_by_key(|l| std::cmp::Reverse(l.at));
-        for l in locals {
-            let visible = match innermost(l.at) {
-                Some((s, e)) => *s <= at && at <= *e,
+        let inner = innermost_scopes(&scopes, &locals.iter().map(|l| l.at).collect::<Vec<_>>());
+        for (l, inner) in locals.into_iter().zip(inner) {
+            let visible = match inner {
+                Some(i) => scopes[i].0 <= at && at <= scopes[i].1,
                 None => true,
             };
             if visible && seen.insert(l.name.clone()) {
@@ -295,15 +295,16 @@ impl Analysis {
             }
         }
         if let Some(scope) = self.checked.scopes.get(m) {
+            let mut lines = std::collections::HashMap::new();
             for (name, n) in &scope.names {
                 let (kind, detail, doc) = match n {
                     Name::Item { item: i, sort, .. } => {
                         let r = ItemRef { owner: Owner::Mod, module: m, item: *i };
-                        (sort_kind(*sort), self.short_text(r), self.doc_of_item(r))
+                        (sort_kind(*sort), self.short_text(r), self.doc_of_item(r, &mut lines))
                     }
                     Name::Module { target: ModTarget::Module { owner, module }, .. } => (Kind::Module, self.module_label(ModRef { owner: *owner, module: *module }), String::new()),
                     Name::Module { target: ModTarget::Service(s), .. } => (Kind::Module, format!("svc.{s}"), String::new()),
-                    Name::Taken { item: r, .. } => (Kind::Function, self.short_text(*r), self.doc_of_item(*r)),
+                    Name::Taken { item: r, .. } => (Kind::Function, self.short_text(*r), self.doc_of_item(*r, &mut lines)),
                 };
                 out.push(item(name, kind, detail, doc, 1));
             }
@@ -397,11 +398,12 @@ impl Analysis {
                 let their = self.scope_of(r)?;
                 match parts.get(1) {
                     None => {
+                        let mut lines = std::collections::HashMap::new();
                         for (name, n) in &their.names {
                             if let Name::Item { item, sort, public, .. } = n {
                                 if *public || *owner == Owner::Mod {
                                     let ir = r.item(*item);
-                                    out.push(Completion { label: name.clone(), kind: sort_kind(*sort), detail: self.short_text(ir), doc: self.doc_of_item(ir), replace: None, group: 1 });
+                                    out.push(Completion { label: name.clone(), kind: sort_kind(*sort), detail: self.short_text(ir), doc: self.doc_of_item(ir, &mut lines), replace: None, group: 1 });
                                 }
                             }
                         }
@@ -446,29 +448,32 @@ impl Analysis {
 
     fn cases_of(&self, r: ItemRef) -> Vec<Completion> {
         let Some(ItemKind::Enum(e)) = self.item_ast(r).map(|i| &i.kind) else { return Vec::new() };
-        let text = self.module_text_of(r.module_ref()).unwrap_or_default();
+        let lines = self.lines_of(r.module_ref());
         e.cases
             .iter()
             .map(|c| {
                 let fields = c.fields.iter().map(|f| format!("{}: {}", f.name.name, check::type_text(&f.ty))).collect::<Vec<_>>().join(", ");
                 let detail = if fields.is_empty() { String::new() } else if c.braces { format!("{{ {fields} }}") } else { format!("({fields})") };
-                Completion { label: c.name.name.clone(), kind: Kind::Case, detail, doc: super::query::doc_at(&text, c.name.at.line), replace: None, group: 1 }
+                Completion { label: c.name.name.clone(), kind: Kind::Case, detail, doc: super::query::doc_in(&lines, c.name.at.line), replace: None, group: 1 }
             })
             .collect()
     }
 
-    fn module_text_of(&self, r: ModRef) -> Option<String> {
-        match r.owner {
-            Owner::Mod => self.modules.get(r.module).map(|m| m.text.clone()),
-            Owner::Library(l) => self.libraries.get(l)?.parts.get(r.module).map(|p| p.text.clone()),
-        }
+    /// A module's lines, as its places count them ("" for none).
+    fn lines_of(&self, r: ModRef) -> Lines {
+        let text = match r.owner {
+            Owner::Mod => self.modules.get(r.module).map(|m| m.text.as_str()),
+            Owner::Library(l) => self.libraries.get(l).and_then(|l| l.parts.get(r.module)).map(|p| p.text.as_str()),
+        };
+        Lines::new(text.unwrap_or(""))
     }
 
-    fn doc_of_item(&self, r: ItemRef) -> String {
-        match (self.item_ast(r), self.module_text_of(r.module_ref())) {
-            (Some(it), Some(text)) => super::query::doc_at(&text, it.at.line),
-            _ => String::new(),
-        }
+    /// The documentation above an item. Each module's lines are found once for all the items one answer documents
+    /// (N-4067: each item's documentation copied and split its module's whole text).
+    fn doc_of_item(&self, r: ItemRef, lines: &mut std::collections::HashMap<ModRef, Lines>) -> String {
+        let Some(it) = self.item_ast(r) else { return String::new() };
+        let lines = lines.entry(r.module_ref()).or_insert_with(|| self.lines_of(r.module_ref()));
+        super::query::doc_in(lines, it.at.line)
     }
 
     /// An item's head as completion detail: a function's parameters and result, a type's kind, a binding's type.
@@ -496,8 +501,8 @@ impl Analysis {
         match t {
             Ty::Opt(inner) => return self.members_of(inner, game),
             Ty::Struct(r) | Ty::Class(r) => {
-                let text = self.module_text_of(r.module_ref()).unwrap_or_default();
-                let doc = |at: Pos| super::query::doc_at(&text, at.line);
+                let lines = self.lines_of(r.module_ref());
+                let doc = |at: Pos| super::query::doc_in(&lines, at.line);
                 match self.item_ast(*r).map(|i| &i.kind) {
                     Some(ItemKind::Struct(s)) => {
                         out.extend(s.fields.iter().map(|f| field(f.name.name.clone(), check::type_text(&f.ty), doc(f.name.at))));
@@ -672,7 +677,6 @@ impl Analysis {
     /// A function's (or a struct's or class's function `member`'s) signature from its declaration.
     fn item_signature(&self, r: ItemRef, member: Option<&str>) -> Option<Signature> {
         let it = self.item_ast(r)?;
-        let text = self.module_text_of(r.module_ref()).unwrap_or_default();
         let (name, params, ret, at) = match (&it.kind, member) {
             (ItemKind::Fn(f), None) => (f.name.name.clone(), &f.params, f.ret.clone(), it.at),
             (ItemKind::Task { name, params, .. } | ItemKind::Extern { name, params, .. }, None) => (name.name.clone(), params, None, it.at),
@@ -692,7 +696,7 @@ impl Analysis {
         };
         let shown: Vec<ast::Param> = params.iter().filter(|p| !p.is_self).cloned().collect();
         let each: Vec<String> = shown.iter().map(|p| params_text(std::slice::from_ref(p))).collect();
-        Some(Signature { label: format!("{name}({}){}", each.join(", "), ret_text(&ret)), params: each, doc: super::query::doc_at(&text, at.line) })
+        Some(Signature { label: format!("{name}({}){}", each.join(", "), ret_text(&ret)), params: each, doc: super::query::doc_in(&self.lines_of(r.module_ref()), at.line) })
     }
 }
 
@@ -819,6 +823,36 @@ fn scope_ranges(module: &ast::Module) -> Vec<(Pos, Pos)> {
             }
             _ => {}
         }
+    }
+    out
+}
+
+/// For each place in `points`, the scope that holds it most closely (the least lines, then columns; of equal ones the
+/// first), if any. One pass over the places in order, the scopes started so far kept by size: time in step with the
+/// places and scopes (N-4067: each place was held to every scope, so completion in a module of 4,000 functions took
+/// 10 seconds where one of 1,000 took 0.5).
+fn innermost_scopes(scopes: &[(Pos, Pos)], points: &[Pos]) -> Vec<Option<usize>> {
+    use std::cmp::Reverse;
+    let size = |(s, e): (Pos, Pos)| (e.line.wrapping_sub(s.line), e.col.wrapping_sub(s.col));
+    let mut by_start: Vec<usize> = (0..scopes.len()).collect();
+    by_start.sort_by_key(|&i| scopes[i].0);
+    let mut in_order: Vec<usize> = (0..points.len()).collect();
+    in_order.sort_by_key(|&i| points[i]);
+    let mut open = std::collections::BinaryHeap::new();
+    let mut next = 0;
+    let mut out = vec![None; points.len()];
+    for i in in_order {
+        let p = points[i];
+        while next < by_start.len() && scopes[by_start[next]].0 <= p {
+            let s = by_start[next];
+            open.push(Reverse((size(scopes[s]), s)));
+            next += 1;
+        }
+        // A scope that ends before this place ends before every later one.
+        while open.peek().is_some_and(|Reverse((_, s))| scopes[*s].1 < p) {
+            open.pop();
+        }
+        out[i] = open.peek().map(|Reverse((_, s))| *s);
     }
     out
 }

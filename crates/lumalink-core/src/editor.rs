@@ -681,6 +681,36 @@ mod tests {
         assert!(took[1] < took[0] * 8.0, "{took:?}");
     }
 
+    /// N-4067: completion in a long module costs time in step with its size, and offers the locals in reach alone:
+    /// each local's scope is found in one pass, not by holding it to every scope. Two sizes four times apart; the
+    /// larger may take at most eight times the time (it took twenty before: 0.5 and 10 seconds).
+    #[test]
+    fn completion_in_a_long_module_takes_time_in_step_with_its_size() {
+        let module = |fns: usize| {
+            let mut text = String::new();
+            for i in 0..fns {
+                text.push_str(&format!("fn f{i}() {{\n    let a{i} = 1\n    if a{i} > 0 {{\n        let b{i} = a{i}\n    }}\n}}\n"));
+            }
+            text.push_str("fn last() {\n    let outer = 1\n    if outer > 0 {\n        let inner = 2\n    }\n    \n}\n");
+            text
+        };
+        let game = GameView::default();
+        let took: Vec<f64> = [1_000usize, 4_000]
+            .iter()
+            .map(|&n| {
+                let (_d, a) = analysis(&module(n));
+                let start = std::time::Instant::now();
+                let items = a.complete(0, Pos { line: 6 * n as u32 + 6, col: 5 }, &game).items;
+                let seconds = start.elapsed().as_secs_f64();
+                let has = |name: &str| items.iter().any(|c| c.label == name);
+                assert!(has("outer") && has("f0") && has("last"), "{n}");
+                assert!(!has("inner") && !has("a0") && !has("b0"), "{n}: a local out of reach is offered");
+                seconds
+            })
+            .collect();
+        assert!(took[1] < took[0] * 8.0, "{took:?}");
+    }
+
     /// N-4064: the editor's places are the compiler's on a file saved with a byte-order mark or with lone CRs. Before,
     /// a rename of a name on line 1 after a byte-order mark covered one letter of it, and completion in a file of lone
     /// CRs stopped the server.
