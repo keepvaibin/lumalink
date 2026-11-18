@@ -404,11 +404,14 @@ struct Checker<'a> {
     listed: std::collections::HashSet<ItemRef>,
     /// Walks that only look for what a value reads (part c's work list): while one runs nothing is said or marked said.
     quiet: u32,
+    /// Each virtual's direct overrides by the function facts, (name, signature) to the rows that override it: made
+    /// the first time `every override of` asks (N-4033).
+    overriders: std::cell::OnceCell<HashMap<(String, String), Vec<(String, String)>>>,
 }
 
 /// Checks a mod's modules (part b) against its libraries and facts.
 pub fn check(modules: &[Source], libraries: &[Library], facts: ModFacts<'_>) -> Checked {
-    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0 };
+    let mut c = Checker { modules, libraries, facts, out: Checked::default(), hiding_noted: Default::default(), inferred: HashMap::new(), inferring: Default::default(), noted: Default::default(), lib_locals: Vec::new(), game_values: HashMap::new(), needs: Default::default(), near_budget: NEAR_BUDGET, listed: Default::default(), quiet: 0, overriders: Default::default() };
     c.out.option_index = c.facts.options.iter().enumerate().map(|(i, o)| (o.key.clone(), i as u32)).collect();
     if let Some(content) = c.facts.content {
         if let Some(models) = content.names.get("model") {

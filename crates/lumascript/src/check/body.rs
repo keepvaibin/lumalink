@@ -1743,16 +1743,29 @@ impl<'w, 'a> Walk<'w, 'a> {
         }
     }
 
-    /// Every row the function facts say overrides (name, signature), directly or through another override.
+    /// Every row the function facts say overrides (name, signature), directly or through another override. The
+    /// facts' rows are read once a check, into each virtual's direct overrides (N-4033: every row was read again for
+    /// each override found).
     fn overrides_of(&self, name: &str, signature: &str) -> Vec<(String, String)> {
         let Some(ff) = self.game().facts.as_ref() else { return Vec::new() };
-        let mut found: Vec<(String, String)> = Vec::new();
-        let mut todo = vec![(name.to_string(), signature.to_string())];
-        while let Some((n, s)) = todo.pop() {
+        let direct = self.c.overriders.get_or_init(|| {
+            let mut by: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
             for ((rn, rs), f) in &ff.rows {
-                if f.overrides.iter().any(|o| o.name == n && o.signature == s) && !found.iter().any(|(a, b)| a == rn && b == rs) {
-                    found.push((rn.clone(), rs.clone()));
-                    todo.push((rn.clone(), rs.clone()));
+                for o in &f.overrides {
+                    by.entry((o.name.clone(), o.signature.clone())).or_default().push((rn.clone(), rs.clone()));
+                }
+            }
+            by
+        });
+        let mut seen: std::collections::HashSet<&(String, String)> = std::collections::HashSet::new();
+        let mut found: Vec<(String, String)> = Vec::new();
+        let start = (name.to_string(), signature.to_string());
+        let mut todo = vec![&start];
+        while let Some(at) = todo.pop() {
+            for row in direct.get(at).map(Vec::as_slice).unwrap_or(&[]) {
+                if seen.insert(row) {
+                    found.push(row.clone());
+                    todo.push(row);
                 }
             }
         }

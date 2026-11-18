@@ -323,3 +323,48 @@ fn a_chain_of_functions_stays_linear() {
     eprintln!("1000: {:?}, 4000: {:?}", took[0], took[1]);
     assert!(took[1] < took[0] * 8, "{took:?}");
 }
+
+/// A game of `n` overrides of LiveActor::control (every other one through the one before it) among `filler` other
+/// rows.
+fn game_with_overrides(n: usize, filler: usize) -> Game {
+    let row = |name: &str, kind: &str, owner: &str, over: &str| {
+        let (is_virtual, overrides) = match (kind, over) {
+            ("method", "") => (true, String::new()),
+            ("method", o) => (true, format!(r#"{{"name": "{o}", "signature": "void()", "row": true}}"#)),
+            _ => (false, String::new()),
+        };
+        format!(r#"{{"name": "{name}", "signature": "void()", "kind": "{kind}", "owner": {owner}, "virtual": {is_virtual}, "pure": false, "const": false, "overrides": [{overrides}], "marks": [], "needs": [], "null_when": [], "makes": []}}"#)
+    };
+    let mut rows = vec![row("LiveActor::control", "method", "\"LiveActor\"", "")];
+    for i in 0..n {
+        let over = if i % 2 == 1 { format!("C{}::control", i - 1) } else { "LiveActor::control".to_string() };
+        rows.push(row(&format!("C{i}::control"), "method", &format!("\"C{i}\""), &over));
+    }
+    for i in 0..filler {
+        rows.push(row(&format!("MR::f{i}"), "free", "null", ""));
+    }
+    let functions = HashMap::from([("LiveActor::control".to_string(), vec![("void()".to_string(), false)])]);
+    let mut game = Game::new(functions, Some(Types::from_json(TYPES.as_bytes()).unwrap_or_else(|e| panic!("{e}"))));
+    let json = format!(r#"{{"functions": [{}], "guarantees": {SETS}}}"#, rows.join(", "));
+    game.facts = Some(FunctionFacts::from_json(json.as_bytes()).unwrap_or_else(|e| panic!("{e}")));
+    game
+}
+
+/// `every override of` finds each override, directly or through another, in time that grows with the rows and the
+/// overrides, not with their product (N-4033: the game's every row was read again for each override found).
+#[test]
+fn every_override_of_stays_linear() {
+    let mut took = Vec::new();
+    for (n, filler) in [(500usize, 5_000usize), (2_000, 20_000)] {
+        let game = game_with_overrides(n, filler);
+        let (module, diags) = lumascript::parse_module("hook before every override of LiveActor::control() { }\n");
+        assert!(diags.is_empty(), "{diags:?}");
+        let start = std::time::Instant::now();
+        let checked = lumascript::on_compiler_stack(|| check::check(&[Source { path: "main".into(), module }, check::std_source()], &[], ModFacts::of_game(&game))).unwrap();
+        took.push(start.elapsed());
+        let found: Vec<usize> = checked.hooks.values().map(|h| h.overrides.len()).collect();
+        assert_eq!(found, [n]);
+    }
+    eprintln!("500 of 5500: {:?}, 2000 of 22000: {:?}", took[0], took[1]);
+    assert!(took[1] < took[0] * 8, "{took:?}");
+}
