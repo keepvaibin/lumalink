@@ -376,9 +376,26 @@ pub fn convert(input: &Path, folder: &Path, store: Option<&GameStore>, given: &G
     let root = crate::source::open(input, work.path())?;
     let layout = Layout::of(&root);
     let plan = crate::plan::build(&layout, game_id, store)?;
-    let staging = tempfile::tempdir_in(folder.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")))?;
-    let mut out = write(input, &layout, &plan, store, staging.path(), given)?;
-    fs::rename(staging.path(), folder).or_else(|_| copy_tree(staging.path(), folder)).with_context(|| say!("LumaLink.CannotMake", path = folder.display()))?;
+    // The folders above it that are not there yet are made, as `new` makes them, and taken away again when no mod
+    // comes of it (N-4069: the staging folder beside it was made in a parent that was not there, a bare system error).
+    let parent = folder.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let missing: Vec<&Path> = parent.ancestors().take_while(|p| !p.as_os_str().is_empty() && !p.exists()).collect();
+    fs::create_dir_all(parent).with_context(|| say!("LumaLink.CannotMake", path = parent.display()))?;
+    let made = (|| {
+        let staging = tempfile::tempdir_in(parent).with_context(|| say!("LumaLink.CannotMake", path = folder.display()))?;
+        let out = write(input, &layout, &plan, store, staging.path(), given)?;
+        fs::rename(staging.path(), folder).or_else(|_| copy_tree(staging.path(), folder)).with_context(|| say!("LumaLink.CannotMake", path = folder.display()))?;
+        Ok(out)
+    })();
+    let mut out = match made {
+        Ok(out) => out,
+        Err(error) => {
+            for p in missing {
+                let _ = fs::remove_dir(p);
+            }
+            return Err(error);
+        }
+    };
     out.notes.splice(0..0, plan.notes.iter().cloned());
     Ok(out)
 }
@@ -648,5 +665,25 @@ mod tests {
         let error = convert(&source, &dir.path().join("none"), None, &given).unwrap_err().to_string();
         assert!(error.contains(&say!("LumaLink.Convert.LeftOut", path = "AudioRes/Waves/Empty_0.aw", why = "")) && error.contains(&done.left_out[0].1), "{error}");
         assert!(!dir.path().join("none").exists());
+        // N-4069: the folders above it that were made for it are taken away again.
+        assert!(convert(&source, &dir.path().join("x/y/none"), None, &given).is_err());
+        assert!(!dir.path().join("x").exists());
+    }
+
+    /// N-4069: a mod is converted into a folder whose parent is not there yet, as `new` makes one. Before, the staging
+    /// folder beside it could not be made: the system's bare error.
+    #[test]
+    fn a_mod_is_converted_where_its_parent_is_not_there_yet() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Pack");
+        put(&source, "riivolution/pack.xml", br#"<wiidisc version="1"><id game="RMG"/><options><section name="Pack">
+  <option name="On"><choice name="Enabled"><patch id="on"/></choice></option></section></options>
+  <patch id="on"><file disc="/StageData/note.txt.bin" external="/Pack/note.txt.bin" create="true"/></patch></wiidisc>"#);
+        put(&source, "Pack/note.txt.bin", b"hello");
+        let folder = dir.path().join("mods/more/out");
+        let given = Given { authors: vec!["Someone".into()], accept_losses: true, ..Given::default() };
+        convert(&source, &folder, None, &given).unwrap();
+        assert!(folder.join("luma.json").is_file() && folder.join("layers/base/files/StageData/note.txt.bin").is_file());
+        assert_eq!(fs::read_dir(dir.path().join("mods/more")).unwrap().count(), 1, "nothing left beside it");
     }
 }
