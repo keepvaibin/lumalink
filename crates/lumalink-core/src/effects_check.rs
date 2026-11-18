@@ -22,8 +22,10 @@ trait Files {
 struct Folder<'a>(&'a Path);
 
 impl Files for Folder<'_> {
+    /// A file of the folder: a name that would leave it (`..`, a root, a drive, a device) is no file, as in a `.luma`
+    /// (N-4072: the names come from the mod's luma.json and effects.json, and `../../` read any file, a device too).
     fn read(&self, name: &str) -> Option<Vec<u8>> {
-        std::fs::read(self.0.join(name)).ok()
+        std::fs::read(self.0.join(crate::source::safe_relative(name)?)).ok()
     }
 }
 
@@ -125,5 +127,23 @@ mod tests {
         put("layers/night/assets/effects.json", r#"{"textures":{"Gold":"gold.png"},"effects":{"aura":{"particles":[{"textures":{"sprite":"Gold"}}]}}}"#);
         let found = findings(dir.path(), None, None).unwrap();
         assert!(luma_validate::reason(&found[0], "UsEnglish").contains("gold.png"), "{found:?}");
+    }
+
+    /// N-4072: a mod folder's effects read only its own files: a texture or layer named with `..` (or a root, a drive,
+    /// a device) is no file. Before, `../../` read any file the account can read.
+    #[test]
+    fn a_name_that_leaves_the_mod_folder_reads_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = dir.path().join("m");
+        std::fs::create_dir_all(m.join("layers/base/assets")).unwrap();
+        std::fs::write(m.join("layers/base/assets/own.png"), b"own").unwrap();
+        std::fs::write(dir.path().join("outside.png"), b"outside").unwrap();
+        let folder = Folder(&m);
+        assert_eq!(folder.read("layers/base/assets/own.png").as_deref(), Some(&b"own"[..]));
+        for name in ["layers/base/assets/../../../outside.png", "layers/../../outside.png", "../outside.png", "layers/base/assets/..\\..\\..\\outside.png"] {
+            assert_eq!(folder.read(name), None, "{name}");
+        }
+        let absolute = dir.path().join("outside.png");
+        assert_eq!(folder.read(&absolute.to_string_lossy()), None);
     }
 }
