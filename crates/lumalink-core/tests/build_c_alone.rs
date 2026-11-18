@@ -2,7 +2,9 @@
 //! library for each platform asked, recorded in luma.json, with nothing generated.
 //!
 //! Needs LLVM 22.1.6 (LUMALINK_CLANG, else `build::default_clang`) and the SDK: LUMA_SDK, else the Nebula tree beside
-//! this workspace (`nebula/native/include`). Without either the test says which is missing and checks nothing.
+//! this workspace (`nebula/native/include`). Without either the test says which is missing and checks nothing; with
+//! LUMA_SDK given (the gate gives it), a missing LLVM fails it: a run asked to build never passes by building nothing
+//! (N-4062).
 
 use lumalink_core::build;
 use lumascript::game::Game;
@@ -31,6 +33,20 @@ fn sdk() -> Option<PathBuf> {
     })
 }
 
+/// LLVM 22.1.6's clang (`build::default_clang`). Without it: None, said, when no LUMA_SDK is given; a failure when
+/// one is (the gate's run, which must build).
+fn clang() -> Option<PathBuf> {
+    let clang = build::default_clang();
+    let found = build::clang_version(&clang).ok();
+    if found.as_deref() == Some(build::LLVM) {
+        return Some(clang);
+    }
+    let why = format!("no LLVM {} at {} (found {:?})", build::LLVM, clang.display(), found);
+    assert!(std::env::var_os("LUMA_SDK").is_none(), "LUMA_SDK is given, so this test must build: {why}");
+    eprintln!("skipped: {why}");
+    None
+}
+
 #[test]
 fn a_mod_of_c_alone_is_built_with_its_own_entry() {
     let Some(sdk) = sdk() else {
@@ -41,11 +57,7 @@ fn a_mod_of_c_alone_is_built_with_its_own_entry() {
         eprintln!("skipped: this system is none of the nine platforms");
         return;
     };
-    let clang = build::default_clang();
-    if build::clang_version(&clang).ok().as_deref() != Some(build::LLVM) {
-        eprintln!("skipped: no LLVM {} at {}", build::LLVM, clang.display());
-        return;
-    }
+    let Some(clang) = clang() else { return };
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("alone");
     std::fs::create_dir_all(folder.join("source")).unwrap();
@@ -93,11 +105,7 @@ fn an_authors_c_may_have_a_frame_over_4_kib() {
         eprintln!("skipped: this system is none of the nine platforms");
         return;
     };
-    let clang = build::default_clang();
-    if build::clang_version(&clang).ok().as_deref() != Some(build::LLVM) {
-        eprintln!("skipped: no LLVM {} at {}", build::LLVM, clang.display());
-        return;
-    }
+    let Some(clang) = clang() else { return };
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("big");
     std::fs::create_dir_all(folder.join("source")).unwrap();
@@ -121,11 +129,7 @@ fn an_sdk_path_with_a_comma_links_and_arm64_atomics_are_inline() {
         eprintln!("skipped: no SDK (LUMA_SDK, or nebula/native/include beside this workspace)");
         return;
     };
-    let clang = build::default_clang();
-    if build::clang_version(&clang).ok().as_deref() != Some(build::LLVM) {
-        eprintln!("skipped: no LLVM {} at {}", build::LLVM, clang.display());
-        return;
-    }
+    let Some(clang) = clang() else { return };
     let dir = tempfile::tempdir().unwrap();
     let copied = dir.path().join("sd,k");
     copy_folder(&sdk, &copied);

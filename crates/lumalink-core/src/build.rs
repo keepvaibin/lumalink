@@ -791,14 +791,19 @@ pub fn build(folder: &Path, game: &Game, sdk: &Path, clang: &Path, work: &Path, 
     let absolute = |p: &Path| std::path::absolute(p).map_err(|e| BuildError::Read(p.to_path_buf(), e));
     let (folder, sdk, work) = (absolute(folder)?, absolute(sdk)?, absolute(work)?);
     let (folder, sdk, work) = (folder.as_path(), sdk.as_path(), work.as_path());
+    let own = c_sources(folder)?;
+    let no_scripts = scripts(folder)?.is_empty();
+    // A mod with no code is said as that before clang is looked for (N-4062): no clang is needed to say it.
+    if no_scripts && own.c.is_empty() && own.cxx.is_empty() {
+        return Err(BuildError::NoScripts(folder.to_path_buf()));
+    }
     let found = clang_version(clang)?;
     if found != LLVM {
         return Err(BuildError::ClangVersion { path: clang.to_path_buf(), found });
     }
-    let own = c_sources(folder)?;
     // A mod of C alone (no LumaScript; its C declares its entry with LUMA_MOD, luma.h) is compiled and linked as it is:
     // nothing is generated for it.
-    let alone = scripts(folder)?.is_empty() && !(own.c.is_empty() && own.cxx.is_empty());
+    let alone = no_scripts;
     let (emitted, notes) = if alone {
         // clang runs in `work`, which the generator makes for a mod with LumaScript.
         std::fs::create_dir_all(work).map_err(|e| BuildError::Write(work.to_path_buf(), e))?;
