@@ -21,6 +21,10 @@
 // look(c) turns a rig's view the same way: the eye stays where the rig puts it and the player turns the view about the
 // actor's up (gravity's, on a planet's underside too), starting along the rig's own look. The game moves the player by
 // the stick along the main camera's view, so an eye rig with look() is a first person that can be played.
+// Cuts: the main camera's view jumps when another control comes on top or the game's pose shows again under a shake or
+// a field of view; the kit says so through draw.view's main_cut, so nothing blends across the jump (the picture between
+// two frames, the player's animation). Taking the main camera and giving it back are cuts already; a turn of the look
+// never is one. cut() says one for a mod's own jump (a cutscene's new shot).
 
 use svc.draw.view
 use svc.draw.post
@@ -52,6 +56,8 @@ var next_control: u64 = 1
 // The last eye the main camera was given (a rig whose actor died keeps it); whether draw.view's main_eye holds one.
 var last_eye: view.Eye? = none
 var main_held: bool = false
+// The control whose camera the main camera shows (0: the game's pose under a shake or a field of view, or none).
+var shown_control: u64 = 0
 // The free camera: where it is and where it looks (yaw and pitch, degrees), set from the game's camera when it starts.
 var free_eye: vec3 = vec3(0.0, 0.0, 0.0)
 var free_yaw: f32 = 0.0
@@ -193,6 +199,7 @@ fn settle() {
         if main_held {
             view.main_eye(none)
             main_held = false
+            shown_control = 0
         }
     } else if control_rigs[controls.len() - 1] != none and holds("stage") {
         // The rig on top now, at once (the world may be held; a free camera starts at the next pose). With no stage
@@ -214,11 +221,13 @@ fn place(shaking: vec3) {
                     if control_looks[top] {
                         let turned = turn_look(controls[top], a, e)
                         last_eye = view.Eye { eye: e.eye, at: e.eye + turned * 100.0, up: up_of(a, e), fov_y: e.fov_y }
+                        shown(controls[top])
                         view.main_rig(rig, view.Look { look: turned, up: up_of(a, e), ahead: 0.0 })
                         main_held = true
                         return
                     }
                 }
+                shown(controls[top])
                 view.main_rig(rig, none)
                 main_held = true
                 return
@@ -227,8 +236,18 @@ fn place(shaking: vec3) {
     }
     if let e = given_eye() {
         last_eye = e
+        shown(controls[top])
         show(view.Eye { eye: e.eye + shaking, at: e.at + shaking, up: e.up, fov_y: e.fov_y })
     }
+}
+
+// The main camera about to show control `n`'s camera (0: the game's pose): a cut when the kit holds it on another
+// (taking it is a cut already, said by draw.view itself).
+fn shown(n: u64) {
+    if main_held and shown_control != n {
+        view.main_cut()
+    }
+    shown_control = n
 }
 
 // The rig with fov()'s field of view, when one is set.
@@ -374,6 +393,15 @@ pub fn look(c: Control, enabled: bool = true) {
         look_dir = none
     }
     settle()
+}
+
+// The main camera's next view is a cut: nothing blends into it, neither the picture between two frames nor the
+// player's animation (a cutscene's new shot). Taking the main camera, ending a control and another control on top are
+// cuts already; a turn of the look never is one. Nothing while no control or shake holds the main camera.
+pub fn cut() {
+    if main_held {
+        view.main_cut()
+    }
 }
 
 pub fn alive(c: Control) -> bool {
@@ -572,6 +600,7 @@ hook after CameraDirector::calcPose() {
         if main_held {
             view.main_eye(none)
             main_held = false
+            shown_control = 0
         }
         return
     }
@@ -580,6 +609,7 @@ hook after CameraDirector::calcPose() {
     if let man = self.getCurrentCameraMan() {
         fy = CameraLocalUtil::getFovy(man)
     }
+    shown(0)
     show(view.Eye { eye: pose.mPos + shaking, at: pose.mWatchPos + shaking, up: pose.mUpVec, fov_y: fy })
 }
 
