@@ -73,6 +73,19 @@ pub fn releases_url() -> String {
         .unwrap_or_else(|| format!("https://api.github.com/repos/{REPOSITORY}/releases?per_page=30"))
 }
 
+/// Whether `version` is a release's version as LumaLink's tags give it: `MAJOR.MINOR.PATCH` or
+/// `MAJOR.MINOR.PATCH-beta.N`, each part digits. Nothing else is taken from a release list: the version names the
+/// download's folder (`update-<version>`), so a tag with a `/` or `..` would put it elsewhere (N-4039).
+pub fn is_version(version: &str) -> bool {
+    let digits = |p: &str| !p.is_empty() && p.len() <= 9 && p.bytes().all(|b| b.is_ascii_digit());
+    let (numbers, beta) = match version.split_once("-beta.") {
+        Some((n, b)) => (n, Some(b)),
+        None => (version, None),
+    };
+    let parts: Vec<&str> = numbers.split('.').collect();
+    parts.len() == 3 && parts.iter().all(|p| digits(p)) && beta.is_none_or(digits)
+}
+
 /// Whether `version` is a beta (`1.2.0-beta.3`).
 pub fn is_beta(version: &str) -> bool {
     version.to_ascii_lowercase().contains("-beta.")
@@ -126,7 +139,7 @@ pub fn select_newer(json: &str, installed: &str) -> Result<Option<Release>> {
         }
         let tag = text("tag_name");
         let version = tag.strip_prefix('v').unwrap_or(&tag).to_string();
-        if version.is_empty() || is_beta(&version) != beta {
+        if !is_version(&version) || is_beta(&version) != beta {
             continue;
         }
         let floor = best.as_ref().map_or(installed, |b| b.version.as_str());
@@ -1173,6 +1186,22 @@ mod tests {
         assert_eq!(beta.version, "1.3.0-beta.1", "a beta updates to betas");
         assert!(select_newer("{}", "1.0.0").is_err());
         assert!(select_newer("not json", "1.0.0").is_err());
+    }
+
+    /// N-4039: a tag that is no version is passed over: its version would name the download's folder, and a `/` or
+    /// `..` in it would put the download outside LumaLink's folder (fails before: offered as 9.0.0/../../x).
+    #[test]
+    fn a_tag_that_is_no_version_is_passed_over() {
+        for tag in ["v9.0.0/../../x", "v9.0.0/..", "v9.0.0-beta.1/../x", "v..\\9.0.0", "v9.0", "v9.0.0.1", "v9.0.0-rc.1", "v9.0.0-beta.", "v 9.0.0"] {
+            let version = tag.strip_prefix('v').unwrap();
+            let sig = format!("{}.sig", package_name(version));
+            let json = list(&[(tag, false, &[&package_name(version), &sig])]);
+            assert!(select_newer(&json, "1.0.0").unwrap().is_none(), "{tag}");
+            assert!(select_newer(&json, "1.0.0-beta.1").unwrap().is_none(), "{tag}");
+        }
+        for good in ["1.0.0", "10.20.30", "2.0.0-beta.12"] {
+            assert!(is_version(good), "{good}");
+        }
     }
 
     #[test]
