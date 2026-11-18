@@ -51,6 +51,9 @@ pub enum BuildError {
     Read(PathBuf, std::io::Error),
     Write(PathBuf, std::io::Error),
     NoId(PathBuf),
+    /// luma.json is not JSON as luma-format reads it (rule L201: no UTF-8, a byte order mark, a broken value), at
+    /// `line` and `column`; `what` is the validator's phrase, `detail` what it found.
+    Manifest { path: PathBuf, line: u32, column: u32, what: &'static str, detail: String },
     NoScripts(PathBuf),
     /// Every error, by file (`source/<module>.lum`); notes are not here.
     Script(Vec<(String, Diagnostic)>),
@@ -80,18 +83,22 @@ pub struct Target {
 /// PE (Windows): no entry, no default library, no import library, no time stamp.
 const PE: &[&str] = &["-shared", "-fuse-ld=lld", "-Wl,/NOENTRY", "-Wl,/NODEFAULTLIB", "-Wl,/NOIMPLIB", "-Wl,/Brepro"];
 /// ELF (Linux, Android): position-independent; constructors kept from the system's loader, in luma_ctors by the SDK's
-/// linker script (luma.h, docs/modding/lumalink/loader.md, section 8), so not in .init_array.
+/// linker script (luma.h, docs/modding/lumalink/loader.md, section 8), so not in .init_array. The script's path goes
+/// through `-Xlinker` whole: `-Wl,` would split an SDK path at its commas.
 const ELF_CODE: &[&str] = &["-fPIC", "-fno-use-init-array"];
 const ELF: &[&str] = &[
-    "-shared", "-fuse-ld=lld", "-Wl,--build-id=none", "-Wl,--hash-style=gnu", "-Wl,-z,defs", "-Wl,-z,noexecstack", "-Wl,-T,{sdk}/luma_ctors.ld",
+    "-shared", "-fuse-ld=lld", "-Wl,--build-id=none", "-Wl,--hash-style=gnu", "-Wl,-z,defs", "-Wl,-z,noexecstack", "-Xlinker",
+    "--script={sdk}/luma_ctors.ld",
 ];
 /// Android 15 devices may use 16 KiB pages: a library aligned to less does not load there.
 const ANDROID: &[&str] = &[
-    "-shared", "-fuse-ld=lld", "-Wl,--build-id=none", "-Wl,--hash-style=gnu", "-Wl,-z,defs", "-Wl,-z,noexecstack", "-Wl,-T,{sdk}/luma_ctors.ld",
-    "-Wl,-z,max-page-size=16384",
+    "-shared", "-fuse-ld=lld", "-Wl,--build-id=none", "-Wl,--hash-style=gnu", "-Wl,-z,defs", "-Wl,-z,noexecstack", "-Xlinker",
+    "--script={sdk}/luma_ctors.ld", "-Wl,-z,max-page-size=16384",
 ];
-/// Android's arm64 default calls the __aarch64_cas* helpers of a runtime a mod does not link.
-const ANDROID_ARM_CODE: &[&str] = &["-fPIC", "-fno-use-init-array", "-mno-outline-atomics"];
+/// arm64 Linux and Android: atomics inline. clang's default for these targets depends on the machine that builds
+/// (outline helpers, `__aarch64_cas4_acq` and the rest, when it finds a GCC 9.3.1 or newer or uses compiler-rt), and
+/// the helpers live in a runtime a mod does not link; the same sources give the same library on every machine.
+const ELF_ARM_CODE: &[&str] = &["-fPIC", "-fno-use-init-array", "-mno-outline-atomics"];
 /// Mach-O (macOS, iOS): no symbol left to the system, signed ad hoc (iOS is signed again on the device).
 const MACHO_CODE: &[&str] = &["-fPIC"];
 const MACOS: &[&str] = &[
@@ -108,10 +115,10 @@ pub static TARGETS: [Target; 9] = [
     Target { platform: "windows-x64", triple: "x86_64-pc-windows-msvc", library: "mod.dll", code: &[], link: PE },
     Target { platform: "windows-arm64", triple: "aarch64-pc-windows-msvc", library: "mod.dll", code: &[], link: PE },
     Target { platform: "linux-x64", triple: "x86_64-unknown-linux-gnu", library: "mod.so", code: ELF_CODE, link: ELF },
-    Target { platform: "linux-arm64", triple: "aarch64-unknown-linux-gnu", library: "mod.so", code: ELF_CODE, link: ELF },
+    Target { platform: "linux-arm64", triple: "aarch64-unknown-linux-gnu", library: "mod.so", code: ELF_ARM_CODE, link: ELF },
     Target { platform: "macos-arm64", triple: "arm64-apple-macos12.0", library: "mod.dylib", code: MACHO_CODE, link: MACOS },
     Target { platform: "macos-x64", triple: "x86_64-apple-macos12.0", library: "mod.dylib", code: MACHO_CODE, link: MACOS },
-    Target { platform: "android-arm64", triple: "aarch64-linux-android24", library: "mod.so", code: ANDROID_ARM_CODE, link: ANDROID },
+    Target { platform: "android-arm64", triple: "aarch64-linux-android24", library: "mod.so", code: ELF_ARM_CODE, link: ANDROID },
     Target { platform: "android-x64", triple: "x86_64-linux-android24", library: "mod.so", code: ELF_CODE, link: ANDROID },
     Target { platform: "ios-arm64", triple: "arm64-apple-ios15.0", library: "mod.dylib", code: MACHO_CODE, link: IOS },
 ];
@@ -213,6 +220,10 @@ struct Manifest {
 fn manifest(folder: &Path) -> Result<Manifest, BuildError> {
     let path = folder.join("luma.json");
     let bytes = std::fs::read(&path).map_err(|e| BuildError::Read(path.clone(), e))?;
+    // Read as check reads it first: what check refuses, build refuses with the same words, before any compile.
+    if let Err(e) = luma_validate::json::parse(&bytes) {
+        return Err(BuildError::Manifest { path, line: e.pos.line, column: e.pos.column, what: e.what, detail: e.detail });
+    }
     let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| BuildError::NoId(path.clone()))?;
     let id = json.get("id").and_then(|v| v.as_str()).map(str::to_string).ok_or(BuildError::NoId(path))?;
     let version = json.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -392,19 +403,42 @@ pub fn game_of(rows: &luma_validate::names::Names, names: &Path, sdk: Option<&Pa
     Ok((game, unread))
 }
 
-/// The folder of mod `id`, needed by the mod in `folder`, looked for in this order:
+/// Where the mods a mod needs are looked for ([`needed_folder`]); [`Places::of`] a game takes its own.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Places<'a> {
+    /// The modder's mod folder ([`Game::mods_folder`]).
+    pub mods: Option<&'a Path>,
+    /// Leave out the installed game's mods ([`Game::no_installed`]).
+    pub no_installed: bool,
+    /// The `.luma` files the game comes with ([`Game::shipped_mods`]).
+    pub shipped: Option<&'a Path>,
+}
+
+impl<'a> Places<'a> {
+    pub fn of(game: &'a Game) -> Places<'a> {
+        Places { mods: game.mods_folder.as_deref(), no_installed: game.no_installed, shipped: game.shipped_mods.as_deref() }
+    }
+}
+
+/// The folder of mod `id`, needed by the mod in `folder`. With a mod folder named (`places.mods`), there (its folder,
+/// else its `.luma` unpacked) and then in the mods the game comes with, nowhere else: the build is the same on every
+/// machine. Without one, in this order:
 ///
 /// 1. its own folder beside it (`../<id>`), as a modder's workspace holds mods;
-/// 2. the installed game's mods folder (`<data>/mods`), where the game installs the mods it comes with at start;
-/// 3. the `.luma` the game comes with in `shipped` ([`Game::shipped_mods`]), for a game not started since it was
-///    installed or updated: unpacked once into LumaLink's folder in the system's temporary folder.
+/// 2. the installed game's mods folder (`<data>/mods`), where the game installs the mods it comes with at start
+///    (not with `places.no_installed`);
+/// 3. the `.luma` the game comes with in `places.shipped` ([`Game::shipped_mods`]), for a game not started since it
+///    was installed or updated.
 ///
-/// None when none has it.
-pub fn needed_folder(folder: &Path, id: &str, shipped: Option<&Path>) -> Option<PathBuf> {
+/// A `.luma` is unpacked once into LumaLink's folder in the system's temporary folder. None when none has it.
+pub fn needed_folder(folder: &Path, id: &str, places: Places<'_>) -> Option<PathBuf> {
+    let shipped = || unpacked(&shipped_mod(places.shipped?, id)?);
+    if let Some(mods) = places.mods {
+        return installed_mod(mods, id).or_else(|| unpacked(&shipped_mod(mods, id)?)).or_else(shipped);
+    }
     let beside = folder.parent().map(|p| p.join(id)).filter(|p| p.is_dir());
-    beside
-        .or_else(|| installed_mod(&crate::installed::Installed::find()?.data.join("mods"), id))
-        .or_else(|| unpacked(&shipped_mod(shipped?, id)?))
+    let installed = || if places.no_installed { None } else { installed_mod(&crate::installed::Installed::find()?.data.join("mods"), id) };
+    beside.or_else(installed).or_else(shipped)
 }
 
 /// The id a luma.json's bytes give; None when they are not JSON or give none.
@@ -473,9 +507,19 @@ fn unpacked(luma: &Path) -> Option<PathBuf> {
 /// The interface file of library mod `id` (docs/modding/language/compiled-form.md) for a mod in `folder`, in the needed
 /// mod's folder ([`needed_folder`]): `code/<id>.lumi`. None when it has none (a needed mod with no functions for
 /// others).
-pub fn interface_of(folder: &Path, id: &str, shipped: Option<&Path>) -> Option<PathBuf> {
-    let p = needed_folder(folder, id, shipped)?.join("code").join(format!("{id}.lumi"));
+pub fn interface_of(folder: &Path, id: &str, places: Places<'_>) -> Option<PathBuf> {
+    let p = needed_folder(folder, id, places)?.join("code").join(format!("{id}.lumi"));
     p.is_file().then_some(p)
+}
+
+/// Each mod the mod in `folder` needs (luma.json `needs`), with its interface file found in `places` (None: it has
+/// none, or it is not found). Empty when luma.json does not read.
+pub fn needed_interfaces(folder: &Path, places: Places<'_>) -> Vec<(String, Option<PathBuf>)> {
+    let Ok(m) = manifest(folder) else { return Vec::new() };
+    m.needs.into_iter().map(|id| {
+        let lumi = interface_of(folder, &id, places);
+        (id, lumi)
+    }).collect()
 }
 
 /// The names content literals are checked against (docs/modding/language/language.md, section 10): the mod's own assets
@@ -486,7 +530,7 @@ pub fn interface_of(folder: &Path, id: &str, shipped: Option<&Path>) -> Option<P
 /// with its ending. Effects (names inside effects.json), layouts, nerves and texts (the game's message tables are not
 /// in the build) are given no set, so the checker leaves them unchecked. A bare model name may be one of the game's
 /// archives (ObjectData, MapPartsData), which the build has no list of: one not the mod's is left to `check --game`.
-pub fn content_names(folder: &Path, needs: &[String], shipped: Option<&Path>) -> ContentNames {
+pub fn content_names(folder: &Path, needs: &[String], places: Places<'_>) -> ContentNames {
     let mut content = ContentNames::default();
     content.game_unlisted.insert("model".to_string());
     for word in ["sound", "movie", "font", "model", "data"] {
@@ -494,7 +538,7 @@ pub fn content_names(folder: &Path, needs: &[String], shipped: Option<&Path>) ->
     }
     add_assets(&mut content, folder, "");
     for id in needs {
-        if let Some(need) = needed_folder(folder, id, shipped) {
+        if let Some(need) = needed_folder(folder, id, places) {
             add_assets(&mut content, &need, &format!("{id}:"));
         }
     }
@@ -564,19 +608,19 @@ pub struct CheckInputs {
 }
 
 impl CheckInputs {
-    /// The inputs of the mod in `folder`, its needed mods found by [`needed_folder`] with the game's `.luma` files in
-    /// `shipped`. Err: luma.json cannot be read or has no id, or a file cannot be read.
-    pub fn read(folder: &Path, shipped: Option<&Path>) -> Result<CheckInputs, BuildError> {
+    /// The inputs of the mod in `folder`, its needed mods found by [`needed_folder`] in `places`. Err: luma.json cannot
+    /// be read or has no id, or a file cannot be read.
+    pub fn read(folder: &Path, places: Places<'_>) -> Result<CheckInputs, BuildError> {
         let Manifest { id, version, needs, options } = manifest(folder)?;
         let headers = c_sources(folder)?.headers;
         let mut interfaces = Vec::new();
         for need in &needs {
-            if let Some(path) = interface_of(folder, need, shipped) {
+            if let Some(path) = interface_of(folder, need, places) {
                 let text = std::fs::read_to_string(&path).map_err(|e| BuildError::Read(path.clone(), e))?;
                 interfaces.push(Interface { id: need.clone(), path, text });
             }
         }
-        let content = content_names(folder, &needs, shipped);
+        let content = content_names(folder, &needs, places);
         Ok(CheckInputs { id, version, needs, options, headers, content, interfaces })
     }
 
@@ -615,7 +659,7 @@ impl CheckInputs {
 
 /// Checks and writes the mod's C into `work/lum/` (the front end and the back end, on the compiler's stack).
 pub fn generate(folder: &Path, game: &Game, work: &Path) -> Result<(String, emit::Emitted, Vec<(String, Diagnostic)>), BuildError> {
-    let inputs = CheckInputs::read(folder, game.shipped_mods.as_deref())?;
+    let inputs = CheckInputs::read(folder, Places::of(game))?;
     let (id, version) = (inputs.id.clone(), inputs.version.clone());
     let files = scripts(folder)?;
     if files.is_empty() {
@@ -897,7 +941,8 @@ fn record_platform(folder: &Path, platform: &str) -> Result<bool, BuildError> {
     let text = std::fs::read_to_string(&path).map_err(|e| BuildError::Read(path.clone(), e))?;
     match with_platform(&text, platform) {
         Some(new) if new != text => {
-            std::fs::write(&path, new).map_err(|e| BuildError::Write(path.clone(), e))?;
+            // Whole or not at all: a build stopped here leaves the modder's luma.json as it was.
+            crate::files::write_whole(&path, new.as_bytes()).map_err(|e| BuildError::Write(path.clone(), e))?;
             Ok(true)
         }
         _ => Ok(false),
@@ -1055,7 +1100,7 @@ fn skip_value(b: &[u8], i: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_names, generate, installed_mod, interface_of, mod_info_has_layout, option_spec, targets, with_platform, BuildError, TARGETS};
+    use super::{content_names, generate, installed_mod, interface_of, manifest, mod_info_has_layout, needed_folder, option_spec, record_platform, targets, with_platform, BuildError, Places, TARGETS};
     use lumascript::check::{OptionKind, OptionSpec};
 
     /// luma.json's options as `option` declarations are checked: a number is whole when every number given is;
@@ -1139,14 +1184,48 @@ mod tests {
             crate::luma_file::write(&files, &shipped.join(file)).unwrap();
         }
         let gold = dir.path().join("work").join("gold");
-        let lumi = interface_of(&gold, &id, Some(&shipped)).expect("found in the shipped .luma");
+        let places = Places { shipped: Some(&shipped), ..Places::default() };
+        let lumi = interface_of(&gold, &id, places).expect("found in the shipped .luma");
         assert_eq!(std::fs::read_to_string(&lumi).unwrap(), "interface");
-        let c = content_names(&gold, &[id.clone()], Some(&shipped));
+        let c = content_names(&gold, &[id.clone()], places);
         assert!(c.names["sound"].contains(&format!("{id}:Pop")));
-        assert_eq!(interface_of(&gold, &id, None), None);
-        assert_eq!(interface_of(&gold, "absent", Some(&shipped)), None);
+        assert_eq!(interface_of(&gold, &id, Places::default()), None);
+        assert_eq!(interface_of(&gold, "absent", places), None);
         // Read again: the same unpacked folder.
-        assert_eq!(interface_of(&gold, &id, Some(&shipped)), Some(lumi.clone()));
+        assert_eq!(interface_of(&gold, &id, places), Some(lumi.clone()));
+        let _ = std::fs::remove_dir_all(lumi.parent().unwrap().parent().unwrap());
+    }
+
+    /// With a mod folder named, a need is found there (a folder or a .luma) or in the mods the game comes with, and never
+    /// beside the mod nor in the installed game: the build is the same on every machine (N-2006).
+    #[test]
+    fn a_named_mod_folder_is_the_only_place_needs_come_from_besides_the_games_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |rel: &str, text: &str| {
+            let p = dir.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        let id = format!("named-lib-{}", std::process::id());
+        // Beside the mod: found without a mod folder, not with one.
+        write(&format!("work/{id}/luma.json"), &format!(r#"{{"id": "{id}"}}"#));
+        write("work/gold/luma.json", r#"{"id": "gold"}"#);
+        let gold = dir.path().join("work").join("gold");
+        assert_eq!(needed_folder(&gold, &id, Places::default()), Some(dir.path().join("work").join(&id)));
+        let mods = dir.path().join("mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        let named = Places { mods: Some(&mods), ..Places::default() };
+        assert_eq!(needed_folder(&gold, &id, named), None, "not beside the mod, not installed");
+        // In the mod folder as a folder of another name, then as a .luma.
+        write(&format!("mods/Renamed/luma.json"), &format!(r#"{{"id": "{id}"}}"#));
+        assert_eq!(needed_folder(&gold, &id, named), Some(mods.join("Renamed")));
+        std::fs::remove_dir_all(mods.join("Renamed")).unwrap();
+        write(&format!("lib/luma.json"), &format!(r#"{{"id": "{id}"}}"#));
+        write(&format!("lib/code/{id}.lumi"), "from the .luma");
+        let files = crate::luma_file::folder_files(&dir.path().join("lib")).unwrap();
+        crate::luma_file::write(&files, &mods.join("lib.luma")).unwrap();
+        let lumi = interface_of(&gold, &id, named).expect("the .luma in the mod folder");
+        assert_eq!(std::fs::read_to_string(&lumi).unwrap(), "from the .luma");
         let _ = std::fs::remove_dir_all(lumi.parent().unwrap().parent().unwrap());
     }
 
@@ -1204,7 +1283,7 @@ mod tests {
         ] {
             file(p);
         }
-        let c = content_names(&dir.path().join("gold"), &["lib".to_string(), "absent".to_string()], None);
+        let c = content_names(&dir.path().join("gold"), &["lib".to_string(), "absent".to_string()], Places::default());
         let names = |w: &str| c.names[w].iter().cloned().collect::<Vec<_>>();
         assert_eq!(names("sound"), ["Throw", "lib:Pop"]);
         assert_eq!(names("model"), ["Gold/Ball", "Low"]);
@@ -1223,18 +1302,58 @@ mod tests {
             let ending = t.library.rsplit('.').next().unwrap();
             let (form, link_only) = match ending {
                 "dll" => ("windows-msvc", "-Wl,/NOENTRY"),
-                "so" => ("linux", "-Wl,-T,{sdk}/luma_ctors.ld"),
+                "so" => ("linux", "--script={sdk}/luma_ctors.ld"),
                 _ => ("apple", "-Wl,-adhoc_codesign"),
             };
             assert!(t.triple.contains(form) && t.link.contains(&link_only), "{t:?}");
             assert_eq!(t.platform.starts_with("android"), t.link.contains(&"-Wl,-z,max-page-size=16384"), "{t:?}");
         }
-        assert!(TARGETS[6].code.contains(&"-mno-outline-atomics") && !TARGETS[7].code.contains(&"-mno-outline-atomics"));
+        // Every arm64 ELF platform inlines its atomics, whatever machine builds it (M-142).
+        for t in &TARGETS {
+            let elf_arm = t.library == "mod.so" && t.triple.starts_with("aarch64");
+            assert_eq!(t.code.contains(&"-mno-outline-atomics"), elf_arm, "{t:?}");
+        }
+        // No flag that names the SDK goes through -Wl, (which splits at commas, M-149): the script comes after -Xlinker.
+        for t in &TARGETS {
+            for (i, f) in t.link.iter().enumerate() {
+                assert!(!(f.contains("{sdk}") && f.starts_with("-Wl,")), "{t:?}");
+                if f.contains("{sdk}") {
+                    assert_eq!(t.link[i - 1], "-Xlinker", "{t:?}");
+                }
+            }
+        }
         // Asked in any order and twice: luma-format's order, once; an unknown one by name.
         let picked = targets(&["ios-arm64".into(), "linux-x64".into(), "ios-arm64".into()]).unwrap();
         assert_eq!(picked.iter().map(|t| t.platform).collect::<Vec<_>>(), ["linux-x64", "ios-arm64"]);
         assert!(matches!(targets(&["ps2".into()]), Err(BuildError::UnknownPlatform(p)) if p == "ps2"));
         assert_eq!(targets(&[]).unwrap().len(), 9);
+    }
+
+    /// A luma.json check refuses (L201: here a byte order mark) is refused by build with check's reason, not taken for
+    /// one with no id (M-148).
+    #[test]
+    fn a_luma_json_check_refuses_is_refused_by_build_with_checks_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("luma.json"), "\u{feff}{\"id\": \"m\", \"version\": \"1.0.0\"}").unwrap();
+        match manifest(dir.path()) {
+            Err(BuildError::Manifest { what, line, column, .. }) => assert_eq!((what, line, column), ("Json.Bom", 1, 1)),
+            other => panic!("{:?}", other.err()),
+        }
+        std::fs::write(dir.path().join("luma.json"), "{\"id\": \"m\",}").unwrap();
+        assert!(matches!(manifest(dir.path()), Err(BuildError::Manifest { line: 1, .. })));
+    }
+
+    /// The platform is recorded by a whole write: luma.json changed, nothing else left in the folder (M-148).
+    #[test]
+    fn a_platform_is_recorded_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("luma.json");
+        std::fs::write(&path, "{\r\n  \"id\": \"m\"\r\n}\r\n").unwrap();
+        assert!(record_platform(dir.path(), "linux-arm64").unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\r\n  \"id\": \"m\",\r\n  \"code\": { \"platforms\": [\"linux-arm64\"] }\r\n}\r\n");
+        assert!(!record_platform(dir.path(), "linux-arm64").unwrap(), "there already: not written");
+        let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["luma.json"]);
     }
 
     #[test]

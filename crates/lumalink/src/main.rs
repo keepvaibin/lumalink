@@ -204,6 +204,12 @@ enum Command {
         /// A platform to build for (repeat for several). Default: all nine.
         #[arg(long = "platform", value_name = "PLATFORM")]
         platforms: Vec<String>,
+        /// The modder's mod folder: the mods a mod needs are taken from it and from the mods the game comes with.
+        #[arg(long, value_name = "FOLDER")]
+        mods: Option<PathBuf>,
+        /// Leave out the installed game: --names names the self-description, and no needed mod comes from its mods.
+        #[arg(long)]
+        no_installed: bool,
     },
     /// Start the installed game with a mod: a folder is packed first (as `pack` packs it), then imported into the
     /// game's mods, then the game starts. A mod folder with code plays in dev mode (lumalink_core::dev): each change of
@@ -463,6 +469,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::New { folder, id, name, summary, authors } => new_mod(&folder, &id, &name, &summary, &authors),
         Command::Check { path, inputs, json } => {
             let report = validate(&path, &inputs)?;
+            // Code checked against one game and built against another fails in ways (L505) that do not say so.
+            let resolved = inputs.resolved();
+            if let Some(names) = resolved.names.as_deref().filter(|_| path.is_dir() && jobs::has_source(&path)) {
+                if jobs::code_out_of_date(&path, names, sdk_folder(None, Some(names)).as_deref(), &jobs::NeedsFrom::from(&resolved)) {
+                    eprintln!("{}", say!("LumaLink.Check.CodeNotBuiltHere", folder = path.display(), names = names.display()));
+                }
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&jobs::report_json(&report))?);
             } else {
@@ -475,7 +488,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Extract { from, names, output, game, self_description } => extract(&from, &names, &output, game.as_deref(), self_description.as_deref()),
         Command::Explain { code } => explain(&code),
         Command::Verify { luma, source } => verify(&luma, &source),
-        Command::Build { folder, names, sdk, clang, work, platforms } => build(&folder, &names_or_installed(names)?, sdk, clang, work, &platforms),
+        Command::Build { folder, names, sdk, clang, work, platforms, mods, no_installed } => {
+            let names = if no_installed { names.with_context(|| say!("LumaLink.NoNames"))? } else { names_or_installed(names)? };
+            build(&folder, &names, sdk, clang, work, &platforms, &jobs::NeedsFrom { mods, no_installed })
+        }
         Command::Run { path, inputs, args } => run_game(&path, &inputs, &args),
         Command::Test { folder, bin, runner, python, work, lock, renderer, game } => test(&folder, bin, runner, python, work, lock, renderer, game),
         Command::Format { paths, check } => format(&paths, check),
@@ -552,7 +568,7 @@ fn run_game(path: &Path, inputs: &Inputs, game_args: &[OsString]) -> Result<Exit
     let names = found.self_description();
     let build = |folder: &Path| -> Result<(Vec<jobs::BuildLine>, bool)> {
         let names = names.as_deref().with_context(|| say!("LumaLink.NoNames"))?;
-        let built = jobs::build_mod(folder, names, jobs::sdk_folder(None, Some(names)), None, None, &[])?;
+        let built = jobs::build_mod(folder, names, jobs::sdk_folder(None, Some(names)), None, None, &[], &jobs::NeedsFrom::from(&inputs))?;
         let mut lines = built.lines;
         if let Some(jobs::BuildFailed::Platforms(why)) = &built.failed {
             lines.push(jobs::BuildLine { text: why.clone(), error: true, to_stderr: true });
@@ -875,16 +891,16 @@ fn test(folder: &Path, bin: Option<PathBuf>, runner: Option<PathBuf>, python: Op
 
 /// `lumalink build`: the mod's LumaScript checked, written as C and built into `code/<platform>/mod.<ending>` for each
 /// platform given, all nine by default (plans 4.3, 8.4).
-fn build(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String]) -> Result<ExitCode> {
-    Ok(match build_mod(folder, names, sdk, clang, work, platforms)? {
+fn build(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String], needs: &jobs::NeedsFrom) -> Result<ExitCode> {
+    Ok(match build_mod(folder, names, sdk, clang, work, platforms, needs)? {
         None => ExitCode::SUCCESS,
         Some(_) => ExitCode::from(1),
     })
 }
 
 /// [`build`]'s work: None built, or the count of script errors (each said).
-fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String]) -> Result<Option<usize>> {
-    let built = jobs::build_mod(folder, names, sdk_folder(sdk, Some(names)), clang, work, platforms)?;
+fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String], needs: &jobs::NeedsFrom) -> Result<Option<usize>> {
+    let built = jobs::build_mod(folder, names, sdk_folder(sdk, Some(names)), clang, work, platforms, needs)?;
     for line in &built.lines {
         if line.to_stderr {
             eprint!("{}", line.text);
@@ -910,7 +926,8 @@ fn build_for_test(folder: &Path, names: &Path) -> Result<()> {
         .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect())
         .unwrap_or_default();
     let platforms = if listed.is_empty() { lumalink_core::build::HOST.into_iter().map(str::to_string).collect() } else { listed };
-    match build_mod(folder, names, None, None, None, &platforms)? {
+    // The game under test is the bin folder's, not the installed one: no needed mod comes from the installed game.
+    match build_mod(folder, names, None, None, None, &platforms, &jobs::NeedsFrom { mods: None, no_installed: true })? {
         None => Ok(()),
         Some(count) => bail!(say!("LumaLink.Test.NotBuilt", folder = folder.display(), why = say!("LumaLink.Build.ScriptErrors", count = count))),
     }
@@ -976,10 +993,13 @@ fn convert(from: &Path, folder: &Path, game: Option<PathBuf>, name: Option<Strin
 
 fn pack(folder: &Path, output: Option<PathBuf>, inputs: &Inputs) -> Result<ExitCode> {
     let inputs = inputs.resolved();
-    // Code older than its source is built first, as the window and `lumalink run` do: what is packed is the source.
-    if jobs::code_out_of_date(folder) {
+    // Code not built from what the folder holds now, with this LumaLink and against the self-description pack checks
+    // with, is built first, as the window and `lumalink run` do: what is packed is the source.
+    if jobs::has_source(folder) {
         let names = inputs.names.clone().with_context(|| say!("LumaLink.NoNames"))?;
-        if build_mod(folder, &names, None, None, None, &[])?.is_some() {
+        // Built with the needed mods the check finds them in.
+        let needs = jobs::NeedsFrom::from(&inputs);
+        if jobs::code_out_of_date(folder, &names, sdk_folder(None, Some(&names)).as_deref(), &needs) && build_mod(folder, &names, None, None, None, &[], &needs)?.is_some() {
             println!("{}", say!("LumaLink.NotPacked.Errors"));
             return Ok(ExitCode::from(1));
         }

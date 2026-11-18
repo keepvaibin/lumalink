@@ -3,7 +3,7 @@
 //! prints what a job returns, the window shows it.
 
 use crate::installed::Installed;
-use crate::{character, luma_file, say, text};
+use crate::{character, luma_file, say, text, update};
 use anyhow::{bail, Context, Result};
 use luma_validate::names::Names;
 use luma_validate::{Finding, Level, Report};
@@ -93,9 +93,10 @@ fn needed_mods(mod_path: &Path, inputs: &Inputs) -> Vec<luma_validate::Installed
     let Some(json) = manifest.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) else { return Vec::new() };
     let ids: Vec<String> = json.get("needs").and_then(|n| n.as_array()).into_iter().flatten().filter_map(|n| n.get("id")?.as_str().map(str::to_string)).collect();
     let shipped = inputs.names.as_ref().map(|n| n.join("mods")).filter(|p| p.is_dir());
+    let places = crate::build::Places { mods: None, no_installed: inputs.no_installed, shipped: shipped.as_deref() };
     let mut out = Vec::new();
     for id in ids {
-        let Some(folder) = crate::build::needed_folder(mod_path, &id, shipped.as_deref()) else { continue };
+        let Some(folder) = crate::build::needed_folder(mod_path, &id, places) else { continue };
         let report = luma_validate::validate(&luma_validate::Input { source: luma_validate::Source::Folder(&folder), game: None, installed: &[], platforms: &[], options: None, position: None });
         if let Some(a) = report.about {
             let file = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -355,15 +356,15 @@ pub fn pack(folder: &Path, output: Option<PathBuf>, inputs: &Inputs) -> Result<(
         bail!(say!("LumaLink.AlreadyThere", path = output.display()));
     }
     let files = luma_file::folder_files(folder)?;
-    let temporary = output.with_extension("luma.part");
-    let summary = luma_file::write(&files, &temporary)?;
+    // Removed on every way out but the last: an error writing it or checking it again leaves no .luma.part.
+    let temporary = crate::files::Part::at(output.with_extension("luma.part"));
+    let summary = luma_file::write(&files, temporary.path())?;
     // The written file is checked again, whole: what is published is what passed.
-    let again = validate_as(&temporary, folder, inputs)?;
+    let again = validate_as(temporary.path(), folder, inputs)?;
     if !again.passed() || again.not_checked.iter().any(luma_validate::NotChecked::needs_input) {
-        let _ = std::fs::remove_file(&temporary);
         return Ok((report, PackOutcome::WrittenFails(again)));
     }
-    std::fs::rename(&temporary, &output).with_context(|| say!("LumaLink.CannotWrite", path = output.display()))?;
+    temporary.finish(&output).with_context(|| say!("LumaLink.CannotWrite", path = output.display()))?;
     Ok((report, PackOutcome::Packed { file: output, summary }))
 }
 
@@ -732,6 +733,16 @@ pub fn extract_luma(luma: &Path, names: &[String], output: &Path) -> Result<std:
         return Ok(Err(container));
     }
     Ok(Ok(luma_file::extract(luma, names, output)?))
+}
+
+/// A luma.json `build` refuses ([`crate::build::BuildError::Manifest`]), in the words `check` says it with (L201).
+fn manifest_error(path: &Path, line: u32, column: u32, what: &'static str, detail: String) -> anyhow::Error {
+    use luma_validate::Arg;
+    let folder = path.parent().unwrap_or(path).display().to_string();
+    let code = 201;
+    let args = vec![("found", Arg::Phrase(what)), ("detail", Arg::Text(detail))];
+    let shown = Finding { code, level: luma_validate::level_of(code), mod_id: None, file: folder, line: Some(line), column: Some(column), pointer: None, args };
+    anyhow::anyhow!(luma_validate::message(&shown, text::language()))
 }
 
 /// What a validator code means: its number, level and template with its parameter names in braces.
@@ -1186,23 +1197,63 @@ mod tests {
         assert_eq!(found.iter().map(|m| (m.id.as_str(), m.file.as_str())).collect::<Vec<_>>(), vec![("lib.mod", "lib.mod")]);
     }
 
-    /// Code is out of date with no code, or with source newer than the oldest library; a mod with no source never is.
+    /// Code is out of date until a build is recorded, then again when anything it was built from changes: the source,
+    /// luma.json, the self-description, the SDK, or a platform luma.json lists that the build did not make (M-023). A
+    /// time changed with the bytes the same is no change; a mod with no source never is out of date.
     #[test]
-    fn code_is_out_of_date_when_source_is_newer() {
+    fn code_is_out_of_date_when_anything_it_was_built_from_changed() {
         let dir = tempfile::tempdir().unwrap();
-        let m = dir.path();
-        assert!(!code_out_of_date(m), "no source");
+        let (data, m, names, sdk) = (dir.path().join("data"), dir.path().join("m"), dir.path().join("names"), dir.path().join("sdk"));
+        for d in [&m, &names.join("Game"), &sdk] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(names.join("luma_functions.json"), "{}").unwrap();
+        std::fs::write(names.join("Game/A.json"), "{}").unwrap();
+        std::fs::write(sdk.join("luma.h"), "").unwrap();
+        let data = Some(data.as_path());
+        let needs = NeedsFrom { mods: Some(dir.path().join("mods")), no_installed: true };
+        std::fs::create_dir_all(dir.path().join("mods/lib/code")).unwrap();
+        std::fs::write(dir.path().join("mods/lib/luma.json"), "{\"id\": \"lib\"}").unwrap();
+        std::fs::write(dir.path().join("mods/lib/code/lib.lumi"), "one").unwrap();
+        let from = BuiltFrom { names: &names, sdk: Some(&sdk), needs: &needs };
+        let out = |m: &Path| code_out_of_date_in(data, m, &from);
+        let record = |platforms: &[&str]| record_build_in(data, &m, &from, platforms);
+        assert!(!out(&m), "no source");
         std::fs::create_dir_all(m.join("source")).unwrap();
-        std::fs::create_dir_all(m.join("code")).unwrap();
-        std::fs::write(m.join("source/main.lum"), "").unwrap();
-        assert!(code_out_of_date(m), "no code");
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
-        let main = std::fs::OpenOptions::new().write(true).open(m.join("source/main.lum")).unwrap();
-        main.set_modified(old).unwrap();
-        std::fs::write(m.join("code/m.lumi"), "").unwrap();
-        assert!(!code_out_of_date(m), "code newer than source");
-        main.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
-        assert!(code_out_of_date(m), "source newer than code");
+        std::fs::write(m.join("luma.json"), "{\"id\": \"m\", \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
+        std::fs::write(m.join("source/main.lum"), "fn a() {}").unwrap();
+        assert!(out(&m), "never built");
+        assert!(code_out_of_date_in(None, &m, &from), "no data folder: no record");
+        record(&["windows-x64"]);
+        assert!(!out(&m), "built from all of it");
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        std::fs::OpenOptions::new().write(true).open(m.join("source/main.lum")).unwrap().set_modified(later).unwrap();
+        assert!(!out(&m), "a newer time, the same bytes");
+        std::fs::write(m.join("source/main.lum"), "fn b() {}").unwrap();
+        assert!(out(&m), "the source changed");
+        record(&["windows-x64"]);
+        std::fs::OpenOptions::new().write(true).open(names.join("Game/A.json")).unwrap().set_modified(later).unwrap();
+        assert!(out(&m), "the self-description changed");
+        record(&["windows-x64"]);
+        std::fs::write(sdk.join("luma.h"), "#pragma once\n").unwrap();
+        assert!(out(&m), "the SDK changed");
+        record(&["windows-x64"]);
+        assert!(!out(&m));
+        std::fs::write(m.join("luma.json"), "{\"id\": \"m\", \"code\": {\"platforms\": [\"windows-x64\", \"linux-x64\"]}}").unwrap();
+        record(&["windows-x64"]);
+        assert!(out(&m), "luma.json lists a platform the build did not make");
+        record(&["windows-x64", "linux-x64"]);
+        assert!(!out(&m));
+        // A needed mod's interface changes.
+        std::fs::write(m.join("luma.json"), "{\"id\": \"m\", \"needs\": [{\"id\": \"lib\", \"version\": \"*\"}], \"code\": {\"platforms\": [\"windows-x64\"]}}").unwrap();
+        record(&["windows-x64"]);
+        assert!(!out(&m));
+        std::fs::write(dir.path().join("mods/lib/code/lib.lumi"), "two").unwrap();
+        assert!(out(&m), "a needed mod's interface changed");
+        record(&["windows-x64"]);
+        assert!(!out(&m));
+        // One record per folder, in data/builds.
+        assert_eq!(std::fs::read_dir(dir.path().join("data").join(BUILDS_FOLDER)).unwrap().count(), 1);
     }
 
     /// A library in the mod folder gives its data schemas to the check of a mod that uses it, as in the game.
@@ -1555,30 +1606,120 @@ pub fn sdk_folder(sdk: Option<PathBuf>, names: Option<&Path>) -> Option<PathBuf>
         .or_else(|| names.map(|n| n.join("sdk")).filter(|s| s.join("luma.h").is_file()))
 }
 
-/// Whether a mod folder's code needs building before it is packed or played: it has source, and a source file or
-/// luma.json is newer than its oldest library (or it has none).
-pub fn code_out_of_date(folder: &Path) -> bool {
-    fn times(dir: &Path) -> Vec<std::time::SystemTime> {
-        let mut out = vec![];
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(d) = stack.pop() {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    stack.push(p);
-                } else if let Ok(t) = e.metadata().and_then(|m| m.modified()) {
-                    out.push(t);
-                }
-            }
-        }
-        out
-    }
+/// Whether a mod folder's code needs building before it is packed or played against the game's self-description
+/// `names` and the SDK `sdk`, with the mods it needs from `needs`: it has source, and its last build
+/// ([`record_build`]) was made from something else: other source or luma.json, another LumaLink, another
+/// self-description or SDK, another interface of a needed mod, or fewer platforms than luma.json lists. With no record
+/// (never built here, or no data folder) it is out of date.
+pub fn code_out_of_date(folder: &Path, names: &Path, sdk: Option<&Path>, needs: &NeedsFrom) -> bool {
+    code_out_of_date_in(update::data_folder().as_deref(), folder, &BuiltFrom { names, sdk, needs })
+}
+
+/// Records that `folder`'s code was just built from what it holds now, against `names` and `sdk` with the mods it
+/// needs from `needs`, for `platforms`.
+pub fn record_build(folder: &Path, names: &Path, sdk: Option<&Path>, needs: &NeedsFrom, platforms: &[&str]) {
+    record_build_in(update::data_folder().as_deref(), folder, &BuiltFrom { names, sdk, needs }, platforms);
+}
+
+/// What a build is made from beyond the mod's folder.
+struct BuiltFrom<'a> {
+    names: &'a Path,
+    sdk: Option<&'a Path>,
+    needs: &'a NeedsFrom,
+}
+
+/// The folder of build records in LumaLink's data folder (see [`update::own_data_files`]).
+pub const BUILDS_FOLDER: &str = "builds";
+
+fn code_out_of_date_in(data: Option<&Path>, folder: &Path, from: &BuiltFrom<'_>) -> bool {
     if !folder.is_dir() || !has_source(folder) {
         return false;
     }
-    let newest_source = times(&folder.join("source")).into_iter().chain(std::fs::metadata(folder.join("luma.json")).and_then(|m| m.modified()).ok()).max();
-    let oldest_code = times(&folder.join("code")).into_iter().min();
-    !matches!((newest_source, oldest_code), (Some(source), Some(code)) if code >= source)
+    let Some(record) = data.map(|d| build_record_path(d, folder)) else { return true };
+    let Ok(text) = std::fs::read_to_string(record) else { return true };
+    let Some((built, platforms)) = text.split_once("\nplatforms ") else { return true };
+    let built_for: Vec<&str> = platforms.split_whitespace().collect();
+    let listed = listed_platforms(folder);
+    built != build_inputs(folder, from) || !listed.iter().all(|p| built_for.contains(&p.as_str())) || listed.is_empty()
+}
+
+fn record_build_in(data: Option<&Path>, folder: &Path, from: &BuiltFrom<'_>, platforms: &[&str]) {
+    let Some(data) = data else { return };
+    let record = build_record_path(data, folder);
+    if let Some(parent) = record.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // A record not written only means the next pack or play builds again.
+    let _ = crate::files::write_whole(&record, format!("{}\nplatforms {}", build_inputs(folder, from), platforms.join(" ")).as_bytes());
+}
+
+/// `<data>/builds/<folder's name hashed>.txt`: one record per mod folder on this machine.
+fn build_record_path(data: &Path, folder: &Path) -> PathBuf {
+    let full = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let name = full.to_string_lossy();
+    let name = if cfg!(windows) { name.to_lowercase() } else { name.into_owned() };
+    data.join(BUILDS_FOLDER).join(format!("{:016x}.txt", fnv1a(name.as_bytes())))
+}
+
+/// The platforms the mod's luma.json lists in `code.platforms`.
+fn listed_platforms(folder: &Path) -> Vec<String> {
+    std::fs::read(folder.join("luma.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("code")?.get("platforms")?.as_array().cloned())
+        .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// What a build of `folder` is made from, a line each: this LumaLink's program (size and time); the self-description
+/// and the SDK, each as its count of files and a hash of every file's name, size and time (16 000 files: no reading);
+/// each file of the mod's source and its luma.json, by name and a hash of its bytes (a copy or a checkout that only
+/// touches times is no change); each needed mod's interface, where the build finds it, by a hash of its bytes.
+fn build_inputs(folder: &Path, from: &BuiltFrom<'_>) -> String {
+    let (names, sdk) = (from.names, from.sdk);
+    use std::fmt::Write;
+    let mut out = String::new();
+    let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos())));
+    let program = std::env::current_exe().ok();
+    let _ = writeln!(out, "lumalink {} {:?}", update::VERSION, program.as_deref().and_then(stamp));
+    for (what, root) in [("names", Some(names)), ("sdk", sdk)] {
+        let Some(root) = root else { continue };
+        let files = files_under(root);
+        let all: String = files.iter().map(|(name, path)| format!("{name} {:?}\n", stamp(path))).collect();
+        let _ = writeln!(out, "{what} {} {:016x}", files.len(), fnv1a(all.as_bytes()));
+    }
+    let source = files_under(&folder.join("source")).into_iter().map(|(n, p)| (format!("source/{n}"), p));
+    for (name, path) in std::iter::once(("luma.json".to_string(), folder.join("luma.json"))).chain(source) {
+        let _ = writeln!(out, "mod {name} {:016x}", std::fs::read(&path).map_or(0, |b| fnv1a(&b)));
+    }
+    let shipped = Some(names.join("mods")).filter(|p| p.is_dir());
+    let places = crate::build::Places { mods: from.needs.mods.as_deref(), no_installed: from.needs.no_installed, shipped: shipped.as_deref() };
+    for (id, lumi) in crate::build::needed_interfaces(folder, places) {
+        let _ = writeln!(out, "need {id} {:?}", lumi.and_then(|p| std::fs::read(p).ok()).map(|b| fnv1a(&b)));
+    }
+    out
+}
+
+/// Every file under `root` with its name from `root` (`/` separators), by name.
+fn files_under(root: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                stack.push(p);
+            } else if let Ok(rel) = p.strip_prefix(root) {
+                out.push((rel.to_string_lossy().replace('\\', "/"), p));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// Whether a mod folder has code to build: LumaScript or C under `source/`.
@@ -1588,9 +1729,25 @@ pub fn has_source(folder: &Path) -> bool {
     })
 }
 
+/// Where [`build_mod`] takes the mods a mod needs from ([`crate::build::needed_folder`]).
+#[derive(Clone, Debug, Default)]
+pub struct NeedsFrom {
+    /// The modder's mod folder (`--mods`): there and in the mods the game comes with, nowhere else.
+    pub mods: Option<PathBuf>,
+    /// Leave out the installed game's mods (`--no-installed`).
+    pub no_installed: bool,
+}
+
+impl From<&Inputs> for NeedsFrom {
+    fn from(inputs: &Inputs) -> NeedsFrom {
+        NeedsFrom { mods: inputs.mods.clone(), no_installed: inputs.no_installed }
+    }
+}
+
 /// Builds a mod's code (`lumalink build`): the game's names from `names`, the SDK `sdk` (see [`sdk_folder`]), clang
-/// (the one LumaLink ships when None), in `work` (a temporary folder when None), for `platforms` (all when empty).
-pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String]) -> Result<BuildOutcome> {
+/// (the one LumaLink ships when None), in `work` (a temporary folder when None), for `platforms` (all when empty),
+/// with the mods it needs from `needs`.
+pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Option<PathBuf>, work: Option<PathBuf>, platforms: &[String], needs: &NeedsFrom) -> Result<BuildOutcome> {
     use crate::build::{self, BuildError};
     let mut rows = Names::from_rows_folder(names, 1).map_err(|e| rows_error(names, e))?;
     rows.api = 1;
@@ -1605,7 +1762,9 @@ pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Optio
     let say_line = |out: &mut BuildOutcome, text: String, error: bool| out.lines.push(BuildLine { text, error, to_stderr: false });
     // The services the SDK's headers declare: their calls are kind 5 imports the loader checks. A service header the
     // compiler cannot read is said (its scripts then find no such module, S0027).
-    let (game, unread) = build::game_of(&rows, names, Some(&sdk)).map_err(game_error)?;
+    let (mut game, unread) = build::game_of(&rows, names, Some(&sdk)).map_err(game_error)?;
+    game.mods_folder = needs.mods.clone();
+    game.no_installed = needs.no_installed;
     for e in &unread {
         out.lines.push(BuildLine { text: say!("LumaLink.Build.ServiceUnread", why = e), error: true, to_stderr: true });
     }
@@ -1632,6 +1791,8 @@ pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Optio
             for (_, library, bytes) in &built.libraries {
                 say_line(&mut out, say!("LumaLink.Build.Built", path = library.display(), bytes = bytes, c = built.c_bytes, imports = built.imports.len()), false);
             }
+            let platforms: Vec<&str> = built.libraries.iter().map(|(p, _, _)| *p).collect();
+            record_build(folder, names, Some(&sdk), needs, &platforms);
         }
         Err(BuildError::Script(errors)) => {
             for (file, d) in &errors {
@@ -1654,6 +1815,7 @@ pub fn build_mod(folder: &Path, names: &Path, sdk: Option<PathBuf>, clang: Optio
         Err(BuildError::Read(path, e)) => return Err(anyhow::Error::new(e).context(say!("LumaLink.CannotRead", path = path.display()))),
         Err(BuildError::Write(path, e)) => return Err(anyhow::Error::new(e).context(say!("LumaLink.Build.CannotWrite", path = path.display()))),
         Err(BuildError::NoId(path)) => bail!(say!("LumaLink.Build.NoId", path = path.display())),
+        Err(BuildError::Manifest { path, line, column, what, detail }) => return Err(manifest_error(&path, line, column, what, detail)),
         Err(BuildError::NoScripts(folder)) => bail!(say!("LumaLink.Build.NoScripts", folder = folder.display())),
         Err(BuildError::NoSdk(folder)) => bail!(say!("LumaLink.Build.NoSdk", folder = folder.display())),
         Err(BuildError::NoClang(path, e)) => return Err(anyhow::Error::new(e).context(say!("LumaLink.Build.NoClang", path = path.display()))),

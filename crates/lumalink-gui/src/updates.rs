@@ -90,7 +90,8 @@ impl Update {
                 Ok(Ok(None)) => Some(if *asked { Update::UpToDate } else { Update::Quiet }),
                 Ok(Err(why)) => Some(if *asked { Update::Failed { release: None, why } } else { Update::Quiet }),
                 Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => Some(Update::Quiet),
+                // The check's thread ended with no answer (a LumaLink fault): said when asked for, as an answer is.
+                Err(TryRecvError::Disconnected) => Some(if *asked { Update::Failed { release: None, why: say!("LumaLink.Window.Crashed") } } else { Update::Quiet }),
             },
             Update::Downloading { release, done, cancel, .. } => match done.try_recv() {
                 Ok(Ok(setup)) => Some(Update::Ready { release: release.clone(), setup }),
@@ -98,7 +99,7 @@ impl Update {
                 Ok(Err(_)) if cancel.load(Ordering::Relaxed) => Some(Update::Offer(release.clone())),
                 Ok(Err(why)) => Some(Update::Failed { release: Some(release.clone()), why }),
                 Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => Some(Update::Quiet),
+                Err(TryRecvError::Disconnected) => Some(Update::Failed { release: Some(release.clone()), why: say!("LumaLink.Window.Crashed") }),
             },
             _ => None,
         };

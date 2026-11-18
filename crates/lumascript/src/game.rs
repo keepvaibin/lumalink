@@ -320,6 +320,12 @@ pub struct Game {
     /// The folder of the `.luma` files the game comes with (`mods` in its self-description folder, LumaKit): a mod
     /// these need is read from there when it is neither beside the mod nor installed. None when the folder has none.
     pub shipped_mods: Option<std::path::PathBuf>,
+    /// The modder's mod folder (`--mods`): with it, a needed mod is looked for there (a folder or a `.luma`) and in
+    /// `shipped_mods` alone, so a build does not depend on what this machine has installed. None: beside the mod,
+    /// then the installed game's mods (unless `no_installed`), then `shipped_mods`.
+    pub mods_folder: Option<std::path::PathBuf>,
+    /// The installed game's mods are not looked in (`--no-installed`).
+    pub no_installed: bool,
 }
 
 /// A table of the game's data as luma_numbers.json lists it.

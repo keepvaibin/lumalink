@@ -113,6 +113,74 @@ fn an_authors_c_may_have_a_frame_over_4_kib() {
     assert_eq!(built.recorded, [host]);
 }
 
+/// An SDK whose folder has a comma in its path links every ELF platform (the linker script's path goes to the linker
+/// whole, M-149), and the arm64 ones carry their atomics inline, importing no `__aarch64_` helper (M-142).
+#[test]
+fn an_sdk_path_with_a_comma_links_and_arm64_atomics_are_inline() {
+    let Some(sdk) = sdk() else {
+        eprintln!("skipped: no SDK (LUMA_SDK, or nebula/native/include beside this workspace)");
+        return;
+    };
+    let clang = build::default_clang();
+    if build::clang_version(&clang).ok().as_deref() != Some(build::LLVM) {
+        eprintln!("skipped: no LLVM {} at {}", build::LLVM, clang.display());
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let copied = dir.path().join("sd,k");
+    copy_folder(&sdk, &copied);
+    let folder = dir.path().join("atomic");
+    std::fs::create_dir_all(folder.join("source")).unwrap();
+    let (major, minor) = luma_validate::FORMAT;
+    std::fs::write(
+        folder.join("luma.json"),
+        format!("{{
+  \"format\": \"{major}.{minor}\",
+  \"id\": \"test.atomic\",
+  \"version\": \"1.0.0\",
+  \"name\": \"Atomic\",
+  \"summary\": \"Atomics.\",
+  \"authors\": [\"keepvaibin\"],
+  \"game\": {{ \"id\": \"RMG\" }}
+}}
+"),
+    )
+    .unwrap();
+    let source = "#include <luma.h>
+
+static int counter;
+
+static int32_t start(const LumaCore* core, const LumaMod* mod) {
+    int expected = 0;
+    __atomic_compare_exchange_n(&counter, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    core->log(mod, __atomic_fetch_add(&counter, 1, __ATOMIC_SEQ_CST) ? \"one\" : \"zero\");
+    return 0;
+}
+
+LUMA_MOD_NO_IMPORTS(start, 0);
+";
+    std::fs::write(folder.join("source/atomic.c"), source).unwrap();
+    let elf: Vec<String> = ["linux-x64", "linux-arm64", "android-arm64", "android-x64"].map(String::from).to_vec();
+    let built = build::build(&folder, &Game::default(), &copied, &clang, &dir.path().join("work"), &elf).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(built.libraries.iter().map(|(p, _, _)| *p).collect::<Vec<_>>(), ["linux-x64", "linux-arm64", "android-arm64", "android-x64"]);
+    for (platform, library, _) in &built.libraries {
+        let bytes = std::fs::read(library).unwrap();
+        assert!(!bytes.windows(b"__aarch64_".len()).any(|w| w == b"__aarch64_"), "{platform} imports an outline atomic helper");
+    }
+}
+
+fn copy_folder(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(e.file_name());
+        if e.path().is_dir() {
+            copy_folder(&e.path(), &target);
+        } else {
+            std::fs::copy(e.path(), target).unwrap();
+        }
+    }
+}
+
 /// A mod with neither LumaScript nor C is refused, by name, before any compile.
 #[test]
 fn a_mod_with_no_code_is_refused() {

@@ -792,33 +792,41 @@ mod tests {
 
     /// The mesh's coverage (0 to 1) on a `size` x `size` grid of pixels, 4 x 4 samples a pixel, from its vertices' alpha.
     fn coverage(mesh: &Mesh, size: usize) -> Vec<f32> {
-        let mut out = vec![0.0f32; size * size];
-        let tris: Vec<[usize; 3]> = mesh.indices.chunks(3).map(|t| [t[0] as usize, t[1] as usize, t[2] as usize]).collect();
-        for py in 0..size {
-            for px in 0..size {
-                let mut sum = 0.0;
-                for sy in 0..4 {
-                    for sx in 0..4 {
-                        let p = pos2(px as f32 + (sx as f32 + 0.5) / 4.0, py as f32 + (sy as f32 + 0.5) / 4.0);
-                        for t in &tris {
-                            let [a, b, c] = t.map(|i| mesh.vertices[i].pos);
-                            let d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-                            if d.abs() < 1e-9 {
-                                continue;
-                            }
-                            let u = ((b.y - c.y) * (p.x - c.x) + (c.x - b.x) * (p.y - c.y)) / d;
-                            let v = ((c.y - a.y) * (p.x - c.x) + (a.x - c.x) * (p.y - c.y)) / d;
-                            let w = 1.0 - u - v;
-                            if u >= 0.0 && v >= 0.0 && w >= 0.0 {
-                                let alpha = t.map(|i| mesh.vertices[i].color.a() as f32 / 255.0);
-                                sum += u * alpha[0] + v * alpha[1] + w * alpha[2];
-                                break;
-                            }
-                        }
+        // 4x4 samples a pixel; each sample takes the first triangle (in the mesh's order) that holds it. Triangle by
+        // triangle over its own box of samples, so the cost is the triangles' area, not pixels times triangles.
+        let side = size * 4;
+        let mut sample = vec![None::<f32>; side * side];
+        for t in mesh.indices.chunks(3) {
+            let t = [t[0] as usize, t[1] as usize, t[2] as usize];
+            let [a, b, c] = t.map(|i| mesh.vertices[i].pos);
+            let d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+            if d.abs() < 1e-9 {
+                continue;
+            }
+            let alpha = t.map(|i| mesh.vertices[i].color.a() as f32 / 255.0);
+            let range = |lo: f32, hi: f32| ((lo * 4.0 - 0.5).floor().max(0.0) as usize, ((hi * 4.0 - 0.5).ceil().max(0.0) as usize).min(side - 1));
+            let (x0, x1) = range(a.x.min(b.x).min(c.x), a.x.max(b.x).max(c.x));
+            let (y0, y1) = range(a.y.min(b.y).min(c.y), a.y.max(b.y).max(c.y));
+            for sy in y0..=y1 {
+                for sx in x0..=x1 {
+                    let slot = &mut sample[sy * side + sx];
+                    if slot.is_some() {
+                        continue;
+                    }
+                    let p = pos2((sx as f32 + 0.5) / 4.0, (sy as f32 + 0.5) / 4.0);
+                    let u = ((b.y - c.y) * (p.x - c.x) + (c.x - b.x) * (p.y - c.y)) / d;
+                    let v = ((c.y - a.y) * (p.x - c.x) + (a.x - c.x) * (p.y - c.y)) / d;
+                    let w = 1.0 - u - v;
+                    if u >= 0.0 && v >= 0.0 && w >= 0.0 {
+                        *slot = Some(u * alpha[0] + v * alpha[1] + w * alpha[2]);
                     }
                 }
-                out[py * size + px] = sum / 16.0;
             }
+        }
+        let mut out = vec![0.0f32; size * size];
+        for (i, s) in sample.iter().enumerate() {
+            let (sx, sy) = (i % side, i / side);
+            out[(sy / 4) * size + sx / 4] += s.unwrap_or(0.0) / 16.0;
         }
         out
     }

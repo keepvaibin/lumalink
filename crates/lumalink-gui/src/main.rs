@@ -134,6 +134,26 @@ enum Job {
     Explain(u16),
 }
 
+impl Job {
+    /// The job's name in its job file (lumalink_core::running), for whoever reads the file.
+    fn name(&self) -> &'static str {
+        match self {
+            Job::Check => "check",
+            Job::Build => "build",
+            Job::Pack { .. } => "pack",
+            Job::Install { .. } => "install",
+            Job::Convert { .. } => "convert",
+            Job::MakeLuma { .. } => "make-luma",
+            Job::AddCharacter { .. } => "add-character",
+            Job::CharacterMod { .. } => "character-mod",
+            Job::Verify { .. } => "verify",
+            Job::List => "list",
+            Job::Extract { .. } => "extract",
+            Job::Explain(_) => "explain",
+        }
+    }
+}
+
 /// What came back from a job's thread.
 struct Done {
     item: u64,
@@ -356,7 +376,7 @@ fn mod_id(name: &str) -> String {
 /// it built.
 fn build_lines(folder: &Path, installed: Option<&Installed>) -> anyhow::Result<(Vec<Line>, bool)> {
     let Some(names) = installed.and_then(Installed::self_description) else { return Ok((vec![Line::words(say!("LumaLink.NoNames"), RED)], false)) };
-    let built = jobs::build_mod(folder, &names, jobs::sdk_folder(None, Some(&names)), None, None, &[])?;
+    let built = jobs::build_mod(folder, &names, jobs::sdk_folder(None, Some(&names)), None, None, &[], &jobs::NeedsFrom::default())?;
     let mut lines: Vec<Line> = built.lines.iter().map(|l| Line::words(l.text.trim_end().to_string(), if l.error { RED } else { SOFT })).collect();
     if let Some(jobs::BuildFailed::Platforms(why)) = &built.failed {
         lines.push(Line::words(why.clone(), RED));
@@ -373,7 +393,7 @@ fn watch(path: &Path, id: &str, mods: &Path, game: jobs::Game, inputs: &Inputs, 
         let Some(names) = found.self_description() else {
             return Ok((vec![jobs::BuildLine { text: say!("LumaLink.NoNames"), error: true, to_stderr: true }], false));
         };
-        let built = jobs::build_mod(folder, &names, jobs::sdk_folder(None, Some(&names)), None, None, &[])?;
+        let built = jobs::build_mod(folder, &names, jobs::sdk_folder(None, Some(&names)), None, None, &[], &jobs::NeedsFrom::default())?;
         let mut lines = built.lines;
         if let Some(jobs::BuildFailed::Platforms(why)) = &built.failed {
             lines.push(jobs::BuildLine { text: why.clone(), error: true, to_stderr: true });
@@ -422,10 +442,16 @@ fn watch(path: &Path, id: &str, mods: &Path, game: jobs::Game, inputs: &Inputs, 
     Ok(())
 }
 
-/// Builds a mod folder's code when a source file is newer than its libraries (or it has none); nothing for a .luma or
-/// a mod without code. Its lines and whether the mod can go on.
+/// Builds a mod folder's code when its last build was made from anything else (`jobs::code_out_of_date`: its source,
+/// LumaLink, the installed game's self-description); nothing for a .luma or a mod without code. Its lines and whether
+/// the mod can go on.
 fn build_if_changed(path: &Path, installed: Option<&Installed>) -> anyhow::Result<(Vec<Line>, bool)> {
-    if !jobs::code_out_of_date(path) {
+    if !path.is_dir() || !jobs::has_source(path) {
+        return Ok((vec![], true));
+    }
+    // With no self-description, build_lines says so.
+    let names = installed.and_then(Installed::self_description);
+    if names.as_deref().is_some_and(|n| !jobs::code_out_of_date(path, n, jobs::sdk_folder(None, Some(n)).as_deref(), &jobs::NeedsFrom::default())) {
         return Ok((vec![], true));
     }
     build_lines(path, installed)
@@ -557,6 +583,17 @@ impl App {
         Inputs { names: None, platforms: vec![], game: self.game.clone(), no_installed: false, mods: None }.resolved(self.installed.as_ref())
     }
 
+    /// The mods of jobs the last LumaLink did not finish (the system ended it: lumalink_core::running), each added
+    /// with that said.
+    fn add_stopped(&mut self, left_over: Vec<(String, PathBuf)>) {
+        for (_, path) in left_over {
+            let id = self.add(path);
+            if let Some(item) = self.items.iter_mut().find(|i| i.id == id) {
+                item.lines = vec![Line::words(say!("LumaLink.Window.StoppedLastTime"), RED)];
+            }
+        }
+    }
+
     /// Adds a path (once); its id.
     fn add(&mut self, path: PathBuf) -> u64 {
         if let Some(item) = self.items.iter().find(|i| i.path == path) {
@@ -578,7 +615,9 @@ impl App {
         item.lines = vec![Line::words(say!("LumaLink.Window.Working"), SOFT)];
         let (path, installed, sender) = (item.path.clone(), self.installed.clone(), self.sender.clone());
         std::thread::spawn(move || {
-            // A job that panics is said as one, never silently lost.
+            // A job that panics is said as one, never silently lost; one the system ends with LumaLink (memory ran
+            // out) is said at the next start, from its job file.
+            let _running = lumalink_core::running::Running::start(lumalink_core::update::data_folder().as_deref(), id, job.name(), &path);
             let more = |lines: Vec<Line>| {
                 let _ = sender.send(Done { item: id, more: true, lines, made: None });
             };
@@ -682,6 +721,7 @@ fn main() -> eframe::Result<()> {
             look::setup(&creation.egui_ctx);
             // Paths given to the program (a file dropped on its icon, "Open with") are added as dropped ones are.
             let mut app = App::with(Installed::find(), std::env::args_os().skip(1).map(PathBuf::from));
+            app.add_stopped(lumalink_core::running::left_over(lumalink_core::update::data_folder().as_deref()));
             app.update = Update::at_start();
             Ok(Box::new(Window {
                 app,
@@ -774,6 +814,24 @@ mod tests {
             }
             panic!("the window never showed {text:?}: {:?}", self.words());
         }
+    }
+
+    /// A job the system ended with the last LumaLink (its job file left): the next window shows its mod with that said
+    /// (M-165).
+    #[test]
+    fn a_job_the_last_window_did_not_finish_is_said() {
+        text::set_language("UsEnglish");
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("cut");
+        assert!(matches!(jobs::new_mod(&folder, "test.cut", "Cut", "One line.", &["Me".into()]).unwrap(), NewMod::Made(_)));
+        let running = dir.path().join(lumalink_core::running::RUNNING_FOLDER);
+        std::fs::create_dir_all(&running).unwrap();
+        std::fs::write(running.join("4242-0.txt"), format!("pack\n{}", folder.display())).unwrap();
+        let mut app = App::with(None, std::iter::empty());
+        app.add_stopped(lumalink_core::running::left_over(Some(dir.path())));
+        let mut s = Screen::new(app);
+        s.drop_on(&folder);
+        assert!(s.shows(&say!("LumaLink.Window.StoppedLastTime")), "{:?}", s.words());
     }
 
     #[test]

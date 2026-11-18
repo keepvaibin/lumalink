@@ -182,14 +182,14 @@ pub fn modules(root: &Path, open: &HashMap<PathBuf, String>) -> Vec<Module> {
 
 /// The check inputs of the mod at `root` ([`crate::build::CheckInputs`]); when its luma.json does not read or has no
 /// id, the inputs that do not need it (the C headers, the mod's own content), so its modules are still read.
-fn inputs(root: &Path, shipped: Option<&Path>) -> crate::build::CheckInputs {
-    crate::build::CheckInputs::read(root, shipped).unwrap_or_else(|_| crate::build::CheckInputs {
+fn inputs(root: &Path, places: crate::build::Places<'_>) -> crate::build::CheckInputs {
+    crate::build::CheckInputs::read(root, places).unwrap_or_else(|_| crate::build::CheckInputs {
         id: String::new(),
         version: String::new(),
         needs: Vec::new(),
         options: Vec::new(),
         headers: crate::build::c_sources(root).map(|c| c.headers).unwrap_or_default(),
-        content: crate::build::content_names(root, &[], shipped),
+        content: crate::build::content_names(root, &[], places),
         interfaces: Vec::new(),
     })
 }
@@ -199,7 +199,7 @@ impl Analysis {
     /// build` does: the same inputs, the standard module after the mod's own, the needed mods' interfaces, and the
     /// back end when the checker said no error (its refusals are build errors too).
     pub fn new(root: &Path, modules: Vec<Module>, game: &GameView) -> Analysis {
-        let inputs = inputs(root, game.game.shipped_mods.as_deref());
+        let inputs = inputs(root, crate::build::Places::of(&game.game));
         let texts: Vec<String> = modules.iter().map(|m| m.text.clone()).collect();
         let paths: Vec<String> = modules.iter().map(|m| m.path.clone()).collect();
         let result = lumascript::on_compiler_stack(|| {

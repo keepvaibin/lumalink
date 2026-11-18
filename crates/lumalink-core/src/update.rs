@@ -221,15 +221,11 @@ impl Settings {
     }
 }
 
-/// Writes `file` through a temporary file beside it, so a process stopped midway leaves the old one whole.
+/// Writes `file` whole or not at all ([`crate::files::write_whole`]), making its folder first.
 fn write_atomically(file: &Path, bytes: &[u8]) -> Result<()> {
     let folder = file.parent().context("no folder")?;
     std::fs::create_dir_all(folder).with_context(|| folder.display().to_string())?;
-    let part = folder.join(format!(".{}.{}.part", file.file_name().and_then(|n| n.to_str()).unwrap_or("file"), std::process::id()));
-    std::fs::write(&part, bytes).with_context(|| part.display().to_string())?;
-    std::fs::rename(&part, file).with_context(|| file.display().to_string()).inspect_err(|_| {
-        let _ = std::fs::remove_file(&part);
-    })
+    crate::files::write_whole(file, bytes).with_context(|| file.display().to_string())
 }
 
 fn now() -> u64 {
@@ -782,7 +778,9 @@ pub fn remove_old_downloads_in(data: &Path) {
 pub const DATA_FILES: [&str; 3] = ["settings.json", "update-check.json", "setup.json"];
 
 /// LumaLink's own files in `data`: [`DATA_FILES`], a write of one of them left half done (`.<name>.<process>.part`),
-/// and in each `update-<version>` folder the downloaded Setup and a download left half done. Links are not followed.
+/// in each `update-<version>` folder the downloaded Setup and a download left half done, in `builds` the build records
+/// (`<16 hex digits>.txt`, crate::jobs::record_build) and their half-done writes, and in `running` the window's job
+/// files (crate::running). Links are not followed.
 pub fn own_data_files(data: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(data).into_iter().flatten().flatten() {
@@ -792,6 +790,10 @@ pub fn own_data_files(data: &Path) -> Vec<PathBuf> {
             out.push(entry.path());
         } else if kind.is_dir() && name.strip_prefix("update-").is_some_and(|v| !v.is_empty()) {
             out.extend(download_files(&entry.path()));
+        } else if kind.is_dir() && name == crate::jobs::BUILDS_FOLDER {
+            out.extend(build_records(&entry.path()));
+        } else if kind.is_dir() && name == crate::running::RUNNING_FOLDER {
+            out.extend(std::fs::read_dir(entry.path()).into_iter().flatten().flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_file())).map(|e| e.path()).filter(|p| crate::running::is_job_file(p)));
         }
     }
     out.sort();
@@ -803,6 +805,22 @@ fn half_written(name: &str) -> bool {
     let Some(rest) = name.strip_prefix('.').and_then(|r| r.strip_suffix(".part")) else { return false };
     let Some((file, process)) = rest.rsplit_once('.') else { return false };
     DATA_FILES.contains(&file) && !process.is_empty() && process.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// The build records in `builds` (as files, not links): `<16 hex digits>.txt`, and `.<that>.<process>.part`.
+fn build_records(folder: &Path) -> Vec<PathBuf> {
+    let record = |n: &str| n.strip_suffix(".txt").is_some_and(|h| h.len() == 16 && h.bytes().all(|b| b.is_ascii_hexdigit()));
+    let half = |n: &str| {
+        n.strip_prefix('.').and_then(|r| r.strip_suffix(".part")).and_then(|r| r.rsplit_once('.')).is_some_and(|(f, p)| record(f) && !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type().is_ok_and(|t| t.is_file()) && (record(&name) || half(&name)) {
+            out.push(entry.path());
+        }
+    }
+    out
 }
 
 /// The files [`download`] writes in an `update-<version>` folder, those that are there (as files, not links).
@@ -1057,7 +1075,10 @@ mod tests {
         }
         put(&format!("update-9.9.9/{SETUP_NAME}"));
         put(&format!("update-9.9.9/{SETUP_NAME}.part"));
-        let theirs = ["notes.txt", "photos/a.jpg", "update-photos/b.jpg", ".notes.txt.12.part", "settings.json.bak"];
+        put("builds/0123456789abcdef.txt");
+        put("builds/.0123456789abcdef.txt.77.part");
+        put("running/4242-7.txt");
+        let theirs = ["notes.txt", "photos/a.jpg", "update-photos/b.jpg", ".notes.txt.12.part", "settings.json.bak", "builds/mine.txt"];
         for f in theirs {
             put(f);
         }
@@ -1066,6 +1087,8 @@ mod tests {
             assert!(!data.join(f).exists(), "{f} stayed");
         }
         assert!(!data.join("update-9.9.9").exists(), "the emptied download folder stayed");
+        assert!(!data.join("builds/0123456789abcdef.txt").exists() && !data.join("builds/.0123456789abcdef.txt.77.part").exists(), "a build record stayed");
+        assert!(!data.join("running").exists(), "a job file stayed");
         for f in theirs {
             assert!(data.join(f).is_file(), "{f} was removed");
         }
