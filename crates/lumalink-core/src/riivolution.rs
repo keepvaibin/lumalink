@@ -633,15 +633,20 @@ mod tests {
             x.push_str("</wiidisc>");
             x
         };
+        // Each size's best of five: a run the machine preempted (a gate builds beside it) is not the parser's time.
         let mut took = Vec::new();
         for n in [1_000usize, 4_000] {
             let x = pack(n, 0);
-            let start = std::time::Instant::now();
-            let disc = parse(&x).unwrap();
-            let active = disc.active_patches("RMGE01");
-            took.push(start.elapsed());
-            assert_eq!(active.len(), n);
-            assert_eq!(active[0].files[0].disc, "/{$p1}{$p1}");
+            let mut best = std::time::Duration::MAX;
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                let disc = parse(&x).unwrap();
+                let active = disc.active_patches("RMGE01");
+                best = best.min(start.elapsed());
+                assert_eq!(active.len(), n);
+                assert_eq!(active[0].files[0].disc, "/{$p1}{$p1}");
+            }
+            took.push(best);
         }
         // 2 000 macros of an option of 2 000 patches would copy 4 million: past the node limit.
         assert!(parse(&pack(2_000, 2_000)).is_err());

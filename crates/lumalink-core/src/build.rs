@@ -570,22 +570,72 @@ pub fn needed_interfaces(folder: &Path, places: Places<'_>) -> Vec<(String, Opti
 /// ([`needed_folder`]) as `<id>:<path>`. A sound is `<path>.sound.json` (sound.md), a movie `<path>.movie.json`
 /// (movies.md), a font `<path>.font.json` (layout.md 2a), a model `<path>.glb` or `.gltf` but not its levels
 /// (`<path>Middle`, `<path>Low`, `.lodN`) nor collision or a camera (models.md); `data` is any asset by its path
-/// with its ending. Effects (names inside effects.json), layouts, nerves and texts (the game's message tables are not
-/// in the build) are given no set, so the checker leaves them unchecked. A bare model name may be one of the game's
-/// archives (ObjectData, MapPartsData), which the build has no list of: one not the mod's is left to `check --game`.
+/// with its ending. Effects (names inside effects.json), layouts and nerves are given no set, so the checker leaves them
+/// unchecked. A bare model name may be one of the game's archives (ObjectData, MapPartsData), which the build has no
+/// list of: one not the mod's is left to `check --game`. Texts are the lines of the mod's and the needed mods' merge
+/// files ([`add_texts`]), their placeholders checked; a key none of them has may be one of the game's messages.
 pub fn content_names(folder: &Path, needs: &[String], places: Places<'_>) -> ContentNames {
     let mut content = ContentNames::default();
     content.game_unlisted.insert("model".to_string());
     for word in ["sound", "movie", "font", "model", "data"] {
         content.names.insert(word.to_string(), Default::default());
     }
+    // A key none of the mods' lines has may be one of the game's messages, which the build has no list of.
+    content.game_unlisted.insert("text".to_string());
+    let mut texts = std::collections::BTreeMap::new();
     add_assets(&mut content, folder, "");
+    add_texts(&mut texts, folder);
     for id in needs {
         if let Some(need) = needed_folder(folder, id, places) {
             add_assets(&mut content, &need, &format!("{id}:"));
+            add_texts(&mut texts, &need);
         }
     }
+    content.texts = Some(texts);
     content
+}
+
+/// The keys of the lines in the merge files of the mod at `folder` (`layers/<layer>/merge/MessageData/messages.json`
+/// for every language, `merge/<Language>/MessageData/Message.arc/message.bmg.json` for one: nebula-import's
+/// message_merge.rs), each with the `{name}`s of its words in any language, which lumart's fill replaces. A file that
+/// does not read is the validator's to report.
+fn add_texts(texts: &mut std::collections::BTreeMap<String, std::collections::BTreeSet<String>>, folder: &Path) {
+    // A line's settings, not its words (message_merge.rs).
+    const SETTINGS: [&str; 8] = ["like", "talk", "balloon", "camera", "camera_set", "sound", "area", "already_read"];
+    let Ok(layers) = std::fs::read_dir(folder.join("layers")) else { return };
+    for layer in layers.flatten() {
+        let merge = layer.path().join("merge");
+        let mut files = vec![merge.join("MessageData").join("messages.json")];
+        if let Ok(languages) = std::fs::read_dir(&merge) {
+            files.extend(languages.flatten().map(|l| l.path().join("MessageData").join("Message.arc").join("message.bmg.json")));
+        }
+        for file in files {
+            let Ok(bytes) = std::fs::read(&file) else { continue };
+            let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
+            let Some(lines) = json.get("lines").and_then(serde_json::Value::as_object) else { continue };
+            for (key, line) in lines {
+                let names = texts.entry(key.clone()).or_default();
+                let words: Vec<&str> = match line {
+                    serde_json::Value::String(s) => vec![s.as_str()],
+                    serde_json::Value::Object(o) => o.iter().filter(|(k, _)| !SETTINGS.contains(&k.as_str())).filter_map(|(_, v)| v.as_str()).collect(),
+                    _ => Vec::new(),
+                };
+                for w in words {
+                    names.extend(text_placeholders(w));
+                }
+            }
+        }
+    }
+}
+
+/// Each `{name}` of `words` (a name: a letter or `_`, then letters, digits and `_`).
+fn text_placeholders(words: &str) -> impl Iterator<Item = String> + '_ {
+    words.split('{').skip(1).filter_map(|after| {
+        let name = after.split_once('}')?.0;
+        let mut chars = name.chars();
+        let first = chars.next()?;
+        ((first.is_ascii_alphabetic() || first == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')).then(|| name.to_string())
+    })
 }
 
 fn add_assets(content: &mut ContentNames, folder: &Path, prefix: &str) {
@@ -1422,7 +1472,41 @@ mod tests {
         assert_eq!(names("movie"), ["movies/Trailer"]);
         assert!(c.names["data"].contains("lyrics.json") && c.names["data"].contains("lib:Pop.sound.json"));
         assert!(!c.names["data"].iter().any(|n| n.contains("Kuribo")));
-        assert!(!c.names.contains_key("effect") && c.texts.is_none());
+        assert!(!c.names.contains_key("effect"));
+    }
+
+    /// `text "Key"`: the lines of the mod's and its needed mods' merge files (every language's messages.json and one
+    /// language's message.bmg.json) by key, each with the `{name}`s of its words in any language; a line's settings
+    /// (`like`, `talk`, `sound`...) are no words. A key none of them has may be the game's, so `text` is a word the game
+    /// may hold.
+    #[test]
+    fn text_rows_come_from_the_mods_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = |p: &str, text: &str| {
+            let p = dir.path().join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        file(
+            "gold/layers/base/merge/MessageData/messages.json",
+            r#"{"lines": {
+                "Shop_Price": {"default": "{item} costs {price} star bits.", "fr": "{item} coûte {price}, {bonus} offert", "like": "{not_a_word}", "talk": "flow"},
+                "Shop_Hello": "Hello, [player]! {{ not one } {also not}",
+                "AstroGalaxy_Tico034": "New words"
+            }, "flows": {"Shop_Hello": "Shop_Price"}}"#,
+        );
+        file("gold/layers/night/merge/UsEnglish/MessageData/Message.arc/message.bmg.json", r#"{"lines": {"Night_Line": "At {hour}"}}"#);
+        file("gold/layers/odd/merge/MessageData/messages.json", "not json");
+        file("lib/layers/base/merge/MessageData/messages.json", r#"{"lines": {"Lib_Count": {"default": "{count} left"}}}"#);
+        let c = content_names(&dir.path().join("gold"), &["lib".to_string()], Places::default());
+        let texts = c.texts.expect("the mods' text rows");
+        let names = |k: &str| texts[k].iter().cloned().collect::<Vec<_>>();
+        assert_eq!(texts.keys().cloned().collect::<Vec<_>>(), ["AstroGalaxy_Tico034", "Lib_Count", "Night_Line", "Shop_Hello", "Shop_Price"]);
+        assert_eq!(names("Shop_Price"), ["bonus", "item", "price"]);
+        assert!(texts["Shop_Hello"].is_empty() && texts["AstroGalaxy_Tico034"].is_empty());
+        assert_eq!(names("Night_Line"), ["hour"]);
+        assert_eq!(names("Lib_Count"), ["count"]);
+        assert!(c.game_unlisted.contains("text"));
     }
 
     #[test]
