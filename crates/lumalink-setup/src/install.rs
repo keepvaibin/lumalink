@@ -187,13 +187,15 @@ pub fn install(choices: &Choices, progress: &dyn Progress) -> Result<()> {
     written.extend(system::register(choices, folder_size(folder).saturating_sub(linked))?);
     // What the last install wrote and this one did not.
     if let Ok(last) = std::fs::read_to_string(folder.join(MANIFEST)) {
+        let mut gone = Vec::new();
         for relative in last.lines().filter(|l| !l.is_empty() && !written.contains(*l)) {
             let path = folder.join(relative);
             if path.starts_with(folder) && !relative.contains("..") {
                 remove_or_set_aside(&path);
+                gone.push(path);
             }
         }
-        remove_empty_folders(folder);
+        remove_own_empty_folders(folder, &gone);
     }
     let list: String = written.iter().map(|l| format!("{l}\n")).collect();
     std::fs::write(folder.join(MANIFEST), list)?;
@@ -286,19 +288,22 @@ fn files_under(folder: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Removes the empty folders under `folder` (deepest first), never `folder` itself.
-fn remove_empty_folders(folder: &Path) {
-    fn walk(dir: &Path, top: bool) {
-        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                walk(&entry.path(), false);
-            }
-        }
-        if !top {
-            let _ = std::fs::remove_dir(dir);
+/// Removes the folders under `folder` that held LumaLink's `files`, each when that leaves it empty (deepest first),
+/// never `folder` itself: a folder of the person's own in the install folder stays, empty or not, since the install
+/// folder may be one they chose with their own things in it.
+fn remove_own_empty_folders(folder: &Path, files: &[PathBuf]) {
+    let mut held = BTreeSet::new();
+    for file in files {
+        let mut at = file.parent();
+        while let Some(dir) = at.filter(|d| *d != folder && d.starts_with(folder)) {
+            held.insert(dir.to_path_buf());
+            at = dir.parent();
         }
     }
-    walk(folder, true);
+    // A folder sorts before the folders in it, so the reverse order empties the deepest first.
+    for dir in held.iter().rev() {
+        let _ = std::fs::remove_dir(dir);
+    }
 }
 
 fn folder_size(folder: &Path) -> u64 {
@@ -355,14 +360,15 @@ pub fn uninstall(found: &Found) -> Result<()> {
     }
     system::unregister(found)?;
     let me = std::env::current_exe().unwrap_or_default();
-    for file in own_files(&found.folder) {
+    let own = own_files(&found.folder);
+    for file in &own {
         // On Windows this Setup's own file goes once it has ended (main: the copy in the temporary folder).
-        if cfg!(windows) && same_file(&file, &me) {
+        if cfg!(windows) && same_file(file, &me) {
             continue;
         }
-        patiently(|| std::fs::remove_file(&file)).map_err(|e| anyhow::anyhow!(say!("LumaLink.Setup.InUse", file = file.display(), why = e)))?;
+        patiently(|| std::fs::remove_file(file)).map_err(|e| anyhow::anyhow!(say!("LumaLink.Setup.InUse", file = file.display(), why = e)))?;
     }
-    remove_empty_folders(&found.folder);
+    remove_own_empty_folders(&found.folder, &own);
     let _ = std::fs::remove_dir(&found.folder);
     if let Some(data) = update::data_folder() {
         update::remove_own_data(&data);
@@ -1310,6 +1316,23 @@ mod tests {
         let mut found: Vec<String> = own_files(&folder).iter().map(|f| f.strip_prefix(&folder).unwrap().to_string_lossy().replace('\\', "/")).collect();
         found.sort();
         assert_eq!(found, [MANIFEST.to_string(), "toolchain/clang".to_string()]);
+    }
+
+    /// N-4041: only the folders LumaLink's files were in go, when empty; an empty folder of the person's own in the
+    /// install folder stays (fails before: every empty folder under it was removed).
+    #[test]
+    fn only_lumalinks_own_empty_folders_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Tools");
+        for d in ["toolchain/bin", "lumakit/source", "my projects/empty", "notes"] {
+            std::fs::create_dir_all(folder.join(d)).unwrap();
+        }
+        std::fs::write(folder.join("notes/keep.txt"), "mine").unwrap();
+        let files = [folder.join("toolchain/bin/clang"), folder.join("lumakit/source/camera.lum"), folder.join("lumalink")];
+        remove_own_empty_folders(&folder, &files);
+        assert!(!folder.join("toolchain").exists() && !folder.join("lumakit").exists(), "LumaLink's emptied folders go");
+        assert!(folder.join("my projects/empty").is_dir(), "the person's empty folder stays");
+        assert!(folder.join("notes/keep.txt").is_file() && folder.is_dir());
     }
 
     #[test]
