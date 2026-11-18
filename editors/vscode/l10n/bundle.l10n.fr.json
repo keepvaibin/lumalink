@@ -1,0 +1,8 @@
+{
+ "LumaScript: {0} could not start ({1}). Set lumascript.lumalink to LumaLink's program.": "LumaScript : {0} n'a pas pu démarrer ({1}). Indiquez le programme de LumaLink dans lumascript.lumalink.",
+ "LumaScript: LumaLink ({0}) could not start. Set \"lumascript.lumalink\" to its program.": "LumaScript : LumaLink ({0}) n'a pas pu démarrer. Indiquez son programme dans « lumascript.lumalink ».",
+ "LumaScript: the server left (exit {0}).": "LumaScript : le serveur s'est arrêté (sortie {0}).",
+ "LumaScript: a message that is not JSON: {0}": "LumaScript : un message qui n'est pas du JSON : {0}",
+ "LumaScript: the server did not answer initialize ({0}).": "LumaScript : le serveur n'a pas répondu à initialize ({0}).",
+ "This name cannot be renamed.": "Ce nom ne peut pas être renommé."
+}

@@ -1,0 +1,7 @@
+{
+ "description": "Nebula の Mod 用の LumaScript：入力中のエラー、補完、ホバー、定義へ移動、名前の変更、整形を LumaLink が行い、色分け・括弧・スニペットも付きます。",
+ "setting.lumalink": "LumaLink のプログラム。既定の `lumalink` は LumaLink セットアップが入れたもの、なければ PATH にあるものです。別のものを使うときはその完全なパス。",
+ "setting.names": "ゲームの自己記述フォルダー（Nebula のプログラムの隣の `luma` フォルダー）。空のときはインストールされたゲームのもの。",
+ "setting.sdk": "サービスの関数のための、ゲームの `luma.h` があるフォルダー。空のときは `LUMA_INCLUDE`、次に自己記述フォルダーの `sdk`。",
+ "command.restart": "LumaScript: 言語サーバーを再起動"
+}

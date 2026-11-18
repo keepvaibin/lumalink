@@ -1,0 +1,7 @@
+{
+ "description": "LumaScript voor Nebula-mods: fouten tijdens het typen, aanvullen, informatie bij aanwijzen, naar definitie gaan, hernoemen en opmaak door LumaLink, met kleuren, haakjes en fragmenten.",
+ "setting.lumalink": "Het programma van LumaLink. Standaard is `lumalink` de kopie die LumaLink Setup heeft geïnstalleerd, anders die in het PATH. Voor een andere kopie het volledige pad.",
+ "setting.names": "De zelfbeschrijvingsmap van het spel (de map `luma` naast het programma van Nebula). Leeg: die van het geïnstalleerde spel.",
+ "setting.sdk": "De map met de `luma.h` van het spel, voor de functies van de diensten. Leeg: `LUMA_INCLUDE`, daarna de map `sdk` in de zelfbeschrijvingsmap.",
+ "command.restart": "LumaScript: Taalserver opnieuw starten"
+}

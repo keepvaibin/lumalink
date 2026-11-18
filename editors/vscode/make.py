@@ -1,6 +1,10 @@
 """make.py: writes the LumaScript extension's files (grammar, brackets, snippets, package.json) from the language's
 word lists, and checks them: every pattern compiles, and every .lum file under FOLDER (default: the LumaLink checkout)
 is read without a character the grammar has no rule for outside strings and comments.
+The extension's own words (package.json's description, settings and command; the messages extension.js shows) are
+LumaLink's text table's rows LumaLink.Editor.Vscode.*, written as VS Code reads a translation: package.nls.json and
+package.nls.<locale>.json, l10n/bundle.l10n.<locale>.json, and messages.js (the English, the bundles' keys). The
+snippets carry no words: VS Code shows each one's code.
 Run: python make.py [FOLDER]   The editor features (errors as you type, completion, hover, go to definition, rename,
 formatting) come from `lumalink lsp`, which extension.js starts."""
 import glob
@@ -10,6 +14,16 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+TEXT = os.path.join(HERE, "..", "..", "crates", "lumalink-core", "text", "LumaLinkText.tsv")
+# VS Code's display languages and the game's language each takes (the table's columns, luma_validate::LANGUAGES).
+LOCALES = {"fr": "EuFrench", "es": "EuSpanish", "de": "EuGerman", "it": "EuItalian", "nl": "EuDutch",
+           "pt-br": "UsPortuguese", "ja": "JpJapanese", "ko": "KrKorean", "zh-cn": "CnSimpChinese",
+           "zh-tw": "TwTradChinese"}
+# package.json's words by their %key%, and the messages extension.js shows by the name messages.js gives each.
+PACKAGE_WORDS = {"description": "Description", "setting.lumalink": "Setting.LumaLink", "setting.names": "Setting.Names",
+                 "setting.sdk": "Setting.Sdk", "command.restart": "Command.Restart"}
+MESSAGES = {"NO_START_LOG": "NoStartLog", "NO_START": "NoStart", "SERVER_LEFT": "ServerLeft", "NOT_JSON": "NotJson",
+            "NO_INITIALIZE": "NoInitialize", "NO_RENAME": "NoRename"}
 RESERVED = ("use pub let var fn return if else while for in break continue match struct enum class override hook "
             "wrap replace proceed skip state states go wait task stop on option true false none self result as and "
             "or not extern export defer test expect guard start log ref").split()
@@ -119,24 +133,17 @@ LANGUAGE = {
 
 PACKAGE = {
     "name": "lumascript", "displayName": "LumaScript",
-    "description": "LumaScript for Nebula mods: errors as you type, completion, hover, go to definition, rename and "
-                   "formatting from LumaLink, with colours, brackets and snippets.",
+    "description": "%description%",
     "version": "1.0.0", "publisher": "keepvaibin", "license": "MIT", "engines": {"vscode": "^1.75.0"},
     "categories": ["Programming Languages", "Linters", "Formatters", "Snippets"],
-    "main": "./extension.js",
+    "main": "./extension.js", "l10n": "./l10n",
     "activationEvents": ["onLanguage:lumascript", "workspaceContains:**/luma.json"],
     "contributes": {
         "configuration": {"title": "LumaScript", "properties": {
-            "lumascript.lumalink": {"type": "string", "default": "lumalink", "markdownDescription":
-                                    "LumaLink's program. The default, `lumalink`, is the copy LumaLink Setup "
-                                    "installed, else the one on the PATH. For another copy, its full path."},
-            "lumascript.names": {"type": "string", "default": "", "markdownDescription":
-                                 "The game's self-description folder (the `luma` folder beside Nebula's program). "
-                                 "Empty: the installed game's."},
-            "lumascript.sdk": {"type": "string", "default": "", "markdownDescription":
-                               "The folder with the game's `luma.h`, for the services' functions. Empty: "
-                               "`LUMA_INCLUDE`, then the self-description folder's `sdk`."}}},
-        "commands": [{"command": "lumascript.restart", "title": "LumaScript: Restart the language server"}],
+            "lumascript.lumalink": {"type": "string", "default": "lumalink", "markdownDescription": "%setting.lumalink%"},
+            "lumascript.names": {"type": "string", "default": "", "markdownDescription": "%setting.names%"},
+            "lumascript.sdk": {"type": "string", "default": "", "markdownDescription": "%setting.sdk%"}}},
+        "commands": [{"command": "lumascript.restart", "title": "%command.restart%"}],
         "languages": [{"id": "lumascript", "aliases": ["LumaScript", "lumascript"], "extensions": [".lum"],
                        "configuration": "./language-configuration.json"}],
         "grammars": [{"language": "lumascript", "scopeName": "source.lumascript",
@@ -145,36 +152,63 @@ PACKAGE = {
         "configurationDefaults": {"[lumascript]": {"editor.tabSize": 4, "editor.insertSpaces": True}}}}
 
 SNIPPETS = {
-    "hook before": {"prefix": "hookb", "body": ["hook before ${1:Class::function}(${2}) {", "\t$0", "}"],
-                    "description": "Run before a game function"},
-    "hook after": {"prefix": "hooka", "body": ["hook after ${1:Class::function}(${2}) -> ${3:out} {", "\t$0", "}"],
-                   "description": "Run after a game function, with its result"},
-    "wrap": {"prefix": "wrap", "body": ["wrap ${1:Class::function}(${2}) {", "\t$0", "\tproceed", "}"],
-             "description": "Run around a game function"},
-    "on start": {"prefix": "onstart", "body": ["on start {", "\t$0", "}"], "description": "When the mod starts"},
-    "on frame": {"prefix": "onframe", "body": ["on frame {", "\t$0", "}"], "description": "Every frame"},
-    "option": {"prefix": "option", "body": ["option ${1:name}: ${2:bool}"],
-               "description": "A setting the player changes on the Mods page"},
+    "hook before": {"prefix": "hookb", "body": ["hook before ${1:Class::function}(${2}) {", "\t$0", "}"]},
+    "hook after": {"prefix": "hooka", "body": ["hook after ${1:Class::function}(${2}) -> ${3:out} {", "\t$0", "}"]},
+    "wrap": {"prefix": "wrap", "body": ["wrap ${1:Class::function}(${2}) {", "\t$0", "\tproceed", "}"]},
+    "on start": {"prefix": "onstart", "body": ["on start {", "\t$0", "}"]},
+    "on frame": {"prefix": "onframe", "body": ["on frame {", "\t$0", "}"]},
+    "option": {"prefix": "option", "body": ["option ${1:name}: ${2:bool}"]},
     "class from the game": {"prefix": "class",
                             "body": ["class ${1:Name}: ${2:GameClass} {", "\toverride fn ${3:init}(self${4}) {",
-                                     "\t\t$0", "\t}", "}"],
-                            "description": "A class of the mod's own, made from one of the game's"},
+                                     "\t\t$0", "\t}", "}"]},
     "states": {"prefix": "states",
                "body": ["states ${1:Name} for ${2:Class} {", "\tstart ${3:Idle}", "\tstate ${3:Idle} {",
-                        "\t\tenter { $0 }", "\t\tupdate { }", "\t}", "}"],
-               "description": "A state machine for an object"},
-    "task": {"prefix": "task", "body": ["task ${1:name}(${2}) {", "\t$0", "\twait ${3:60} frames", "}"],
-             "description": "Code that runs over several frames"},
-    "test": {"prefix": "test", "body": ['test "${1:what it proves}" {', "\texpect ${2:condition}", "}"],
-             "description": "A test of the mod"},
-    "fn": {"prefix": "fn", "body": ["fn ${1:name}(${2}) -> ${3:int} {", "\t$0", "}"], "description": "A function"}}
+                        "\t\tenter { $0 }", "\t\tupdate { }", "\t}", "}"]},
+    "task": {"prefix": "task", "body": ["task ${1:name}(${2}) {", "\t$0", "\twait ${3:60} frames", "}"]},
+    "test": {"prefix": "test", "body": ['test "${1:what it proves}" {', "\texpect ${2:condition}", "}"]},
+    "fn": {"prefix": "fn", "body": ["fn ${1:name}(${2}) -> ${3:int} {", "\t$0", "}"]}}
+
+
+def rows():
+    """LumaLink.Editor.Vscode.<name> -> {language: text}, from the table (its header names the columns)."""
+    with open(TEXT, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    head = lines[0].split("\t")
+    out = {}
+    for line in lines[1:]:
+        cells = line.split("\t")
+        if cells[0].startswith("LumaLink.Editor.Vscode."):
+            out[cells[0][len("LumaLink.Editor.Vscode."):]] = dict(zip(head[1:], cells[1:]))
+    return out
+
+
+def numbered(text, names):
+    """`{name}` as VS Code's l10n numbers its arguments: `{0}`, `{1}` in the English's order."""
+    return re.sub(r"\{([a-z]+)\}", lambda m: "{%d}" % names.index(m.group(1)), text)
+
+
+def words():
+    """The files that carry the extension's words, by their path in the extension, as JSON values (messages.js as
+    text)."""
+    t = rows()
+    files = {"package.nls.json": {k: t[r]["UsEnglish"] for k, r in PACKAGE_WORDS.items()}}
+    names = {m: re.findall(r"\{([a-z]+)\}", t[r]["UsEnglish"]) for m, r in MESSAGES.items()}
+    english = {m: numbered(t[r]["UsEnglish"], names[m]) for m, r in MESSAGES.items()}
+    for locale, language in LOCALES.items():
+        files[f"package.nls.{locale}.json"] = {k: t[r][language] for k, r in PACKAGE_WORDS.items()}
+        files[f"l10n/bundle.l10n.{locale}.json"] = {english[m]: numbered(t[r][language], names[m]) for m, r in MESSAGES.items()}
+    js = "// Written by make.py from LumaLink's text table (LumaLink.Editor.Vscode.*): the English of each message\n"
+    js += "// extension.js shows, which vscode.l10n.t finds in l10n/bundle.l10n.<locale>.json.\n'use strict';\n\n"
+    js += "module.exports = {\n" + "".join(f"    {m}: {json.dumps(e, ensure_ascii=False)},\n" for m, e in english.items()) + "};\n"
+    files["messages.js"] = js
+    return files
 
 
 def write(path, value):
     full = os.path.join(HERE, path)
     os.makedirs(os.path.dirname(full), exist_ok=True)
     with open(full, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(value, f, indent=1)
+        json.dump(value, f, indent=1, ensure_ascii=False)
         f.write("\n")
 
 
@@ -194,6 +228,12 @@ def main():
     write("language-configuration.json", LANGUAGE)
     write("package.json", PACKAGE)
     write("snippets/lumascript.json", SNIPPETS)
+    for path, value in words().items():
+        if isinstance(value, str):
+            with open(os.path.join(HERE, path), "w", encoding="utf-8", newline="\n") as f:
+                f.write(value)
+        else:
+            write(path, value)
     found = []
     patterns(GRAMMAR, found)
     for pattern in found:

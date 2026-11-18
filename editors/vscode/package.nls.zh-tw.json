@@ -1,0 +1,7 @@
+{
+ "description": "用於 Nebula 模組的 LumaScript：由 LumaLink 提供輸入時的錯誤、自動完成、暫留資訊、移至定義、重新命名和格式化，並附有著色、括號和程式碼片段。",
+ "setting.lumalink": "LumaLink 的程式。預設的 `lumalink` 是 LumaLink 安裝程式安裝的副本，否則是 PATH 中的那個。要用其他副本，請填寫其完整路徑。",
+ "setting.names": "遊戲的自我描述資料夾（Nebula 程式旁邊的 `luma` 資料夾）。留空：使用已安裝遊戲的。",
+ "setting.sdk": "包含遊戲 `luma.h` 的資料夾，用於服務的函式。留空：先用 `LUMA_INCLUDE`，再用自我描述資料夾中的 `sdk`。",
+ "command.restart": "LumaScript：重新啟動語言伺服器"
+}

@@ -1,0 +1,7 @@
+{
+ "description": "LumaScript für Nebula-Mods: Fehler beim Tippen, Vervollständigung, Hover, Gehe zu Definition, Umbenennen und Formatieren durch LumaLink, mit Farben, Klammern und Snippets.",
+ "setting.lumalink": "Das Programm von LumaLink. Standard ist `lumalink`: die Kopie, die das LumaLink-Setup installiert hat, sonst die im PATH. Für eine andere Kopie ihr vollständiger Pfad.",
+ "setting.names": "Der Selbstbeschreibungsordner des Spiels (der Ordner `luma` neben dem Programm von Nebula). Leer: der des installierten Spiels.",
+ "setting.sdk": "Der Ordner mit der `luma.h` des Spiels, für die Funktionen der Dienste. Leer: `LUMA_INCLUDE`, dann der Ordner `sdk` im Selbstbeschreibungsordner.",
+ "command.restart": "LumaScript: Sprachserver neu starten"
+}

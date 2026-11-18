@@ -5,8 +5,7 @@
    "hook before ${1:Class::function}(${2}) {",
    "\t$0",
    "}"
-  ],
-  "description": "Run before a game function"
+  ]
  },
  "hook after": {
   "prefix": "hooka",
@@ -14,8 +13,7 @@
    "hook after ${1:Class::function}(${2}) -> ${3:out} {",
    "\t$0",
    "}"
-  ],
-  "description": "Run after a game function, with its result"
+  ]
  },
  "wrap": {
   "prefix": "wrap",
@@ -24,8 +22,7 @@
    "\t$0",
    "\tproceed",
    "}"
-  ],
-  "description": "Run around a game function"
+  ]
  },
  "on start": {
   "prefix": "onstart",
@@ -33,8 +30,7 @@
    "on start {",
    "\t$0",
    "}"
-  ],
-  "description": "When the mod starts"
+  ]
  },
  "on frame": {
   "prefix": "onframe",
@@ -42,15 +38,13 @@
    "on frame {",
    "\t$0",
    "}"
-  ],
-  "description": "Every frame"
+  ]
  },
  "option": {
   "prefix": "option",
   "body": [
    "option ${1:name}: ${2:bool}"
-  ],
-  "description": "A setting the player changes on the Mods page"
+  ]
  },
  "class from the game": {
   "prefix": "class",
@@ -60,8 +54,7 @@
    "\t\t$0",
    "\t}",
    "}"
-  ],
-  "description": "A class of the mod's own, made from one of the game's"
+  ]
  },
  "states": {
   "prefix": "states",
@@ -73,8 +66,7 @@
    "\t\tupdate { }",
    "\t}",
    "}"
-  ],
-  "description": "A state machine for an object"
+  ]
  },
  "task": {
   "prefix": "task",
@@ -83,8 +75,7 @@
    "\t$0",
    "\twait ${3:60} frames",
    "}"
-  ],
-  "description": "Code that runs over several frames"
+  ]
  },
  "test": {
   "prefix": "test",
@@ -92,8 +83,7 @@
    "test \"${1:what it proves}\" {",
    "\texpect ${2:condition}",
    "}"
-  ],
-  "description": "A test of the mod"
+  ]
  },
  "fn": {
   "prefix": "fn",
@@ -101,7 +91,6 @@
    "fn ${1:name}(${2}) -> ${3:int} {",
    "\t$0",
    "}"
-  ],
-  "description": "A function"
+  ]
  }
 }

@@ -6,6 +6,9 @@
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
+// The English of each message shown (make.py writes it from LumaLink's text table); vscode.l10n.t gives it in VS
+// Code's language from l10n/.
+const M = require('./messages');
 
 const LANGUAGE = 'lumascript';
 const SELECTOR = [{ language: LANGUAGE, scheme: 'file' }];
@@ -26,15 +29,16 @@ class Client {
         this.process.stdout.on('data', (chunk) => this.read(chunk));
         this.process.stderr.on('data', (chunk) => output.append(chunk.toString('utf8')));
         this.process.on('error', (error) => {
-            output.appendLine(`LumaScript: ${command} could not start (${error.message}). Set lumascript.lumalink to LumaLink's program.`);
-            void vscode.window.showErrorMessage(`LumaScript: LumaLink (${command}) could not start. Set "lumascript.lumalink" to its program.`);
+            output.appendLine(vscode.l10n.t(M.NO_START_LOG, command, error.message));
+            void vscode.window.showErrorMessage(vscode.l10n.t(M.NO_START, command));
             this.fail(error);
         });
         this.process.on('exit', (code) => {
+            const left = vscode.l10n.t(M.SERVER_LEFT, String(code));
             if (!this.stopped) {
-                output.appendLine(`LumaScript: the server left (exit ${code}).`);
+                output.appendLine(left);
             }
-            this.fail(new Error(`the server left (exit ${code})`));
+            this.fail(new Error(left));
         });
     }
 
@@ -70,7 +74,7 @@ class Client {
             try {
                 message = JSON.parse(body);
             } catch (e) {
-                output.appendLine(`LumaScript: a message that is not JSON: ${e.message}`);
+                output.appendLine(vscode.l10n.t(M.NOT_JSON, e.message));
                 continue;
             }
             this.take(message);
@@ -307,12 +311,12 @@ async function start() {
     const { command, args } = settings();
     const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
     const cwd = folder ? folder.uri.fsPath : undefined;
-    output.appendLine(`LumaScript: ${command} ${args.join(' ')}`);
+    output.appendLine([command, ...args].join(' '));
     client = new Client(command, args, cwd);
     try {
         await client.start(folder ? folder.uri : null);
     } catch (e) {
-        output.appendLine(`LumaScript: the server did not answer initialize (${e.message}).`);
+        output.appendLine(vscode.l10n.t(M.NO_INITIALIZE, e.message));
         return;
     }
     vscode.workspace.textDocuments.forEach(open);
@@ -383,9 +387,18 @@ function activate(context) {
         }),
         vscode.languages.registerRenameProvider(SELECTOR, {
             prepareRename: async (d, p, t) => {
-                const r = await ask('textDocument/prepareRename', at(d, p), t, (x) => x);
+                // The server's own reason (in LumaLink's language) when it gives one.
+                let r = null;
+                let why = null;
+                if (client) {
+                    try {
+                        r = await client.request('textDocument/prepareRename', at(d, p), t);
+                    } catch (e) {
+                        why = e.message;
+                    }
+                }
                 if (!r) {
-                    throw new Error('This name cannot be renamed.');
+                    throw new Error(why || vscode.l10n.t(M.NO_RENAME));
                 }
                 return r.range ? { range: range(r.range), placeholder: r.placeholder } : range(r);
             },

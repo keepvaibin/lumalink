@@ -140,6 +140,102 @@ mod tests {
         assert!(super::code_cmd_parts(r#""C:\evil.exe" "%~dp0cli.js""#, &folder).is_none());
     }
 
+    /// The extension's words are the text table's rows LumaLink.Editor.Vscode.*, in every language VS Code shows
+    /// (editors/vscode/make.py writes them): package.json names each by its %key%; package.nls.json,
+    /// package.nls.<locale>.json and l10n/bundle.l10n.<locale>.json hold them as the table does; messages.js gives
+    /// extension.js the English, the bundles' keys; and extension.js shows no words of its own.
+    #[test]
+    fn the_extension_says_its_words_in_every_language() {
+        use serde_json::{Map, Value};
+        const PACKAGE: [(&str, &str); 5] = [
+            ("description", "LumaLink.Editor.Vscode.Description"),
+            ("setting.lumalink", "LumaLink.Editor.Vscode.Setting.LumaLink"),
+            ("setting.names", "LumaLink.Editor.Vscode.Setting.Names"),
+            ("setting.sdk", "LumaLink.Editor.Vscode.Setting.Sdk"),
+            ("command.restart", "LumaLink.Editor.Vscode.Command.Restart"),
+        ];
+        const MESSAGES: [(&str, &str); 6] = [
+            ("NO_START_LOG", "LumaLink.Editor.Vscode.NoStartLog"),
+            ("NO_START", "LumaLink.Editor.Vscode.NoStart"),
+            ("SERVER_LEFT", "LumaLink.Editor.Vscode.ServerLeft"),
+            ("NOT_JSON", "LumaLink.Editor.Vscode.NotJson"),
+            ("NO_INITIALIZE", "LumaLink.Editor.Vscode.NoInitialize"),
+            ("NO_RENAME", "LumaLink.Editor.Vscode.NoRename"),
+        ];
+        const LOCALES: [(&str, &str); 10] = [
+            ("fr", "EuFrench"),
+            ("es", "EuSpanish"),
+            ("de", "EuGerman"),
+            ("it", "EuItalian"),
+            ("nl", "EuDutch"),
+            ("pt-br", "UsPortuguese"),
+            ("ja", "JpJapanese"),
+            ("ko", "KrKorean"),
+            ("zh-cn", "CnSimpChinese"),
+            ("zh-tw", "TwTradChinese"),
+        ];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("editors").join("vscode");
+        let text = |p: &str| std::fs::read_to_string(dir.join(p)).unwrap_or_else(|e| panic!("editors/vscode/{p}: {e} (run make.py)"));
+        let read = |p: &str| -> Value { serde_json::from_str(&text(p)).unwrap_or_else(|e| panic!("{p}: {e}")) };
+        let language = |name: &str| crate::text::LANGUAGES.iter().position(|l| *l == name).unwrap();
+        let row = |l: usize, id: &str| crate::text::template(l, id).filter(|t| !t.is_empty()).unwrap_or_else(|| panic!("{id} in {}", crate::text::LANGUAGES[l]));
+        // `{name}`s in their order, and a text with each as VS Code's l10n numbers its arguments.
+        let names = |t: &str| -> Vec<String> {
+            let mut out = Vec::new();
+            for part in t.split('{').skip(1) {
+                if let Some((n, _)) = part.split_once('}') {
+                    if !n.is_empty() && n.bytes().all(|b| b.is_ascii_lowercase()) && !out.iter().any(|o| o == n) {
+                        out.push(n.to_string());
+                    }
+                }
+            }
+            out
+        };
+        let numbered = |t: &str, names: &[String]| names.iter().enumerate().fold(t.to_string(), |t, (i, n)| t.replace(&format!("{{{n}}}"), &format!("{{{i}}}")));
+
+        let package = read("package.json");
+        assert_eq!(package["description"], "%description%");
+        assert_eq!(package["l10n"], "./l10n");
+        let settings = &package["contributes"]["configuration"]["properties"];
+        for (setting, key) in [("lumascript.lumalink", "setting.lumalink"), ("lumascript.names", "setting.names"), ("lumascript.sdk", "setting.sdk")] {
+            assert_eq!(settings[setting]["markdownDescription"], format!("%{key}%"), "{setting}");
+        }
+        assert_eq!(package["contributes"]["commands"][0]["title"], "%command.restart%");
+        let snippets = read("snippets/lumascript.json");
+        assert!(snippets.as_object().unwrap().values().all(|s| s.get("description").is_none()), "a snippet's words are English only");
+
+        let nls = |l: usize| Value::Object(PACKAGE.iter().map(|(k, id)| (k.to_string(), Value::from(row(l, id)))).collect());
+        let en = language("UsEnglish");
+        assert_eq!(read("package.nls.json"), nls(en));
+        for (locale, name) in LOCALES {
+            let l = language(name);
+            assert_eq!(read(&format!("package.nls.{locale}.json")), nls(l), "{locale}");
+            let bundle: Map<String, Value> = MESSAGES
+                .iter()
+                .map(|(_, id)| {
+                    let n = names(row(en, id));
+                    assert_eq!(names(row(l, id)).len(), n.len(), "{id} in {name}: its placeholders");
+                    (numbered(row(en, id), &n), Value::from(numbered(row(l, id), &n)))
+                })
+                .collect();
+            assert_eq!(read(&format!("l10n/bundle.l10n.{locale}.json")), Value::Object(bundle), "{locale}");
+        }
+        let messages = text("messages.js");
+        let extension = text("extension.js");
+        for (name, id) in MESSAGES {
+            let english = numbered(row(en, id), &names(row(en, id)));
+            assert!(messages.contains(&format!("    {name}: {},", serde_json::to_string(&english).unwrap())), "messages.js {name}");
+            assert!(extension.contains(&format!("vscode.l10n.t(M.{name}")), "extension.js shows {name}");
+        }
+        // What extension.js shows or logs is one of those, or the server's own words.
+        for call in ["showErrorMessage(", "appendLine(", "new Error("] {
+            for (at, _) in extension.match_indices(call) {
+                let after = &extension[at + call.len()..];
+                assert!(!after.starts_with(['\'', '"', '`']), "extension.js: words of its own after {call}: {}", &after[..after.len().min(60)]);
+            }
+        }
+    }
+
     #[test]
     fn known_places_are_absolute() {
         for f in super::known_places() {

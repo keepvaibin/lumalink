@@ -1,0 +1,8 @@
+{
+ "LumaScript: {0} could not start ({1}). Set lumascript.lumalink to LumaLink's program.": "LumaScript：{0} 無法啟動（{1}）。請將 lumascript.lumalink 設為 LumaLink 的程式。",
+ "LumaScript: LumaLink ({0}) could not start. Set \"lumascript.lumalink\" to its program.": "LumaScript：LumaLink（{0}）無法啟動。請將「lumascript.lumalink」設為它的程式。",
+ "LumaScript: the server left (exit {0}).": "LumaScript：伺服器已結束（結束代碼 {0}）。",
+ "LumaScript: a message that is not JSON: {0}": "LumaScript：不是 JSON 的訊息：{0}",
+ "LumaScript: the server did not answer initialize ({0}).": "LumaScript：伺服器沒有回應 initialize（{0}）。",
+ "This name cannot be renamed.": "無法重新命名此名稱。"
+}

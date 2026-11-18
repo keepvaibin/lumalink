@@ -1,0 +1,7 @@
+{
+ "description": "LumaScript pour les mods de Nebula : erreurs pendant la frappe, complétion, survol, atteindre la définition, renommage et mise en forme par LumaLink, avec couleurs, parenthèses et extraits.",
+ "setting.lumalink": "Le programme de LumaLink. Par défaut, `lumalink` est la copie installée par l'installateur de LumaLink, sinon celle du PATH. Pour une autre copie, son chemin complet.",
+ "setting.names": "Le dossier d'autodescription du jeu (le dossier `luma` à côté du programme de Nebula). Vide : celui du jeu installé.",
+ "setting.sdk": "Le dossier contenant le `luma.h` du jeu, pour les fonctions des services. Vide : `LUMA_INCLUDE`, puis le dossier `sdk` du dossier d'autodescription.",
+ "command.restart": "LumaScript : Redémarrer le serveur de langage"
+}

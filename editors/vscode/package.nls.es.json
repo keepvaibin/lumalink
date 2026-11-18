@@ -1,0 +1,7 @@
+{
+ "description": "LumaScript para mods de Nebula: errores mientras escribes, autocompletado, información al pasar el ratón, ir a la definición, cambiar nombres y formato con LumaLink, con colores, paréntesis y fragmentos.",
+ "setting.lumalink": "El programa de LumaLink. Por defecto, `lumalink` es la copia que instaló el instalador de LumaLink, o si no la del PATH. Para otra copia, su ruta completa.",
+ "setting.names": "La carpeta de autodescripción del juego (la carpeta `luma` junto al programa de Nebula). Vacío: la del juego instalado.",
+ "setting.sdk": "La carpeta con el `luma.h` del juego, para las funciones de los servicios. Vacío: `LUMA_INCLUDE` y luego la carpeta `sdk` de la carpeta de autodescripción.",
+ "command.restart": "LumaScript: Reiniciar el servidor de lenguaje"
+}

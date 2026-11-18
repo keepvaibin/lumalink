@@ -1,0 +1,7 @@
+{
+ "description": "Nebula 모드용 LumaScript: 입력하는 동안의 오류, 자동 완성, 호버, 정의로 이동, 이름 바꾸기, 서식을 LumaLink가 제공하며, 색상·괄호·스니펫도 있습니다.",
+ "setting.lumalink": "LumaLink 프로그램. 기본값 `lumalink`는 LumaLink 설치 프로그램이 설치한 것, 없으면 PATH에 있는 것입니다. 다른 것을 쓰려면 전체 경로를 적습니다.",
+ "setting.names": "게임의 자기 설명 폴더(Nebula 프로그램 옆의 `luma` 폴더). 비워 두면 설치된 게임의 것을 씁니다.",
+ "setting.sdk": "서비스 함수를 위한, 게임의 `luma.h`가 있는 폴더. 비워 두면 `LUMA_INCLUDE`, 그다음 자기 설명 폴더의 `sdk`를 씁니다.",
+ "command.restart": "LumaScript: 언어 서버 다시 시작"
+}
