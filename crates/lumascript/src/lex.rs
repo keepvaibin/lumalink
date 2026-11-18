@@ -496,6 +496,12 @@ pub fn lex(src: &str, diags: &mut Vec<Diagnostic>) -> Vec<Tok> {
     let src = src.strip_prefix('\u{feff}').unwrap_or(src).replace("\r\n", "\n").replace('\r', "\n");
     let chars: Rc<[char]> = src.chars().collect();
     let toks = raw(&chars, 0..chars.len(), Pos { line: 1, col: 1 }, diags);
+    // The first token from each place on that is not a line end (toks.len() for none): one pass back, so a run of
+    // line ends is not looked across once from each of them.
+    let mut ahead = vec![toks.len(); toks.len() + 1];
+    for n in (0..toks.len()).rev() {
+        ahead[n] = if toks[n].kind != Kind::Nl { n } else { ahead[n + 1] };
+    }
     let mut out: Vec<Tok> = Vec::with_capacity(toks.len());
     for (k, t) in toks.iter().enumerate() {
         if t.kind == Kind::Nl {
@@ -504,10 +510,9 @@ pub fn lex(src: &str, diags: &mut Vec<Diagnostic>) -> Vec<Tok> {
                     continue;
                 }
             }
-            if let Some(n) = (k + 1..toks.len()).find(|&n| toks[n].kind != Kind::Nl) {
-                if toks[n].kind == Kind::Kw && toks[n].text == "else" && toks.get(n + 1).is_none_or(|a| a.text != "=>") {
-                    continue;
-                }
+            let n = ahead[k + 1];
+            if toks.get(n).is_some_and(|e| e.kind == Kind::Kw && e.text == "else") && toks.get(n + 1).is_none_or(|a| a.text != "=>") {
+                continue;
             }
             if out.last().is_some_and(|p| p.kind == Kind::Nl) {
                 continue;

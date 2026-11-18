@@ -74,7 +74,7 @@ fn the_programs_emit_against_a_kernel_build() {
     }
     eprintln!("written {written}, checker errors {not_checked}");
     let mut by: Vec<_> = missing.into_iter().collect();
-    by.sort_by(|a, b| b.1.cmp(&a.1));
+    by.sort_by_key(|b| std::cmp::Reverse(b.1));
     for (what, n) in by {
         eprintln!("{n:5} {what}");
     }

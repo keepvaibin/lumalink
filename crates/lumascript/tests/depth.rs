@@ -92,6 +92,21 @@ fn unmatched_brackets_stay_linear() {
     }
 }
 
+/// A long run of line ends (blank lines, before an `else` and before anything else) is read in linear time: the lexer
+/// looked past every line end for an `else` from each one, so 200,000 blank lines took minutes.
+#[test]
+fn blank_lines_stay_linear() {
+    let blank = "\n".repeat(200_000);
+    let src = format!("on start {{\n    if a {{\n        log \"a\"\n    }}{blank}    else {{\n        log \"b\"\n    }}{blank}    log \"c\"\n}}{blank}");
+    let start = std::time::Instant::now();
+    let (module, d) = parse_module(&src);
+    let took = start.elapsed();
+    assert!(d.is_empty(), "{d:?}");
+    assert_eq!(module.items.len(), 1);
+    // Linear, this is a few milliseconds in a debug build; the quadratic look took minutes.
+    assert!(took < std::time::Duration::from_secs(5), "took {took:?}");
+}
+
 /// The tree given back is held to the limit too, so dropping it (or walking it) on a small stack is safe.
 #[test]
 fn the_tree_given_back_is_no_deeper_than_the_limit() {

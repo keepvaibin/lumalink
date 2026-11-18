@@ -220,13 +220,13 @@ impl Gen<'_> {
         let record = Ty::Service { service: service.to_string(), name: format!("{}Event", case_name(&kind.to_ascii_uppercase())) };
         let rc = self.c_type(&record)?;
         let fill = self.event_fill(service, kind, slot)?;
-        let cast = self.fn_cast(&[record.clone()], &Ty::Unit)?;
+        let cast = self.fn_cast(std::slice::from_ref(&record), &Ty::Unit)?;
         let n = self.closure_n;
         self.closure_n += 1;
         let name = format!("lm_evt_{m}_{n}");
         let head = format!("void {name}(void* user, const LumaEvent* ev)");
         let rel = if super::counted(&rc) { format!("\n    lm_rel_{rc}(&r);") } else { String::new() };
-        let call = self.fn_value_call("f", &[record.clone()], &["r".to_string()], "0", &format!("(void)(({cast})(f->code))(f, r);"))?;
+        let call = self.fn_value_call("f", std::slice::from_ref(&record), &["r".to_string()], "0", &format!("(void)(({cast})(f->code))(f, r);"))?;
         let call: String = call.iter().map(|l| format!("\n    {l}")).collect();
         self.protos.push(format!("{head};"));
         self.closures.push_str(&format!(
@@ -619,7 +619,7 @@ impl Gen<'_> {
         let record = Ty::Service { service: service.to_string(), name: "Event".into() };
         let rc = self.c_type(&record)?;
         let fill = self.stream_fill(service, slot)?;
-        let cast = self.fn_cast(&[record.clone()], &Ty::Unit)?;
+        let cast = self.fn_cast(std::slice::from_ref(&record), &Ty::Unit)?;
         let n = self.closure_n;
         self.closure_n += 1;
         let name = format!("lm_evs_{m}_{n}");
@@ -629,7 +629,7 @@ impl Gen<'_> {
         // own record; a round whose fill fails (nothing left to take, no memory) ends them.
         let each: Vec<String> = self.game.services.faces.get(service)?.stream.values().filter(|k| k.each).map(|k| format!("ev->kind == {}u", k.number)).collect();
         let rounds = if each.is_empty() { "1".to_string() } else { format!("(({}) && ev->value > 1) ? ev->value : 1", each.join(" || ")) };
-        let call = self.fn_value_call("f", &[record.clone()], &["r".to_string()], "0", &format!("(void)(({cast})(f->code))(f, r);"))?;
+        let call = self.fn_value_call("f", std::slice::from_ref(&record), &["r".to_string()], "0", &format!("(void)(({cast})(f->code))(f, r);"))?;
         let call: String = call.iter().map(|l| format!("\n            {l}")).collect();
         self.protos.push(format!("{head};"));
         self.closures.push_str(&format!(

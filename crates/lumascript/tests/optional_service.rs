@@ -96,7 +96,7 @@ fn a_call_on_an_optional_service_without_a_test_before_it_says_how_to_test_it() 
         ("use optional svc.ui\n\non start {\n    if ui.open(\"Hud\", ui.Layer.Pause) != none and ui != none {\n        log \"a\"\n    }\n}\n".to_string(), 4),
     ];
     for (text, line) in cases {
-        let (e, _, _) = build(&[text.clone()]);
+        let (e, _, _) = build(std::slice::from_ref(&text));
         assert_eq!(e, vec![(code::OPTIONAL_SVC_UNTESTED, line)], "{text}");
     }
 }

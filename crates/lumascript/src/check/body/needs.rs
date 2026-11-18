@@ -355,7 +355,7 @@ pub(super) fn say(c: &mut crate::check::Checker<'_>) {
     let sets: Vec<(String, Vec<String>)> = c.facts.game.facts.as_ref().map(|f| f.guarantees.iter().map(|g| (g.name.clone(), g.needs.clone())).collect()).unwrap_or_default();
     let within = |set: &str, m: &BTreeSet<String>| sets.iter().find(|(n, _)| n == set).is_some_and(|(_, needs)| m.iter().all(|x| needs.contains(x)));
     for s in &needs.sites {
-        if s.caller.as_ref().is_some_and(|k| open(k)) {
+        if s.caller.as_ref().is_some_and(open) {
             continue;
         }
         let m = missing(&of, s);
